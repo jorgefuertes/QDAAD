@@ -124,6 +124,35 @@ P+3   = parámetro 2 del siguiente     ← CondactPTR+3, lo que se parchea
 El marcador del segundo parámetro es el propio número de flag; `INDIR` lo sobrescribe con el
 contenido del flag antes de que `LET` lo lea.
 
+### El marcador es indiferente
+
+DRC escribe ahí el número de flag por comodidad —es el valor que ya tiene a mano
+(`drb.php:1141`)—, pero **su contenido da igual**: el `INDIR` que precede lo sobrescribe siempre
+antes de que nadie lo lea. El propio autor lo formula con un 0 (`DAAD V3 CAMBIOS.txt:13-14`):
+
+```text
+LET 100 @200  =>  INDIR 200   LET 100 0
+```
+
+Para un compilador nuevo esto significa que puede emitir lo que quiera en esa posición. Para un
+intérprete, lo contrario y más importante: **no puede deducir nada del valor del marcador**, ni
+usarlo para detectar que hubo indirección.
+
+### Indirección doble
+
+`@` en los dos parámetros a la vez es válido y **no necesita nada nuevo**: los dos mecanismos son
+ortogonales. El primero va en el bit 7 del opcode y el segundo en el `INDIR` previo
+(`DAAD V3 CAMBIOS.txt:14`):
+
+```text
+LET @100 @200  =>  INDIR 200   LET @100 0
+```
+
+En el backend se ve en el orden de las tres escrituras (`drb.php:1131` y `:1139-1144`): primero
+se calcula `$opcode | 0x80` por la indirección del parámetro 1, después se emite el par
+`INDIR, flagno`, y solo entonces el opcode ya marcado. El `INDIR` queda **delante del opcode con
+el bit 7 puesto**, no entre el opcode y sus parámetros.
+
 ### Consecuencia crítica de portabilidad
 
 **El DDB tiene que estar en memoria escribible.** Eso descarta ejecutar desde ROM y complica
@@ -217,6 +246,19 @@ En v3 es un condacto nativo de 2 parámetros (`drb.php:840-851`):
 opcode 120, offsetLo, offsetHi
 ```
 
+> **El orden es siempre LSB, MSB, con independencia del endianness del target**
+> (`DAAD V3 CAMBIOS.txt:40`). No es una excepción del formato sino una consecuencia de cómo se
+> emite: los dos bytes no son un word, son dos parámetros de condacto sueltos, y `drb.php:849-850`
+> los calcula sin mirar el target ni `$isLittleEndian`:
+>
+> ```php
+> $condact->Param1 = $offset & 0xFF;          // Offset LSB
+> $condact->Param2 = ($offset & 0xFF00) >> 8; // Offset MSB
+> ```
+>
+> Es una trampa real para Amiga y ST, donde todo lo demás del DDB va en big endian. Lo mismo vale
+> para la forma v2 vía `EXTERN`, donde el MSB viaja en `Param3` (`drb.php:860-862`).
+
 El intérprete lee el segundo parámetro directamente en lugar de robar el byte siguiente
 (`PCDAAD/condacts.pas:373-386`). El corolario está explícito en `PCDAAD/pcdaad.pas:291`:
 
@@ -232,7 +274,8 @@ en las plataformas de 8 bits.
 ## 7. `PAUSE 0` y `GETKEY`
 
 En v3, `PAUSE 0` deja de ser una pausa de 256/50 segundos y pasa a **esperar una pulsación,
-dejando el código de tecla en los flags 60 y 61** (`PCDAAD/condacts.pas:892`).
+dejando el código de tecla en los flags 60 y 61** —`fKey1` y `fKey2`, los mismos que usa `INKEY`
+([05-flujo-ejecucion.md §6](05-flujo-ejecucion.md))— (`PCDAAD/condacts.pas:892`).
 
 El pseudo-condacto `GETKEY` es azúcar sintáctico: el backend lo emite como `PAUSE 0`
 (`drb.php:948-956`) y **exige `-v3`**:
@@ -240,6 +283,32 @@ El pseudo-condacto `GETKEY` es azúcar sintáctico: el backend lo emite como `PA
 ```php
 if ((!$v3code)) Error('GETKEY condact requires DAAD v3');
 ```
+
+### Dos divergencias entre la especificación y los intérpretes
+
+La especificación del autor dice que `PAUSE 0` espera a que se pulse una tecla **y a que se
+vuelva a soltar** (`DAAD V3 CAMBIOS.txt:26`). **Ningún intérprete revisado espera la soltura:**
+
+```pascal
+procedure _GETKEY;                    { PCDAAD/condacts.pas:2063-2071 }
+var inkey : word;
+begin
+  REPEAT UNTIL Keypressed;
+  inkey := ReadKey;
+  setflag(FKEY1, inkey and $FF);
+  setflag(FKEY2, (inkey and $FF00) SHR 8);
+  done := true;
+end;
+```
+
+NextDAAD hace lo mismo con `key_wait_char` (`overlay0.asm:1877-1894`). La consecuencia práctica
+es el rebote: dos `GETKEY` seguidos pueden devolver los dos la misma pulsación si el jugador
+mantiene la tecla. Un intérprete nuevo debería seguir la especificación y esperar la soltura;
+uno que quiera compatibilidad exacta con lo existente, no.
+
+Y sobre el segundo flag: PCDAAD guarda en `fKey2` el **byte alto del código de tecla**, mientras
+que NextDAAD lo pone **siempre a 0** (`overlay0.asm:1893`). Un juego portable no puede depender de
+`fKey2` para distinguir teclas extendidas.
 
 ---
 

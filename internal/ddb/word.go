@@ -12,11 +12,13 @@ import (
 type WordKind uint8
 
 const (
-	MaxDirectionWordID   = 13
-	MaxConvertibleNameID = 39
-	// VocabularyLength is the significant length of a vocabulary word: DAAD only
+	MaxDirectionWord     ID = 13
+	MaxConvertibleToVerb ID = 39
+	// MaxWordLen is the significant length of a vocabulary word: DAAD only
 	// stores and compares the first five characters of each word.
-	VocabularyLength = 5
+	MaxWordLen    = 5
+	MaxWord    ID = 254
+	NoWordID   ID = 255
 )
 
 const (
@@ -74,11 +76,11 @@ func (w *Word) AddSynonym(synonym string) {
 }
 
 func (w *Word) IsDirection() bool {
-	return w.ID <= MaxDirectionWordID
+	return w.ID <= MaxDirectionWord
 }
 
 func (w *Word) IsConvertible() bool {
-	return w.ID <= MaxConvertibleNameID
+	return w.ID <= MaxConvertibleToVerb
 }
 
 type Words []Word
@@ -190,7 +192,7 @@ func (ws Words) getNextID(isDirection, isConvertible bool) (ID, error) {
 }
 
 func (ws Words) getNextDirectionID() (ID, error) {
-	for i := ID(0); i <= MaxDirectionWordID; i++ {
+	for i := ID(0); i <= MaxDirectionWord; i++ {
 		if _, exists := ws.Get(i); !exists {
 			return i, nil
 		}
@@ -200,7 +202,7 @@ func (ws Words) getNextDirectionID() (ID, error) {
 }
 
 func (ws Words) getNextConvertibleID() (ID, error) {
-	for i := ID(MaxDirectionWordID + 1); i <= MaxConvertibleNameID; i++ {
+	for i := ID(MaxDirectionWord + 1); i <= MaxConvertibleToVerb; i++ {
 		if _, exists := ws.Get(i); !exists {
 			return i, nil
 		}
@@ -212,16 +214,16 @@ func (ws Words) getNextConvertibleID() (ID, error) {
 func (ws Words) getNextGeneralID() (ID, error) {
 	// The counters must be int: ID is an uint8, so "i <= math.MaxUint8" would
 	// always hold and the loop would never end.
-	for i := MaxConvertibleNameID + 1; i <= math.MaxUint8; i++ {
+	for i := MaxConvertibleToVerb + 1; i < math.MaxUint8; i++ {
 		if _, exists := ws.Get(ID(i)); !exists {
 			return ID(i), nil
 		}
 	}
 
 	// No general ID left: fall back to the reserved ranges.
-	for i := 0; i <= MaxConvertibleNameID; i++ {
-		if _, exists := ws.Get(ID(i)); !exists {
-			return ID(i), nil
+	for id := ID(0); id <= MaxConvertibleToVerb; id++ {
+		if _, exists := ws.Get(id); !exists {
+			return id, nil
 		}
 	}
 
@@ -248,7 +250,7 @@ func NormalizeWord(s string) string {
 		length int
 	)
 
-	sb.Grow(VocabularyLength)
+	sb.Grow(MaxWordLen)
 
 	for _, r := range s {
 		// Combining marks are dropped so that decomposed input —"n" plus a
@@ -265,7 +267,7 @@ func NormalizeWord(s string) string {
 		sb.WriteRune(r)
 
 		length++
-		if length == VocabularyLength {
+		if length == MaxWordLen {
 			break
 		}
 	}

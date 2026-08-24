@@ -12,7 +12,9 @@ type (
 	ID16 uint16
 )
 
-const NoWordID ID = 255
+func (id ID) Int() int {
+	return int(id)
+}
 
 type DDB struct {
 	Version       uint8             `valid:"required,min=1,max=3"`
@@ -24,15 +26,21 @@ type DDB struct {
 }
 
 type Data struct {
-	labels Labels
-	words  Words
+	labels    Labels
+	words     Words
+	locations Locations
+	conns     Conns
+	objects   Objects
 }
 
 func New() *DDB {
 	return &DDB{
 		data: Data{
-			labels: NewLabelStore(),
-			words:  NewWordStore(),
+			labels:    NewLabelStore(),
+			words:     NewWordStore(),
+			locations: NewLocationStore(),
+			conns:     NewConnStore(),
+			objects:   NewObjectStore(),
 		},
 	}
 }

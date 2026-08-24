@@ -121,6 +121,46 @@ a su manera:
 Capacidad máxima por target (`drb.php:420-445`): 2 KB en CPC, C64 y Plus/4; 16 KB en ZX +3, ZX
 128K y MSX2; 64 KB en el resto. En +3 y Amiga se reservan además 512 bytes de hueco inicial.
 
+#### Por qué el formato es así
+
+Las tres rarezas del `.XMB` —troceado, relleno y hueco inicial— no son caprichos: cada una
+responde a una limitación concreta de un sistema operativo de la época
+(`DAAD V3 CAMBIOS.txt:41-43`, y la lógica completa en `generateXMessages`, `drb.php:447-500`).
+
+- **Troceado en varios ficheros.** Hay máquinas cuyo OS carece de `fseek`, así que no se puede
+  saltar dentro de un fichero grande. Cuando un mensaje no cabe en el fichero actual, el backend
+  lo cierra y abre el siguiente: `0.XMB`, `1.XMB`… En los targets de 2 KB los numera a dos
+  dígitos, `00.XMB`, `01.XMB` (`drb.php:455-456`, `484-487`).
+- **Relleno hasta el tamaño de bloque.** MSX2, ZX +3 y ZX 128K usan **un solo fichero** y, en vez
+  de trocearlo, lo rellenan con ceros hasta completar el bloque (`drb.php:488-492`). Así siempre
+  hay al menos un bloque entero que leer desde cualquier offset, y las máquinas que se atragantan
+  al leer más allá de EOF no lo hacen nunca.
+- **Hueco inicial de 512 bytes** en +3 y Amiga (`drb.php:459-467`). El comentario del código da
+  las dos razones, que son distintas: el intérprete de +3 carga los primeros 16 KB en la página 1
+  y necesita los primeros 512 bytes como *buffer* para los mensajes que vengan de disco; en Amiga
+  es que en máquina real el primer xmensaje se corrompía a veces.
+- **Regla de los 512 bytes en +3 y 128K**: además, ningún mensaje puede empezar a menos de 512
+  bytes del final del bloque (`$shouldfit512`, `drb.php:474-476`), por el intercambio de 512 bytes
+  entre páginas que hace ese intérprete.
+
+#### El offset que viaja en `XMES` es global
+
+Este es el punto que un intérprete debe entender bien. El offset de 16 bits que `XMES` lleva como
+parámetros **no es un desplazamiento dentro de su fichero**, sino una dirección lineal sobre la
+concatenación de todos ellos (`drb.php:497`):
+
+```php
+$GLOBALS['xMessageOffsets'][$i] = $currentOffset + $currentFile * $maxFileSize;
+```
+
+Es decir: el intérprete obtiene el número de fichero con `offset / maxFileSize` y la posición
+dentro de él con `offset % maxFileSize`, y por eso **necesita conocer el tamaño de bloque de su
+propio target**. Como ese tamaño es justo lo que fija la tabla de capacidades de arriba, cambiarlo
+rompe todos los offsets ya compilados.
+
+El tope duro es el offset de 16 bits: `Error('Size of xMessages exceeds the 64K limit')`
+(`drb.php:844`), sea cual sea el número de ficheros.
+
 Recordatorio de la cabecera: en ZX con subtarget `PLUS3` y xmensajes presentes, el word `0x20`
 del DDB contiene el **tamaño del bloque de XMessages** en lugar de la dirección final. Ver
 [02-formato-ddb.md](02-formato-ddb.md#24-word-0x20--no-es-la-longitud-del-fichero).

@@ -28,7 +28,7 @@ De estos, el número 6 es el más fácil de pasar por alto: **si no permutas los
 
 ---
 
-## 2. Las siete trampas
+## 2. Las ocho trampas
 
 ### 2.1 El word `0x20` no es la longitud
 
@@ -72,6 +72,18 @@ un valor de sustitución de un solo uso. Ver
 Ver [02-formato-ddb.md](02-formato-ddb.md#3-orden-de-emisión-de-las-secciones). Un lector debe
 navegar siempre por la cabecera.
 
+### 2.8 El offset de `XMES` es LSB/MSB aunque el target sea big endian
+
+Los dos parámetros de `XMES` no son un word: son dos parámetros de condacto sueltos, y
+`drb.php:849-850` los calcula sin mirar el endianness. En Amiga y ST, donde todo lo demás del DDB
+va en big endian, **este offset va al revés que el resto**. Lo mismo en la forma v2 vía `EXTERN`,
+con el MSB en el tercer parámetro. Ver
+[07-daad-v3.md](07-daad-v3.md#6-xmes-deja-de-depender-de-maluva).
+
+Y el valor tampoco es un desplazamiento dentro de un fichero, sino una dirección lineal sobre la
+concatenación de todos los `.XMB`: ver
+[11-build-plataformas.md](11-build-plataformas.md#33-xmessages-el-fichero-0xmb).
+
 ---
 
 ## 3. Bugs confirmados en el compilador
@@ -86,6 +98,8 @@ Todos verificados sobre el código de `work/DRC` en el commit `e7bb170`.
 | Cosmética | `drb.php:67-79`, `1307-1310` | `$littleEndian` e `isLittleEndianPlatform` están semánticamente **invertidos**. Los dos errores se cancelan y la salida es correcta, pero portar el código guiándose por los nombres produce lo contrario |
 | Cosmética | `drb.php:1213` | El comentario dice "doble 00"; se escribe un solo byte, que es lo correcto |
 | Cosmética | `drb.php:1239` | `echo "Debug: …"` incondicional dentro de `isValidSubtarget` |
+| **Alta** | `USintactic.pas:363` | `if (OTXCount > MAX_OBJECTS)` con `MAX_OBJECTS = 256`: **acepta 256 objetos**, pero el contador de la cabecera es un byte y `chr(256)` da 0. Una aventura con 256 objetos compila sin aviso y declara **cero**. Ver [15-limites.md §4](15-limites.md) |
+| Media | `USintactic.pas` | **No hay ninguna comprobación del número de localidades ni de procesos.** Los dos contadores son bytes y se desbordan igual, en silencio. Solo objetos, mensajes y etiquetas están validados |
 | Cosmética | `drf.pas:255` | `AddSymbol(SymbolList,'HERE',LOC_HERE)` duplicado |
 | Cosmética | `drf.pas:386` | `-check-maluva-disabled` imprime "Forced XMessages" |
 
@@ -109,6 +123,8 @@ Un compilador no puede arreglarlos, pero sí debe decidir qué generar sabiendo 
 | Media | jDAAD | `_GFX` casos 9 y 10 sin `break`; casos 5 y 6 con referencias a función en vez de llamadas | Evitar `GFX 9/10` en HTML |
 | Baja | PCDAAD, jDAAD | `SYNONYM` nunca marca `done`, ni en v2 | No depender del `done` tras `SYNONYM` |
 | Baja | msx2daad | Umbral de nombre convertible en 20 en lugar de 40 | Evitar valores de nombre entre 20 y 39 en vocabularios portables |
+| Baja | PCDAAD, NextDAAD | `PAUSE 0` / `GETKEY` **no espera a que se suelte la tecla**, como sí pide la especificación. Dos lecturas seguidas pueden devolver la misma pulsación | No encadenar `GETKEY` sin una espera propia |
+| Baja | NextDAAD | `fKey2` se pone **siempre a 0** tras `GETKEY`; PCDAAD guarda ahí el byte alto del código | No usar `fKey2` para distinguir teclas extendidas en juegos portables |
 
 ---
 

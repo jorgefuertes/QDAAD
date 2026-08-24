@@ -11,8 +11,10 @@ import (
 // fill occupies the word IDs in [from, to] with placeholder entries so the
 // allocators can be driven into their exhaustion branches. The store is a
 // slice, so it takes a pointer: appending to a copy would not reach the caller.
-func fill(ws *Words, from, to int) {
-	for i := from; i <= to; i++ {
+func fill(ws *Words, from, to ID) {
+	// The counter must be an int: with "to" at 255 an ID counter would overflow
+	// back to 0 on the last increment and the loop would never end.
+	for i := int(from); i <= to.Int(); i++ {
 		*ws = append(*ws, Word{ID: ID(i)})
 	}
 }
@@ -70,9 +72,9 @@ func TestWordIsDirection(t *testing.T) {
 	}{
 		{0, true},
 		{7, true},
-		{MaxDirectionWordID, true},
-		{MaxDirectionWordID + 1, false},
-		{MaxConvertibleNameID, false},
+		{MaxDirectionWord, true},
+		{MaxDirectionWord + 1, false},
+		{MaxConvertibleToVerb, false},
 		{math.MaxUint8, false},
 	}
 
@@ -90,10 +92,10 @@ func TestWordIsConvertible(t *testing.T) {
 		// The direction range is included: any word below the convertible
 		// limit can be converted into a noun.
 		{0, true},
-		{MaxDirectionWordID, true},
-		{MaxDirectionWordID + 1, true},
-		{MaxConvertibleNameID, true},
-		{MaxConvertibleNameID + 1, false},
+		{MaxDirectionWord, true},
+		{MaxDirectionWord + 1, true},
+		{MaxConvertibleToVerb, true},
+		{MaxConvertibleToVerb + 1, false},
 		{math.MaxUint8, false},
 	}
 
@@ -105,12 +107,12 @@ func TestWordIsConvertible(t *testing.T) {
 
 // A fresh store is not empty: it holds the empty word, so the counts below are
 // always one above the number of words added by the test.
-const baseWords = 1
+const baseWordsCount = 1
 
 func TestNewWordStore(t *testing.T) {
 	ws := NewWordStore()
 	require.NotNil(t, ws)
-	require.Len(t, ws, baseWords, "the store is born with the empty word")
+	require.Len(t, ws, baseWordsCount, "the store is born with the empty word")
 
 	w := &ws[0]
 	require.Equal(t, NoWordID, w.ID)
@@ -125,7 +127,7 @@ func TestWordsNew(t *testing.T) {
 		id, err := ws.New(1, NoWord, false, false)
 		require.ErrorIs(t, err, qderror.ErrInvalidWordKind)
 		require.Zero(t, id)
-		require.Len(t, ws, baseWords, "a rejected word is not stored")
+		require.Len(t, ws, baseWordsCount, "a rejected word is not stored")
 	})
 
 	t.Run("direction and convertible at once", func(t *testing.T) {
@@ -133,7 +135,7 @@ func TestWordsNew(t *testing.T) {
 		id, err := ws.New(1, Noun, true, true)
 		require.ErrorIs(t, err, qderror.ErrWordDirectionAndConvertible)
 		require.Zero(t, id)
-		require.Len(t, ws, baseWords)
+		require.Len(t, ws, baseWordsCount)
 	})
 
 	t.Run("duplicated label", func(t *testing.T) {
@@ -144,17 +146,17 @@ func TestWordsNew(t *testing.T) {
 		id, err := ws.New(7, Noun, false, false, "LLAVE")
 		require.ErrorIs(t, err, qderror.ErrWordWithDuplicatedLabel)
 		require.Zero(t, id)
-		require.Len(t, ws, baseWords+1, "the duplicate is not stored")
+		require.Len(t, ws, baseWordsCount+1, "the duplicate is not stored")
 	})
 
 	t.Run("id allocation error is propagated", func(t *testing.T) {
 		ws := NewWordStore()
-		fill(&ws, 0, MaxDirectionWordID)
+		fill(&ws, 0, MaxDirectionWord)
 
 		id, err := ws.New(1000, Verb, true, false, "NORTE")
 		require.ErrorIs(t, err, qderror.ErrWordConnectionIDsExhausted)
 		require.Zero(t, id)
-		require.Len(t, ws, baseWords+MaxDirectionWordID+1, "nothing new is stored")
+		require.Len(t, ws, baseWordsCount+MaxDirectionWord.Int()+1, "nothing new is stored")
 	})
 
 	t.Run("stores the word", func(t *testing.T) {
@@ -162,10 +164,10 @@ func TestWordsNew(t *testing.T) {
 
 		id, err := ws.New(42, Verb, false, false, "COGER", "TOMAR")
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxConvertibleNameID+1), id, "first general ID")
-		require.Len(t, ws, baseWords+1)
+		require.Equal(t, ID(MaxConvertibleToVerb+1), id, "first general ID")
+		require.Len(t, ws, baseWordsCount+1)
 
-		w := ws[baseWords]
+		w := ws[baseWordsCount]
 		require.Equal(t, id, w.ID)
 		require.Equal(t, ID16(42), w.LabelID)
 		require.Equal(t, Verb, w.Kind)
@@ -177,8 +179,8 @@ func TestWordsNew(t *testing.T) {
 
 		id, err := ws.New(1, Noun, false, false)
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxConvertibleNameID+1), id)
-		require.Empty(t, ws[baseWords].Synonyms)
+		require.Equal(t, ID(MaxConvertibleToVerb+1), id)
+		require.Empty(t, ws[baseWordsCount].Synonyms)
 	})
 
 	t.Run("stores the synonyms in vocabulary form", func(t *testing.T) {
@@ -186,7 +188,7 @@ func TestWordsNew(t *testing.T) {
 
 		_, err := ws.New(1, Noun, false, false, " araña ", "bicho")
 		require.NoError(t, err)
-		require.Equal(t, []string{"ARANA", "BICHO"}, ws[baseWords].Synonyms)
+		require.Equal(t, []string{"ARANA", "BICHO"}, ws[baseWordsCount].Synonyms)
 	})
 
 	t.Run("assigns each range its own IDs", func(t *testing.T) {
@@ -198,11 +200,11 @@ func TestWordsNew(t *testing.T) {
 
 		convID, err := ws.New(2, Noun, false, true, "LLAVE")
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxDirectionWordID+1), convID)
+		require.Equal(t, ID(MaxDirectionWord+1), convID)
 
 		genID, err := ws.New(3, Verb, false, false, "COGER")
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxConvertibleNameID+1), genID)
+		require.Equal(t, ID(MaxConvertibleToVerb+1), genID)
 	})
 }
 
@@ -240,7 +242,7 @@ func TestSynonymPersistence(t *testing.T) {
 	})
 
 	t.Run("all of them are kept in the store", func(t *testing.T) {
-		require.Equal(t, want, ws[baseWords].Synonyms)
+		require.Equal(t, want, ws[baseWordsCount].Synonyms)
 
 		w, ok := ws.Get(id)
 		require.True(t, ok)
@@ -388,22 +390,22 @@ func TestGetNextID(t *testing.T) {
 		ws := NewWordStore()
 		id, err := ws.getNextID(false, true)
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxDirectionWordID+1), id)
+		require.Equal(t, ID(MaxDirectionWord+1), id)
 	})
 
 	t.Run("convertible falls back to the direction range", func(t *testing.T) {
 		ws := NewWordStore()
-		fill(&ws, MaxDirectionWordID+1, MaxConvertibleNameID)
-		fill(&ws, 0, MaxDirectionWordID-1)
+		fill(&ws, MaxDirectionWord+1, MaxConvertibleToVerb)
+		fill(&ws, 0, MaxDirectionWord-1)
 
 		id, err := ws.getNextID(false, true)
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxDirectionWordID), id, "the last free direction ID")
+		require.Equal(t, ID(MaxDirectionWord), id, "the last free direction ID")
 	})
 
 	t.Run("convertible exhausted", func(t *testing.T) {
 		ws := NewWordStore()
-		fill(&ws, 0, MaxConvertibleNameID)
+		fill(&ws, 0, MaxConvertibleToVerb)
 
 		id, err := ws.getNextID(false, true)
 		require.ErrorIs(t, err, qderror.ErrWordConvertibleIDsExhausted)
@@ -414,7 +416,7 @@ func TestGetNextID(t *testing.T) {
 		ws := NewWordStore()
 		id, err := ws.getNextID(false, false)
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxConvertibleNameID+1), id)
+		require.Equal(t, ID(MaxConvertibleToVerb+1), id)
 	})
 }
 
@@ -429,7 +431,7 @@ func TestGetNextDirectionID(t *testing.T) {
 	t.Run("fills an intermediate gap", func(t *testing.T) {
 		ws := NewWordStore()
 		fill(&ws, 0, 4)
-		fill(&ws, 6, MaxDirectionWordID)
+		fill(&ws, 6, MaxDirectionWord)
 
 		id, err := ws.getNextDirectionID()
 		require.NoError(t, err)
@@ -438,7 +440,7 @@ func TestGetNextDirectionID(t *testing.T) {
 
 	t.Run("exhausted", func(t *testing.T) {
 		ws := NewWordStore()
-		fill(&ws, 0, MaxDirectionWordID)
+		fill(&ws, 0, MaxDirectionWord)
 
 		id, err := ws.getNextDirectionID()
 		require.ErrorIs(t, err, qderror.ErrWordConnectionIDsExhausted)
@@ -451,22 +453,22 @@ func TestGetNextConvertibleID(t *testing.T) {
 		ws := NewWordStore()
 		id, err := ws.getNextConvertibleID()
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxDirectionWordID+1), id)
+		require.Equal(t, ID(MaxDirectionWord+1), id)
 	})
 
 	t.Run("ignores the direction range", func(t *testing.T) {
 		ws := NewWordStore()
-		fill(&ws, 0, MaxDirectionWordID)
+		fill(&ws, 0, MaxDirectionWord)
 
 		id, err := ws.getNextConvertibleID()
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxDirectionWordID+1), id)
+		require.Equal(t, ID(MaxDirectionWord+1), id)
 	})
 
 	t.Run("fills an intermediate gap", func(t *testing.T) {
 		ws := NewWordStore()
-		fill(&ws, MaxDirectionWordID+1, 19)
-		fill(&ws, 21, MaxConvertibleNameID)
+		fill(&ws, MaxDirectionWord+1, 19)
+		fill(&ws, 21, MaxConvertibleToVerb)
 
 		id, err := ws.getNextConvertibleID()
 		require.NoError(t, err)
@@ -475,7 +477,7 @@ func TestGetNextConvertibleID(t *testing.T) {
 
 	t.Run("exhausted", func(t *testing.T) {
 		ws := NewWordStore()
-		fill(&ws, MaxDirectionWordID+1, MaxConvertibleNameID)
+		fill(&ws, MaxDirectionWord+1, MaxConvertibleToVerb)
 
 		id, err := ws.getNextConvertibleID()
 		require.ErrorIs(t, err, qderror.ErrWordConvertibleIDsExhausted)
@@ -488,12 +490,12 @@ func TestGetNextGeneralID(t *testing.T) {
 		ws := NewWordStore()
 		id, err := ws.getNextGeneralID()
 		require.NoError(t, err)
-		require.Equal(t, ID(MaxConvertibleNameID+1), id)
+		require.Equal(t, ID(MaxConvertibleToVerb+1), id)
 	})
 
 	t.Run("fills an intermediate gap", func(t *testing.T) {
 		ws := NewWordStore()
-		fill(&ws, MaxConvertibleNameID+1, 99)
+		fill(&ws, MaxConvertibleToVerb+1, 99)
 		fill(&ws, 101, math.MaxUint8)
 
 		id, err := ws.getNextGeneralID()
@@ -503,9 +505,9 @@ func TestGetNextGeneralID(t *testing.T) {
 
 	t.Run("wraps around into the reserved ranges", func(t *testing.T) {
 		ws := NewWordStore()
-		fill(&ws, MaxConvertibleNameID+1, math.MaxUint8)
+		fill(&ws, MaxConvertibleToVerb+1, math.MaxUint8)
 		fill(&ws, 0, 6)
-		fill(&ws, 8, MaxConvertibleNameID)
+		fill(&ws, 8, MaxConvertibleToVerb)
 
 		id, err := ws.getNextGeneralID()
 		require.NoError(t, err)
@@ -549,7 +551,7 @@ func TestNormalizeWord(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
 			require.Equal(t, c.want, NormalizeWord(c.in), "normalizing %q", c.in)
-			require.LessOrEqual(t, len([]rune(NormalizeWord(c.in))), VocabularyLength)
+			require.LessOrEqual(t, len([]rune(NormalizeWord(c.in))), MaxWordLen)
 		})
 	}
 }

@@ -331,6 +331,11 @@ Todos son incondicionales; **ninguno cambia en v3** (`work/DRC/src/UConstants.pa
 | Peso de objeto | 63 | 6 bits |
 | Tamaño total del DDB | 65535 − base | imagen plana sin reubicación |
 
+Esta tabla da el límite **estructural**. El usable es menor: el contador de 1 byte no puede
+expresar 256, los valores 252–255 están reservados como centinelas de ubicación y el 255 lo está
+como `NO_WORD`. El desarrollo completo, con los rangos que debe validar un compilador nuevo, está
+en [15-limites.md](15-limites.md).
+
 El techo de 128 opcodes es la restricción estructural más seria del formato y la razón de que
 v3 no pudiera añadir opcodes nuevos: sus 3 condactos nuevos tuvieron que ocupar huecos que ya
 existían en la tabla.

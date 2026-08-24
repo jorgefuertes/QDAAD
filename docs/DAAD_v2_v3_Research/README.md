@@ -29,6 +29,7 @@ Todo el software analizado es libre.
 | [12 — El fuente `.DSF`](12-formato-dsf.md) | Gramática, preprocesador, símbolos, **el JSON intermedio** |
 | [13 — Notas de portabilidad](13-portabilidad.md) | **Trampas y bugs** para quien implemente un compilador |
 | [14 — Verificación empírica](14-verificacion.md) | Cómo se ha comprobado la especificación y qué encontró |
+| [15 — Límites](15-limites.md) | **Rango usable de cada entidad**, reservados, y qué debe validar un compilador |
 
 ---
 
@@ -36,8 +37,9 @@ Todo el software analizado es libre.
 
 **Quiero escribir un compilador de DAAD.**
 [01](01-panorama.md) → [02](02-formato-ddb.md) → [03](03-secciones.md) →
-[04](04-condactos.md) → [07](07-daad-v3.md) → [13](13-portabilidad.md).
-El 13 es el que evita perder tiempo: recoge las trampas y los bugs conocidos.
+[04](04-condactos.md) → [07](07-daad-v3.md) → [15](15-limites.md) → [13](13-portabilidad.md).
+El 13 es el que evita perder tiempo: recoge las trampas y los bugs conocidos. El 15 da los
+rangos que hay que validar, incluidos los tres que DRC no comprueba.
 
 **Quiero escribir un intérprete.**
 [02](02-formato-ddb.md) → [03](03-secciones.md) → [05](05-flujo-ejecucion.md) →
@@ -86,7 +88,8 @@ Si no vas a leer nada más:
 
 ## Convenciones
 
-- Cada afirmación sobre bytes lleva su referencia `fichero:línea`, relativa a `work/`.
+- Cada afirmación sobre bytes lleva su referencia `fichero:línea`, relativa a `work/`. La
+  excepción es `DAAD V3 CAMBIOS.txt`, que vive junto a estos documentos.
 - **[V]** marca lo verificado empíricamente sobre binarios generados durante la investigación.
   El detalle está en [14](14-verificacion.md).
 - Cuando dos fuentes discrepan se documentan ambas y se dice cuál gana y por qué.
@@ -108,5 +111,6 @@ Si no vas a leer nada más:
 | [ZXDAAD128](https://github.com/cronomantic/ZXDAAD128) | `fe714e0` | Intérprete ZX 128K |
 | [TestUnitDAAD](https://github.com/Utodev/TestUnitDAAD) | `33f9535` | Suite de pruebas |
 | DAAD Ready | kit versión **B** (2026-05-15) | Scripts de build, herramientas y manuales |
+| [`DAAD V3 CAMBIOS.txt`](DAAD%20V3%20CAMBIOS.txt) | — | Notas del autor sobre el delta v2 → v3, con el punto de vista del compilador. Es la única fuente **normativa**: donde contradice a un intérprete, manda ella y la discrepancia se documenta |
 
 Los repositorios clonados están en `work/`; el material de verificación, en `work/_verify/`.

@@ -1,0 +1,44 @@
+DAAD V3 CAMBIOS
+===============
+
+1) La cabecera del DDB lleva 3 como versión
+
+2) INDIR flagno (opcode 122)
+
+   Condacto que toma el valor del flagno y lo guarda 3 bytes más adelante en la DDB (en el segundo parámetro del siguiente condacto).
+
+   En principio el usuario no podrá usar el INDIR directamente, es el compilador el que lo pone.
+
+Compilador: INDIR no es un condacto que el autor escriba, es el compilador el que, si ve indirección en el segundo parámetro, pone el INDIR
+antes del condacto. Por ejemplo LET 100 @200 =>> INDIR 200 LET 100 0. En realidad el 0 que pone en el segundo parámetro del LET puede ser
+cualquier valor, porque INDIR lo va a sobreescribir. Si hay doble indirección es lo mismo: LET @100 @200 => INDIR 200 LET @100 0
+
+3) SETAT value operation (opcode 124)
+
+Value points to a BIT as HASAT/HASNAT does. Operation may be:
+
+0 -> Clear bit
+1 -> Set bit
+2 -> Toggle bit
+
+Compilador: nada en especial que comentar.
+
+4) Cambio en PAUSE:  si el parámetro es 0, en lugar de hacer una pausa larga hace un pausa indefinida hasta que se pulse una tecla, y se vuelva a soltar. La tecla pulsada se graba en el flag fKey1 (y si procede fKey2)
+
+Compilador: a nivel compilador hay un "fake condact llamado GETKEY que el compilador convierte en un PAUSE 0.
+
+5) Hay nuevos bits que significan algo en el FLAG 53:
+
+X- Bit 5: Despues de obtener una SL, si el parser encontró una palabra que no pudo  reconocer después de encontrar el verbo, se pone a 1. 
+X- Bit 4: Despues de obtener una SL, si el parser encontró una preposición antes del primer nombre, se pone a 1.
+X- Bit 2: si está a 1, no se aplicarán terminaciones pronominales a verbos>=240
+X- Bit 1: Si su valor es 1, HASAT, HASNAT y SETAT funcionarán sobre un set alternativo de flags 60-91 en lugar de 28-59
+X- Bit 0: Tras un DOALL, tendrá valor 1 si no se itera sobre ningún objeto.
+
+Compilador: nada de esto afecta al compilador.
+
+6) XMES  (opcode 120) value value. El condacto XMES de Maluva pasa a ser condacto propio, los dos values son el LSB y MSB del mensaje en el/los fichero(s) XMB. El orden siempre es LSB/MSB independientemente de si el target es little o big endian.
+En XMES la mayor complejidad para el compilador es que cada target espera los ficheros de una manera, dependiendo de necesidades específicas. En general se tiende a usar un solo fichero 0.XMB, pero hay máquinas cuyos OS carecen de 
+fseek, por lo que se parte el fichero en varios bloques. Otros tienen problemas si lees más allá de EOF, por lo que el fichero se rellena para que haya siempre al menos 512 bytes que leer desde el offset. Otros, por cuestiones varias,
+necesitan un hueco al principio, así que se rellenan 512 bytes en el fichero y luego se añade el primer mensaje. Toda esa lógica está en drb.php.
+  

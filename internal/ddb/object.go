@@ -7,10 +7,10 @@ import (
 )
 
 const (
-	ObjectNotCreated ID = 252
-	ObjectWorn       ID = 253
-	ObjectCarried    ID = 254
-	ObjectHere       ID = 255
+	ObjectNotCreatedLocation ID = 252
+	ObjectWornLocation       ID = 253
+	ObjectCarriedLocation    ID = 254
+	ObjectHereLocation       ID = 255
 )
 
 type Object struct {
@@ -72,7 +72,7 @@ func (ost Objects) GetByNameAdjective(name, adjective ID) (*Object, error) {
 }
 
 func (ost Objects) getNextID() (ID, error) {
-	for i := 0; i <= math.MaxUint8; i++ {
+	for i := 0; i < math.MaxUint8; i++ {
 		if _, err := ost.Get(ID(i)); err != nil {
 			return ID(i), nil
 		}

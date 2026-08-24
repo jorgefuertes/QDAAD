@@ -78,7 +78,7 @@ func TestObjectsAdd(t *testing.T) {
 			Weight:       63,
 			Container:    true,
 			Wearable:     true,
-			InitLocation: ObjectCarried,
+			InitLocation: ObjectCarriedLocation,
 		}
 		obj.Flags[3] = true
 
