@@ -1,0 +1,53 @@
+package ddb
+
+import (
+	"os"
+
+	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
+	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
+)
+
+type (
+	ID   uint8
+	ID16 uint16
+)
+
+const NoWordID ID = 255
+
+type DDB struct {
+	Version       uint8             `valid:"required,min=1,max=3"`
+	MachineID     arch.Machine      `valid:"required"`
+	Language      language.Language `valid:"required"`
+	VideoMode     byte              // MSX2
+	ExternVectors []uint32          // 16b in 8bit machines, 32b in >=16bit machines
+	data          Data              `valid:"required"`
+}
+
+type Data struct {
+	labels Labels
+	words  Words
+}
+
+func New() *DDB {
+	return &DDB{
+		data: Data{
+			labels: NewLabelStore(),
+			words:  NewWordStore(),
+		},
+	}
+}
+
+func Open(filePath string) (*DDB, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = f.Close()
+	}()
+
+	d := new(DDB)
+
+	return d, nil
+}

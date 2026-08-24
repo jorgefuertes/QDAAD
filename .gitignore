@@ -1,6 +1,14 @@
+# IDE
 .idea
 .vscode
 
+# Working
 /work
 /tmp
 /build
+
+# IA
+CLAUDE.md
+AGENTS.md
+.claude
+.rtk
