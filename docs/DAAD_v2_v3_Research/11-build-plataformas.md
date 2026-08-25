@@ -121,6 +121,42 @@ a su manera:
 Capacidad máxima por target (`drb.php:420-445`): 2 KB en CPC, C64 y Plus/4; 16 KB en ZX +3, ZX
 128K y MSX2; 64 KB en el resto. En +3 y Amiga se reservan además 512 bytes de hueco inicial.
 
+#### El formato del fichero
+
+Es de una simplicidad casi provocadora (`generateXMessages`, `drb.php:448-523`):
+
+```text
+[hueco de 512 bytes, solo en +3 y Amiga]
+mensaje 0 ofuscado   0xF5
+mensaje 1 ofuscado   0xF5
+mensaje 2 ofuscado   0xF5
+...
+[relleno de 512 bytes, solo en Amiga]
+```
+
+- **Sin cabecera, sin índice y sin prefijo de longitud.** Mensajes concatenados y nada más. Es la
+  diferencia estructural con las tablas de texto del DDB, que sí llevan detrás una tabla de
+  punteros de un word por mensaje (`drb.php:562-566`). Aquí no hay nada de eso: la posición de cada
+  mensaje la resuelve el compilador y la incrusta en el condacto.
+- **Cada byte va en XOR con `0xFF`** (`OFUSCATE_VALUE`, `drb.php:244`), igual que los textos dentro
+  del DDB.
+- **El separador es un solo byte: `0x0A ^ 0xFF = 0xF5`** (`drb.php:508`). El mensaje siguiente
+  empieza justo en el byte de después. Funciona porque un salto de línea dentro del texto se guarda
+  como `0x0D`, no como `0x0A` (`drb.php:351`), así que el `0x0A` queda libre para marcar el final.
+- Los bytes pueden ser **tokens de compresión**: los xmensajes entran en la tokenización avanzada
+  igual que los mensajes normales (`drb.php:316`).
+
+> El comentario de `drb.php:501-502` habla de «guardar la longitud truncada para que quepa en un
+> byte». **Está obsoleto**: en el bucle no se escribe ninguna longitud. Un compilador nuevo no debe
+> implementarlo.
+
+Cómo lo lee un intérprete, y esto explica el diseño: **no sabe cuánto mide el mensaje**. Lee un
+bloque de tamaño fijo desde el offset —511 bytes en PCDAAD (`maluva.pas:66`), 512 en msx2daad
+(`daad_platform_msx2.c:367`)— y deja que la rutina normal de impresión se detenga al encontrar el
+`0xF5` (`PCDAAD/messages.pas:89`, `msx2daad/src/daad/daad_print.c:143`). PCDAAD llega a copiar esos
+512 bytes encima del área de mensajes de sistema del DDB en RAM, imprimir desde allí y restaurar
+después la copia de seguridad.
+
 #### Por qué el formato es así
 
 Las tres rarezas del `.XMB` —troceado, relleno y hueco inicial— no son caprichos: cada una
@@ -159,7 +195,26 @@ propio target**. Como ese tamaño es justo lo que fija la tabla de capacidades d
 rompe todos los offsets ya compilados.
 
 El tope duro es el offset de 16 bits: `Error('Size of xMessages exceeds the 64K limit')`
-(`drb.php:844`), sea cual sea el número de ficheros.
+(`drb.php:844`), sea cual sea el número de ficheros. Ese offset es también **el único límite que
+tienen los xmensajes**: no hay ningún contador que los cuente, ni en la cabecera del DDB ni en el
+compilador. Ver [15-limites.md](15-limites.md#51-los-xmensajes-no-se-cuentan).
+
+#### Con `-x`, las tablas de texto comparten el mismo fichero
+
+La opción `-x` del backend manda las secciones de texto completas al `.XMB`, y lo hace **añadiendo
+al `0.XMB` que ya generaron los xmensajes** (`drb.php:1921-1927`): primero los xmensajes, después
+las tablas. Además fuerza el tamaño de bloque a 64 KB en cualquier target (`drb.php:422`), con el
+razonamiento de que quien use esto tendrá disco duro, así que en la práctica hay un solo fichero.
+
+Dos secciones no salen nunca del DDB, aunque se pida `-x`:
+
+- **OTX**, los nombres de objeto, porque el motor los necesita en RAM (`drb.php:1935`).
+- **Los mensajes de sistema 0 a 62** (`LAST_DEFAULT_SYSMESS`, `drb.php:531`).
+
+Y las tablas de punteros de MTX, STX y LTX **se quedan en el DDB** aunque su texto se vaya: pasan a
+contener offsets dentro del `.XMB`. Como siguen siendo de 16 bits, se aplica el mismo techo de
+64 KB — pero por ese camino **nadie lo comprueba**. Ver
+[13-portabilidad.md](13-portabilidad.md#3-bugs-confirmados-en-el-compilador).
 
 Recordatorio de la cabecera: en ZX con subtarget `PLUS3` y xmensajes presentes, el word `0x20`
 del DDB contiene el **tamaño del bloque de XMessages** en lugar de la dirección final. Ver

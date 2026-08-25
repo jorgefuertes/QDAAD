@@ -31,6 +31,8 @@ type Data struct {
 	locations Locations
 	conns     Conns
 	objects   Objects
+	processes Processes
+	messages  Messages
 }
 
 func New() *DDB {
@@ -41,6 +43,8 @@ func New() *DDB {
 			locations: NewLocationStore(),
 			conns:     NewConnStore(),
 			objects:   NewObjectStore(),
+			processes: NewProcessStore(),
+			messages:  NewMessageStore(),
 		},
 	}
 }

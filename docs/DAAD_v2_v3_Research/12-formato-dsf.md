@@ -162,8 +162,8 @@ drf <target> [subtarget] <fichero.DSF> [salida.json] [opciones] [símbolos adici
 | `-verbose` | Salida detallada |
 | `-no-semantic` | Sin análisis semántico |
 | `-semantic-warnings` | Los errores semánticos pasan a avisos |
-| `-force-normal-messages` | Todos los xmensajes se tratan como mensajes normales |
-| `-force-x-messages` | Todos los mensajes de usuario se crean como xmensajes |
+| `-force-normal-messages` | Todo `XMES`/`XMESSAGE` pasa a mensaje normal. Ver §7.1 |
+| `-force-x-messages` | Las cadenas literales de `MES`/`MESSAGE` pasan a xmensajes. Ver §7.1 |
 | `-check-maluva-disabled` | No comprueba si Maluva está incluido |
 | `-replace-xcondacts` | Sustituye `XSAVE`, `XPICTURE` y `XLOAD` por los originales si el target no los admite |
 | **`-v3`** | **Compila para DAAD versión 3** |
@@ -187,8 +187,56 @@ Idiomas: `EN ES DE FR PT`.
 | `-c` | Fuerza modo clásico |
 | `-d` | Fuerza modo depuración (solo ZX y CPC) |
 | `-p` / `-np` | Fuerza o desactiva la alineación. **`-np` está roto**; ver [02-formato-ddb.md](02-formato-ddb.md#6-alineación-padding) |
-| `-x` | Manda las secciones de texto al fichero `.XMB` |
+| `-x` | Manda las **secciones de texto completas** al fichero `.XMB`. Ver §7.1 |
 | `-b=` | Redefine la dirección base |
+
+### 7.1 Tres opciones que no hacen lo mismo
+
+Los nombres invitan a confundirlas, y una está en el frontend y la otra en el backend.
+
+En el fuente, un mensaje se puede escribir de dos maneras:
+
+```text
+MESSAGE 5                   ; referencia a la entrada 5 de la tabla /MTX
+MESSAGE "Coges la llave."   ; cadena literal en línea
+```
+
+**`-force-x-messages`** (`drf`) actúa **solo sobre la segunda**. Cuando el analizador encuentra una
+cadena literal como parámetro, reescribe el opcode (`USintactic.pas:622-627`):
+
+```pascal
+// Implements the ForceXMessages parameter
+IF ((Opcode IN [MES_OPCODE, MESSAGE_OPCODE]) OR (Opcode = MES2_OPCODE)) AND (ForceXMessages) THEN
+BEGIN
+    if Opcode = MES_OPCODE THEN Opcode := XMES_OPCODE
+                           ELSE Opcode := XMESSAGE_OPCODE;
+END;
+```
+
+A partir de ahí sigue el camino normal de los xmensajes: el `XMESSAGE` se convierte en `XMES` con
+un `#n` añadido —esa es la única diferencia entre los dos, el salto de línea— y el texto se inserta
+en la lista `XTX`, que acaba en el `.XMB`, en lugar de en la tabla MTX que vive dentro del DDB. Un
+`MESSAGE 5` no se entera de nada, como avisa la propia ayuda (`drf.pas:35`): *«Does not affect
+those written in the MTX table»*.
+
+**Para qué sirve: para recuperar RAM.** Los mensajes de MTX viven dentro de la imagen de 64 KB del
+DDB; los xmensajes, en disco y bajo demanda. Y hay una segunda razón, más importante de lo que
+parece: **la lista de xmensajes no tiene el límite de 255** que sí tienen las tablas del DDB. Ver
+[15-limites.md](15-limites.md#51-los-xmensajes-no-se-cuentan).
+
+El precio es depender de disco, y un tope de 511 caracteres por mensaje (`USintactic.pas:631`).
+
+**`-force-normal-messages`** (`drf`) hace lo contrario: convierte todo `XMES`/`XMESSAGE` en
+mensajes normales, para targets sin disco o sin Maluva. Las dos son **mutuamente excluyentes**;
+`drf.pas:414` aborta si se pasan juntas.
+
+**`-x`** (`drb`) es otra cosa: se lleva las **secciones de texto enteras** —MTX, STX y LTX— al
+`.XMB`, no solo las cadenas escritas en línea. OTX nunca sale del DDB, y los mensajes de sistema 0
+a 62 tampoco. Ver
+[11-build-plataformas.md](11-build-plataformas.md#33-xmessages-el-fichero-0xmb).
+
+Resumiendo la diferencia: `-force-x-messages` afecta a lo que el autor escribe entre comillas
+dentro de un condacto; `-x` afecta a las tablas completas.
 
 ---
 

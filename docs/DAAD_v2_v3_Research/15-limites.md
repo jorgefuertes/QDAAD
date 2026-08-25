@@ -188,10 +188,57 @@ cabecera cada uno ([03-secciones.md §4](03-secciones.md)).
 | Etiquetas | 1024 | `MAX_LABELS`, `UConstants.pas:29` |
 | Salto relativo | ±128 entradas, sin salir del proceso | `USintactic.pas:76` |
 | Tamaño total del DDB | 65535 − dirección base | `drb.php:2074` |
-| XMessages | 64 KB en total, y por target | `drb.php:420-445`, [11-build-plataformas.md §3.3](11-build-plataformas.md) |
+| XMessages | **sin límite de número**; 64 KB de texto en total | §5.1 |
+| Cadenas de `XPLAY`/`XDATA` | 255 distintas | `UMessageList.pas:65`, §5.1 |
 
 Dos constantes están declaradas y **nunca se usan**: `MAX_V3_DIRECTION = 127` y
 `MAX_BLOCKABLE_CONNECTIONS = 128` ([07-daad-v3.md §9](07-daad-v3.md)). No hay que implementarlas.
+
+### 5.1 Los xmensajes no se cuentan
+
+Es la excepción del formato, y no está documentada en ningún manual: **la tabla de xmensajes está
+exenta del límite de 255 a propósito**. No es que sea «otra tabla de 255»: es que no la cuenta
+nadie. El comentario está en el propio código (`UMessageList.pas:65-72`):
+
+```pascal
+IF AMessageList <> XTX THEN // XTX has no limit by default
+    IF LastMessageID = MAX_MESSAGES_PER_TABLE-1 THEN
+    BEGIN
+        Result := MAXLONGINT; // Return MAXLONGINT to signal error
+        exit;
+    END;
+```
+
+La exención es completa y se sostiene por partida triple:
+
+1. **El contador `XTXCount` está declarado y nunca se asigna ni se lee** (`UMessageList.pas:17` es
+   su única aparición en todo el compilador).
+2. **La comprobación de «demasiados mensajes» es inalcanzable** para ellos: el analizador pone
+   `MaXMESs := MAXLONGINT` antes de insertar un xmensaje (`USintactic.pas:636`), así que la prueba
+   `CurrentIntVal >= MaXMESs` de `:657` no puede saltar.
+3. **No hay cuenta de xmensajes en la cabecera del DDB.** Los bytes `0x03` a `0x07` cuentan
+   objetos, localidades, MTX, STX y procesos, y ya está. Tampoco hay puntero: a diferencia de las
+   cuatro tablas de texto, los xmensajes **no tienen tabla de índice**. El intérprete los localiza
+   por el offset de 16 bits que el compilador incrusta en el propio condacto `XMES`.
+
+Lo que sí los limita es **el tamaño, no la cantidad**:
+
+| Límite | Valor | Fuente |
+|---|---|---|
+| Offset máximo | 65535 | `drb.php:845` |
+| Longitud de un xmensaje | 511 caracteres | `USintactic.pas:631` |
+| Tamaño de bloque | 2, 16 o 64 KB según target | `drb.php:420-445` |
+
+La consecuencia práctica es que **`-force-x-messages` es la vía de escape cuando el DDB se llena**:
+no mueve los mensajes a otra tabla con su propia cuota, los saca del régimen de cuotas. Ver
+[12-formato-dsf.md §7.1](12-formato-dsf.md).
+
+> **La excepción de la excepción.** `OtherTX` —las cadenas literales de `XPLAY` y `XDATA`— **no
+> está exenta**: `UMessageList.pas:65` solo nombra a `XTX`. Al pasar de 255 cadenas distintas el
+> compilador aborta, y encima con un mensaje que habla de MTX, STX y LTX
+> ([13-portabilidad.md](13-portabilidad.md#3-bugs-confirmados-en-el-compilador)). Esas cadenas, por
+> cierto, no llegan a ningún fichero: el backend las compila a cadenas de `BEEP` y de `LET`
+> (`drb.php:917, 960`).
 
 ---
 
@@ -210,7 +257,12 @@ resto se desborda en silencio. La lista mínima:
    de §3, y avisar del rango 20–39 por msx2daad.
 7. **La ubicación inicial de un objeto no puede ser 255** (`HERE`).
 8. **Peso ≤ 63.**
-9. **Dirección final ≤ 0xFFFF**, que es el tope duro de todo.
+9. **Xmensaje ≤ 511 caracteres, contando el `#n`** que se añade al convertir un `XMESSAGE`. DRC
+   mide antes de añadirlo y puede colarse por encima de los búferes de los intérpretes (§5.1).
+10. **Dirección final ≤ 0xFFFF**, que es el tope duro de todo.
+
+Y una que **no** hay que poner: no limites el número de xmensajes. El formato no los cuenta, y
+capar lo que DAAD deja libre le quitaría al autor su mejor recurso cuando el DDB se llena.
 
 ---
 

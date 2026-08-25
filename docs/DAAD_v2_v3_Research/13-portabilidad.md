@@ -100,6 +100,9 @@ Todos verificados sobre el código de `work/DRC` en el commit `e7bb170`.
 | Cosmética | `drb.php:1239` | `echo "Debug: …"` incondicional dentro de `isValidSubtarget` |
 | **Alta** | `USintactic.pas:363` | `if (OTXCount > MAX_OBJECTS)` con `MAX_OBJECTS = 256`: **acepta 256 objetos**, pero el contador de la cabecera es un byte y `chr(256)` da 0. Una aventura con 256 objetos compila sin aviso y declara **cero**. Ver [15-limites.md §4](15-limites.md) |
 | Media | `USintactic.pas` | **No hay ninguna comprobación del número de localidades ni de procesos.** Los dos contadores son bytes y se desbordan igual, en silencio. Solo objetos, mensajes y etiquetas están validados |
+| Media | `USintactic.pas:631` vs `:633` | El tope de **511 caracteres de un xmensaje se comprueba antes** de añadir el `#n` que convierte `XMESSAGE` en `XMES`. Un `XMESSAGE` de 511 caracteres produce hasta 513 bytes almacenados, por encima del `BlockRead` de 511 de PCDAAD y del `fread` de 512 de msx2daad. La compresión lo suele tapar |
+| Media | `drb.php:1921-1927` | Con `-x`, un `0.XMB` que pase de 64 KB **trunca los offsets en silencio**: las comprobaciones de `>0xFFFF` cubren solo los xmensajes, y la de `generateXMessages` corre antes de que `-x` añada las tablas de texto |
+| Baja | `UMessageList.pas:65` | El límite de 255 cadenas de `XPLAY`/`XDATA` **informa de otra cosa**: el error dice «Too many messages, total messages in MTX, STX and LTX tables…», que no tiene relación. `OtherTX` no está exenta como sí lo está `XTX` |
 | Cosmética | `drf.pas:255` | `AddSymbol(SymbolList,'HERE',LOC_HERE)` duplicado |
 | Cosmética | `drf.pas:386` | `-check-maluva-disabled` imprime "Forced XMessages" |
 
