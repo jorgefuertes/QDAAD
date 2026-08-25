@@ -6,13 +6,6 @@ import (
 	"github.com/jorgefuertes/QDAAD/internal/qderror"
 )
 
-const (
-	ObjectNotCreatedLocation ID = 252
-	ObjectWornLocation       ID = 253
-	ObjectCarriedLocation    ID = 254
-	ObjectHereLocation       ID = 255
-)
-
 type Object struct {
 	ID           ID
 	LabelID      ID16

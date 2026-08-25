@@ -26,7 +26,7 @@ func TestObjectsAdd(t *testing.T) {
 		ost := NewObjectStore()
 
 		for i := range 3 {
-			require.NoError(t, ost.Add(newObject(ID16(i+1), ID(i+1), NoWordID)))
+			require.NoError(t, ost.Add(newObject(ID16(i+1), ID(i+1), NO_WORD_ID)))
 			require.Equal(t, ID(i), ost[i].ID, "object number %d", i)
 		}
 
@@ -36,7 +36,7 @@ func TestObjectsAdd(t *testing.T) {
 	t.Run("an object cannot come with an ID", func(t *testing.T) {
 		ost := NewObjectStore()
 
-		obj := newObject(1, 1, NoWordID)
+		obj := newObject(1, 1, NO_WORD_ID)
 		obj.ID = 7
 
 		require.ErrorIs(t, ost.Add(obj), qderror.ErrCannotCreateWithID)
@@ -45,9 +45,9 @@ func TestObjectsAdd(t *testing.T) {
 
 	t.Run("duplicated label", func(t *testing.T) {
 		ost := NewObjectStore()
-		require.NoError(t, ost.Add(newObject(1, 1, NoWordID)))
+		require.NoError(t, ost.Add(newObject(1, 1, NO_WORD_ID)))
 
-		err := ost.Add(newObject(1, 2, NoWordID))
+		err := ost.Add(newObject(1, 2, NO_WORD_ID))
 		require.ErrorIs(t, err, qderror.ErrObjectDuplicatedLabel)
 		require.Len(t, ost, 1, "the duplicate is not stored")
 	})
@@ -78,7 +78,7 @@ func TestObjectsAdd(t *testing.T) {
 			Weight:       63,
 			Container:    true,
 			Wearable:     true,
-			InitLocation: ObjectCarriedLocation,
+			InitLocation: LOC_CARRIED,
 		}
 		obj.Flags[3] = true
 
@@ -97,7 +97,7 @@ func TestObjectsAdd(t *testing.T) {
 			ost = append(ost, Object{ID: ID(i), LabelID: ID16(i + 1)})
 		}
 
-		err := ost.Add(newObject(1000, 1, NoWordID))
+		err := ost.Add(newObject(1000, 1, NO_WORD_ID))
 		require.ErrorIs(t, err, qderror.ErrObjectStoreIsFull)
 		require.Len(t, ost, math.MaxUint8+1, "nothing new is stored")
 	})
@@ -110,15 +110,15 @@ func TestObjectsAdd(t *testing.T) {
 			Object{ID: 3, LabelID: 3, Name: 3},
 		)
 
-		require.NoError(t, ost.Add(newObject(4, 4, NoWordID)))
+		require.NoError(t, ost.Add(newObject(4, 4, NO_WORD_ID)))
 		require.Equal(t, ID(2), ost[3].ID, "the free ID is reused")
 	})
 }
 
 func TestObjectsGet(t *testing.T) {
 	ost := NewObjectStore()
-	require.NoError(t, ost.Add(newObject(1, 1, NoWordID)))
-	require.NoError(t, ost.Add(newObject(2, 2, NoWordID)))
+	require.NoError(t, ost.Add(newObject(1, 1, NO_WORD_ID)))
+	require.NoError(t, ost.Add(newObject(2, 2, NO_WORD_ID)))
 
 	t.Run("found", func(t *testing.T) {
 		obj, err := ost.Get(1)
@@ -146,8 +146,8 @@ func TestObjectsGet(t *testing.T) {
 
 func TestObjectsGetByLabelID(t *testing.T) {
 	ost := NewObjectStore()
-	require.NoError(t, ost.Add(newObject(9, 1, NoWordID)))
-	require.NoError(t, ost.Add(newObject(10, 2, NoWordID)))
+	require.NoError(t, ost.Add(newObject(9, 1, NO_WORD_ID)))
+	require.NoError(t, ost.Add(newObject(10, 2, NO_WORD_ID)))
 
 	t.Run("found", func(t *testing.T) {
 		obj, err := ost.GetByLabelID(10)

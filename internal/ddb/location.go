@@ -2,7 +2,13 @@ package ddb
 
 import "github.com/jorgefuertes/QDAAD/internal/qderror"
 
-const MaxLocationID ID = 251
+const (
+	MAX_LOCATION_ID ID = 251
+	LOC_NOT_CREATED ID = 252
+	LOC_WORN        ID = 253
+	LOC_CARRIED     ID = 254
+	LOC_HERE        ID = 255
+)
 
 type Location struct {
 	ID          ID
@@ -52,7 +58,7 @@ func (ls *Locations) Add(labelID ID16, description string) (ID, error) {
 }
 
 func (ls Locations) getNextID() (ID, error) {
-	for id := ID(0); id < MaxLocationID; id++ {
+	for id := ID(0); id <= MAX_LOCATION_ID; id++ {
 		if _, err := ls.Get(id); err != nil {
 			return id, nil
 		}

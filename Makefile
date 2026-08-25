@@ -28,6 +28,9 @@ lint:
 	@go tool executor run -d "golangci-lint" -c "go tool golangci-lint run ./..."
 	@go tool executor run -d "govulncheck" -c "go tool govulncheck ./..."
 
+dead:
+	@go tool deadcode ./...
+
 clean: test-clean
 	@rm -Rf dist
 	@rm -Rf tmp

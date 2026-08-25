@@ -1,7 +1,6 @@
 package ddb
 
 import (
-	"math"
 	"slices"
 	"strings"
 	"unicode"
@@ -12,13 +11,15 @@ import (
 type WordKind uint8
 
 const (
-	MaxDirectionWord     ID = 13
-	MaxConvertibleToVerb ID = 39
-	// MaxWordLen is the significant length of a vocabulary word: DAAD only
+	// MAX_WORD_LEN is the significant length of a vocabulary word: DAAD only
 	// stores and compares the first five characters of each word.
-	MaxWordLen    = 5
-	MaxWord    ID = 254
-	NoWordID   ID = 255
+	MAX_WORD_LEN            = 5
+	MAX_DIRECTION_WORD   ID = 13
+	MAX_CONVERTIBLE_NAME ID = 39
+	MAX_PROPER_NOUN      ID = 49
+	LAST_PRONOMINAL_VERB ID = 239
+	MAX_WORD_ID          ID = 254
+	NO_WORD_ID           ID = 255
 )
 
 const (
@@ -76,48 +77,55 @@ func (w *Word) AddSynonym(synonym string) {
 }
 
 func (w *Word) IsDirection() bool {
-	return w.ID <= MaxDirectionWord
+	return w.ID <= MAX_DIRECTION_WORD
 }
 
 func (w *Word) IsConvertible() bool {
-	return w.ID <= MaxConvertibleToVerb
+	return w.ID <= MAX_CONVERTIBLE_NAME
 }
 
 type Words []Word
 
 func NewWordStore() Words {
 	return Words{
-		{ID: NoWordID, LabelID: 0, Kind: NoWord, Synonyms: []string{"_"}},
+		{ID: NO_WORD_ID, LabelID: 0, Kind: NoWord, Synonyms: []string{"_"}},
 	}
 }
 
-func (ws *Words) New(labelID ID16, kind WordKind, isDirection, isConvertible bool, synonyms ...string) (ID, error) {
+type WordOption int
+
+const (
+	None WordOption = iota
+	Direction
+	Convertible
+	NotPronominal
+	ProperNoun
+)
+
+func (ws *Words) New(labelID ID16, kind WordKind, option WordOption, synonyms ...string) (ID, error) {
 	if !kind.IsValid() {
 		return 0, qderror.ErrInvalidWordKind
-	}
-
-	if isDirection && isConvertible {
-		return 0, qderror.ErrWordDirectionAndConvertible
 	}
 
 	if _, exists := ws.GetByLabelID(labelID); exists {
 		return 0, qderror.ErrWordWithDuplicatedLabel
 	}
 
-	id, err := ws.getNextID(isDirection, isConvertible)
+	id, err := ws.getNextID(option)
 	if err != nil {
 		return 0, err
 	}
 
-	for i, synonym := range synonyms {
-		synonyms[i] = NormalizeWord(synonym)
+	var normalized []string
+	for _, s := range synonyms {
+		normalized = append(normalized, NormalizeWord(s))
 	}
 
 	*ws = append(*ws, Word{
 		ID:       id,
 		LabelID:  labelID,
 		Kind:     kind,
-		Synonyms: synonyms,
+		Synonyms: normalized,
 	})
 
 	return id, nil
@@ -169,30 +177,23 @@ func (ws Words) GetByTypeAndSynonym(kind WordKind, synonym string) (*Word, error
 	return nil, qderror.ErrWordNotFound
 }
 
-func (ws Words) getNextID(isDirection, isConvertible bool) (ID, error) {
-	if isDirection {
+func (ws Words) getNextID(option WordOption) (ID, error) {
+	switch option {
+	case Direction:
 		return ws.getNextDirectionID()
+	case Convertible:
+		return ws.getNextConvertibleID()
+	case ProperNoun:
+		return ws.getNextProperNounID()
+	case NotPronominal:
+		return ws.getNextNonPronominalVerbID()
+	default:
+		return ws.getNextGeneralID()
 	}
-
-	if isConvertible {
-		id, err := ws.getNextConvertibleID()
-		if err == nil {
-			return id, nil
-		}
-
-		id, err = ws.getNextDirectionID()
-		if err == nil {
-			return id, nil
-		}
-
-		return 0, qderror.ErrWordConvertibleIDsExhausted
-	}
-
-	return ws.getNextGeneralID()
 }
 
 func (ws Words) getNextDirectionID() (ID, error) {
-	for i := ID(0); i <= MaxDirectionWord; i++ {
+	for i := ID(0); i <= MAX_DIRECTION_WORD; i++ {
 		if _, exists := ws.Get(i); !exists {
 			return i, nil
 		}
@@ -202,7 +203,7 @@ func (ws Words) getNextDirectionID() (ID, error) {
 }
 
 func (ws Words) getNextConvertibleID() (ID, error) {
-	for i := ID(MaxDirectionWord + 1); i <= MaxConvertibleToVerb; i++ {
+	for i := ID(MAX_DIRECTION_WORD + 1); i <= MAX_CONVERTIBLE_NAME; i++ {
 		if _, exists := ws.Get(i); !exists {
 			return i, nil
 		}
@@ -211,23 +212,34 @@ func (ws Words) getNextConvertibleID() (ID, error) {
 	return 0, qderror.ErrWordConvertibleIDsExhausted
 }
 
-func (ws Words) getNextGeneralID() (ID, error) {
-	// The counters must be int: ID is an uint8, so "i <= math.MaxUint8" would
-	// always hold and the loop would never end.
-	for i := MaxConvertibleToVerb + 1; i < math.MaxUint8; i++ {
-		if _, exists := ws.Get(ID(i)); !exists {
-			return ID(i), nil
-		}
-	}
-
-	// No general ID left: fall back to the reserved ranges.
-	for id := ID(0); id <= MaxConvertibleToVerb; id++ {
+func (ws Words) getNextProperNounID() (ID, error) {
+	for id := MAX_CONVERTIBLE_NAME + 1; id <= MAX_PROPER_NOUN; id++ {
 		if _, exists := ws.Get(id); !exists {
 			return id, nil
 		}
 	}
 
-	return 0, qderror.ErrWordStoreIsFull
+	return 0, qderror.ErrWordProperNounIDsExhausted
+}
+
+func (ws Words) getNextNonPronominalVerbID() (ID, error) {
+	for id := LAST_PRONOMINAL_VERB + 1; id <= MAX_WORD_ID; id++ {
+		if _, exists := ws.Get(id); !exists {
+			return id, nil
+		}
+	}
+
+	return 0, qderror.ErrWordNonPronominalIDsExhausted
+}
+
+func (ws Words) getNextGeneralID() (ID, error) {
+	for id := MAX_PROPER_NOUN + 1; id <= LAST_PRONOMINAL_VERB; id++ {
+		if _, exists := ws.Get(id); !exists {
+			return id, nil
+		}
+	}
+
+	return 0, qderror.ErrWordGeneralIDsExhausted
 }
 
 // NormalizeWord returns the vocabulary form of a word: blanks removed,
@@ -250,7 +262,7 @@ func NormalizeWord(s string) string {
 		length int
 	)
 
-	sb.Grow(MaxWordLen)
+	sb.Grow(MAX_WORD_LEN)
 
 	for _, r := range s {
 		// Combining marks are dropped so that decomposed input —"n" plus a
@@ -267,7 +279,7 @@ func NormalizeWord(s string) string {
 		sb.WriteRune(r)
 
 		length++
-		if length == MaxWordLen {
+		if length == MAX_WORD_LEN {
 			break
 		}
 	}
