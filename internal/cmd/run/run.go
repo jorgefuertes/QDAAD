@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/jorgefuertes/QDAAD/internal/qderror"
+	qderror "github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 	"github.com/urfave/cli/v3"
 )
 

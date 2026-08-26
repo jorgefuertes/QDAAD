@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/jorgefuertes/QDAAD/internal/qderror"
+	"github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -125,7 +125,7 @@ func TestWordsNew(t *testing.T) {
 	t.Run("invalid kind", func(t *testing.T) {
 		ws := NewWordStore()
 		id, err := ws.New(1, NoWord, None)
-		require.ErrorIs(t, err, qderror.ErrInvalidWordKind)
+		require.ErrorIs(t, err, dberrors.ErrInvalidWordKind)
 		require.Zero(t, id)
 		require.Len(t, ws, baseWordsCount, "a rejected word is not stored")
 	})
@@ -136,7 +136,7 @@ func TestWordsNew(t *testing.T) {
 		require.NoError(t, err)
 
 		id, err := ws.New(7, Noun, None, "LLAVE")
-		require.ErrorIs(t, err, qderror.ErrWordWithDuplicatedLabel)
+		require.ErrorIs(t, err, dberrors.ErrWordWithDuplicatedLabel)
 		require.Zero(t, id)
 		require.Len(t, ws, baseWordsCount+1, "the duplicate is not stored")
 	})
@@ -146,7 +146,7 @@ func TestWordsNew(t *testing.T) {
 		fill(&ws, 0, MAX_DIRECTION_WORD)
 
 		id, err := ws.New(1000, Verb, Direction, "NORTE")
-		require.ErrorIs(t, err, qderror.ErrWordConnectionIDsExhausted)
+		require.ErrorIs(t, err, dberrors.ErrWordConnectionIDsExhausted)
 		require.Zero(t, id)
 		require.Len(t, ws, baseWordsCount+MAX_DIRECTION_WORD.Int()+1, "nothing new is stored")
 	})
@@ -391,7 +391,7 @@ func TestWordsGetBySynonym(t *testing.T) {
 
 	t.Run("not found", func(t *testing.T) {
 		w, err := ws.GetBySynonym("DEJAR")
-		require.ErrorIs(t, err, qderror.ErrWordNotFound)
+		require.ErrorIs(t, err, dberrors.ErrWordNotFound)
 		require.Nil(t, w)
 	})
 
@@ -425,13 +425,13 @@ func TestWordsGetByTypeAndSynonym(t *testing.T) {
 
 	t.Run("not found: right synonym, wrong kind", func(t *testing.T) {
 		w, err := ws.GetByTypeAndSynonym(Adjective, "PUERTA")
-		require.ErrorIs(t, err, qderror.ErrWordNotFound)
+		require.ErrorIs(t, err, dberrors.ErrWordNotFound)
 		require.Nil(t, w)
 	})
 
 	t.Run("not found: unknown synonym", func(t *testing.T) {
 		w, err := ws.GetByTypeAndSynonym(Verb, "VENTANA")
-		require.ErrorIs(t, err, qderror.ErrWordNotFound)
+		require.ErrorIs(t, err, dberrors.ErrWordNotFound)
 		require.Nil(t, w)
 	})
 }
@@ -444,11 +444,11 @@ var ranges = []struct {
 	last         ID
 	exhaustedErr error
 }{
-	{Direction, "direction", 0, MAX_DIRECTION_WORD, qderror.ErrWordConnectionIDsExhausted},
-	{Convertible, "convertible", MAX_DIRECTION_WORD + 1, MAX_CONVERTIBLE_NAME, qderror.ErrWordConvertibleIDsExhausted},
-	{ProperNoun, "proper noun", MAX_CONVERTIBLE_NAME + 1, MAX_PROPER_NOUN, qderror.ErrWordProperNounIDsExhausted},
-	{None, "general", MAX_PROPER_NOUN + 1, LAST_PRONOMINAL_VERB, qderror.ErrWordGeneralIDsExhausted},
-	{NotPronominal, "non pronominal", LAST_PRONOMINAL_VERB + 1, MAX_WORD_ID, qderror.ErrWordNonPronominalIDsExhausted},
+	{Direction, "direction", 0, MAX_DIRECTION_WORD, dberrors.ErrWordConnectionIDsExhausted},
+	{Convertible, "convertible", MAX_DIRECTION_WORD + 1, MAX_CONVERTIBLE_NAME, dberrors.ErrWordConvertibleIDsExhausted},
+	{ProperNoun, "proper noun", MAX_CONVERTIBLE_NAME + 1, MAX_PROPER_NOUN, dberrors.ErrWordProperNounIDsExhausted},
+	{None, "general", MAX_PROPER_NOUN + 1, LAST_PRONOMINAL_VERB, dberrors.ErrWordGeneralIDsExhausted},
+	{NotPronominal, "non pronominal", LAST_PRONOMINAL_VERB + 1, MAX_WORD_ID, dberrors.ErrWordNonPronominalIDsExhausted},
 }
 
 func TestGetNextID(t *testing.T) {

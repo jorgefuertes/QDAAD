@@ -3,20 +3,22 @@ package ddb
 import (
 	"slices"
 
-	"github.com/jorgefuertes/QDAAD/internal/qderror"
+	qderror "github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 )
 
 const MAX_MESSSAGE ID = 254
+const MAX_MESSSAGE16 ID16 = 65534
 
 type MessageKind uint8
 
 const (
-	SystemMessage MessageKind = 0
-	UserMessage   MessageKind = 1
+	SystemMessage MessageKind = iota
+	UserMessage
+	XMessage
 )
 
 type Message struct {
-	ID      ID
+	ID      ID16
 	LabelID ID
 	Content string
 }
@@ -27,6 +29,7 @@ func NewMessageStore() Messages {
 	return Messages{
 		SystemMessage: make([]Message, 0),
 		UserMessage:   make([]Message, 0),
+		XMessage:      make([]Message, 0),
 	}
 }
 
@@ -39,12 +42,26 @@ func (ms *Messages) AddMessage(kind MessageKind, labelID ID, content string) err
 		return qderror.ErrInvalidMessageKind
 	}
 
-	if len(messages) > MAX_MESSSAGE.Int() {
-		return qderror.ErrMessageStoreIsFull
+	switch kind {
+	case SystemMessage, UserMessage:
+		// The DDB has a limit of 255 messages per table, numbered 0 to 254
+		if len(messages) > MAX_MESSSAGE.Int() {
+			return qderror.ErrMessageStoreIsFull
+		}
+	case XMessage:
+		// The XMessage table has no limit (16bit) but the XMB file has a 64KiB limit
+		if len(messages) > MAX_MESSSAGE16.Int() {
+			return qderror.ErrMessageStoreIsFull
+		}
+
+		// Eeach message has a limit of 511 bytes
+		if len([]byte(content)) > 511 {
+			return qderror.ErrXMessageTooLong
+		}
 	}
 
 	(*ms)[kind] = append(messages, Message{
-		ID:      ID(len(messages)),
+		ID:      ID16(len(messages)),
 		LabelID: labelID,
 		Content: content,
 	})
@@ -54,7 +71,7 @@ func (ms *Messages) AddMessage(kind MessageKind, labelID ID, content string) err
 
 // GetMessage returns a copy: a message is immutable once defined, so there is
 // no way to reach into the store through it.
-func (ms Messages) GetMessage(kind MessageKind, id ID) (string, bool) {
+func (ms Messages) GetMessage(kind MessageKind, id ID16) (string, bool) {
 	messages, ok := ms[kind]
 	if !ok {
 		return "", false

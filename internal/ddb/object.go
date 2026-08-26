@@ -3,7 +3,7 @@ package ddb
 import (
 	"math"
 
-	"github.com/jorgefuertes/QDAAD/internal/qderror"
+	qderror "github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 )
 
 type Object struct {

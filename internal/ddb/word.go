@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/jorgefuertes/QDAAD/internal/qderror"
+	qderror "github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 )
 
 type WordKind uint8

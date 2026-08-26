@@ -3,7 +3,7 @@ package ddb
 import (
 	"testing"
 
-	"github.com/jorgefuertes/QDAAD/internal/qderror"
+	"github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,7 +52,7 @@ func TestProcessesAdd(t *testing.T) {
 		require.Len(t, ps, MAX_PROCESS_ID.Int()+1, "255 processes, numbered 0 to 254")
 
 		id, err := ps.Add(1000)
-		require.ErrorIs(t, err, qderror.ErrProcessStoreIsFull)
+		require.ErrorIs(t, err, dberrors.ErrProcessStoreIsFull)
 		require.Zero(t, id)
 		require.Len(t, ps, MAX_PROCESS_ID.Int()+1, "nothing new is stored")
 	})
@@ -61,7 +61,7 @@ func TestProcessesAdd(t *testing.T) {
 func TestProcessesAddEntry(t *testing.T) {
 	t.Run("without a process", func(t *testing.T) {
 		ps := NewProcessStore()
-		require.ErrorIs(t, ps.AddEntry(1, 2), qderror.ErrProcessNoProcess)
+		require.ErrorIs(t, ps.AddEntry(1, 2), dberrors.ErrProcessNoProcess)
 	})
 
 	t.Run("entries land on the last process", func(t *testing.T) {
@@ -100,7 +100,7 @@ func TestProcessesAddEntry(t *testing.T) {
 func TestProcessesAddCondact(t *testing.T) {
 	t.Run("without a process", func(t *testing.T) {
 		ps := NewProcessStore()
-		require.ErrorIs(t, ps.AddCondact(opCLS), qderror.ErrProcessNoProcess)
+		require.ErrorIs(t, ps.AddCondact(opCLS), dberrors.ErrProcessNoProcess)
 	})
 
 	t.Run("without an entry", func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestProcessesAddCondact(t *testing.T) {
 		_, err := ps.Add(1)
 		require.NoError(t, err)
 
-		require.ErrorIs(t, ps.AddCondact(opCLS), qderror.ErrProcessNoEntry)
+		require.ErrorIs(t, ps.AddCondact(opCLS), dberrors.ErrProcessNoEntry)
 	})
 
 	t.Run("arity", func(t *testing.T) {
@@ -121,10 +121,10 @@ func TestProcessesAddCondact(t *testing.T) {
 			{"no parameters", opCLS, nil, nil},
 			{"one parameter", opDESC, []Param{{Value: 7}}, nil},
 			{"two parameters", opLET, []Param{{Value: 100}, {Value: 200}}, nil},
-			{"too few", opLET, []Param{{Value: 100}}, qderror.ErrCondactParamCount},
-			{"too many", opCLS, []Param{{Value: 1}}, qderror.ErrCondactParamCount},
-			{"reserved opcode", 120, nil, qderror.ErrInvalidOpcode},
-			{"beyond the table", 200, nil, qderror.ErrInvalidOpcode},
+			{"too few", opLET, []Param{{Value: 100}}, dberrors.ErrCondactParamCount},
+			{"too many", opCLS, []Param{{Value: 1}}, dberrors.ErrCondactParamCount},
+			{"reserved opcode", 120, nil, dberrors.ErrInvalidOpcode},
+			{"beyond the table", 200, nil, dberrors.ErrInvalidOpcode},
 		}
 
 		for _, c := range cases {

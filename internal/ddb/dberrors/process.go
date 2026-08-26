@@ -1,4 +1,4 @@
-package qderror
+package dberrors
 
 import "errors"
 

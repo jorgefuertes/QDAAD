@@ -1,5 +1,7 @@
 package ddb
 
+const LabelUndefined ID16 = 0
+
 type Label struct {
 	ID   ID16
 	Name string
@@ -8,7 +10,9 @@ type Label struct {
 type Labels []Label
 
 func NewLabelStore() Labels {
-	return Labels{}
+	return Labels{
+		{ID: LabelUndefined, Name: "undefined"},
+	}
 }
 
 func (ls *Labels) Add(name string) (ID16, error) {
@@ -16,7 +20,7 @@ func (ls *Labels) Add(name string) (ID16, error) {
 		return id, nil
 	}
 
-	var maxID ID16 = 0
+	var maxID ID16 = 1
 	for _, l := range *ls {
 		if l.ID > maxID {
 			maxID = l.ID

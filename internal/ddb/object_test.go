@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/jorgefuertes/QDAAD/internal/qderror"
+	"github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +39,7 @@ func TestObjectsAdd(t *testing.T) {
 		obj := newObject(1, 1, NO_WORD_ID)
 		obj.ID = 7
 
-		require.ErrorIs(t, ost.Add(obj), qderror.ErrCannotCreateWithID)
+		require.ErrorIs(t, ost.Add(obj), dberrors.ErrCannotCreateWithID)
 		require.Empty(t, ost, "a rejected object is not stored")
 	})
 
@@ -48,7 +48,7 @@ func TestObjectsAdd(t *testing.T) {
 		require.NoError(t, ost.Add(newObject(1, 1, NO_WORD_ID)))
 
 		err := ost.Add(newObject(1, 2, NO_WORD_ID))
-		require.ErrorIs(t, err, qderror.ErrObjectDuplicatedLabel)
+		require.ErrorIs(t, err, dberrors.ErrObjectDuplicatedLabel)
 		require.Len(t, ost, 1, "the duplicate is not stored")
 	})
 
@@ -57,7 +57,7 @@ func TestObjectsAdd(t *testing.T) {
 		require.NoError(t, ost.Add(newObject(1, 1, 2)))
 
 		err := ost.Add(newObject(2, 1, 2))
-		require.ErrorIs(t, err, qderror.ErrObjectDuplicatedNameAdjective)
+		require.ErrorIs(t, err, dberrors.ErrObjectDuplicatedNameAdjective)
 		require.Len(t, ost, 1, "the duplicate is not stored")
 	})
 
@@ -98,7 +98,7 @@ func TestObjectsAdd(t *testing.T) {
 		}
 
 		err := ost.Add(newObject(1000, 1, NO_WORD_ID))
-		require.ErrorIs(t, err, qderror.ErrObjectStoreIsFull)
+		require.ErrorIs(t, err, dberrors.ErrObjectStoreIsFull)
 		require.Len(t, ost, math.MaxUint8+1, "nothing new is stored")
 	})
 
@@ -128,7 +128,7 @@ func TestObjectsGet(t *testing.T) {
 
 	t.Run("not found", func(t *testing.T) {
 		obj, err := ost.Get(2)
-		require.ErrorIs(t, err, qderror.ErrObjectNotFound)
+		require.ErrorIs(t, err, dberrors.ErrObjectNotFound)
 		require.Nil(t, obj)
 	})
 
@@ -157,7 +157,7 @@ func TestObjectsGetByLabelID(t *testing.T) {
 
 	t.Run("not found", func(t *testing.T) {
 		obj, err := ost.GetByLabelID(11)
-		require.ErrorIs(t, err, qderror.ErrObjectNotFound)
+		require.ErrorIs(t, err, dberrors.ErrObjectNotFound)
 		require.Nil(t, obj)
 	})
 }
@@ -176,7 +176,7 @@ func TestObjectsGetByName(t *testing.T) {
 
 	t.Run("not found", func(t *testing.T) {
 		obj, err := ost.GetByName(9)
-		require.ErrorIs(t, err, qderror.ErrObjectNotFound)
+		require.ErrorIs(t, err, dberrors.ErrObjectNotFound)
 		require.Nil(t, obj)
 	})
 }
@@ -198,13 +198,13 @@ func TestObjectsGetByNameAdjective(t *testing.T) {
 
 	t.Run("not found: right name, wrong adjective", func(t *testing.T) {
 		obj, err := ost.GetByNameAdjective(7, 22)
-		require.ErrorIs(t, err, qderror.ErrObjectNotFound)
+		require.ErrorIs(t, err, dberrors.ErrObjectNotFound)
 		require.Nil(t, obj)
 	})
 
 	t.Run("not found: unknown name", func(t *testing.T) {
 		obj, err := ost.GetByNameAdjective(8, 20)
-		require.ErrorIs(t, err, qderror.ErrObjectNotFound)
+		require.ErrorIs(t, err, dberrors.ErrObjectNotFound)
 		require.Nil(t, obj)
 	})
 }
@@ -236,7 +236,7 @@ func TestObjectsGetNextID(t *testing.T) {
 		}
 
 		id, err := ost.getNextID()
-		require.ErrorIs(t, err, qderror.ErrObjectStoreIsFull)
+		require.ErrorIs(t, err, dberrors.ErrObjectStoreIsFull)
 		require.Zero(t, id)
 	})
 }

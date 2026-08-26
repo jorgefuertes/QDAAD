@@ -3,7 +3,7 @@ package ddb
 import (
 	"testing"
 
-	"github.com/jorgefuertes/QDAAD/internal/qderror"
+	"github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -75,7 +75,7 @@ func TestMessagesAddMessage(t *testing.T) {
 		ms := NewMessageStore()
 
 		err := ms.AddMessage(unknownKind, 1, "texto")
-		require.ErrorIs(t, err, qderror.ErrInvalidMessageKind)
+		require.ErrorIs(t, err, dberrors.ErrInvalidMessageKind)
 		require.Len(t, ms, 2, "no third table is opened")
 	})
 
@@ -89,7 +89,7 @@ func TestMessagesAddMessage(t *testing.T) {
 		require.Len(t, ms[SystemMessage], MAX_MESSSAGE.Int()+1, "255 messages, numbered 0 to 254")
 
 		err := ms.AddMessage(SystemMessage, 0, "uno de más")
-		require.ErrorIs(t, err, qderror.ErrMessageStoreIsFull)
+		require.ErrorIs(t, err, dberrors.ErrMessageStoreIsFull)
 		require.Len(t, ms[SystemMessage], MAX_MESSSAGE.Int()+1, "nothing new is stored")
 
 		require.NoError(t, ms.AddMessage(UserMessage, 1, "texto"),
@@ -123,7 +123,7 @@ func TestMessagesGetMessage(t *testing.T) {
 		cases := []struct {
 			name string
 			kind MessageKind
-			id   ID
+			id   ID16
 		}{
 			{"unknown ID", SystemMessage, 2},
 			// The user table only holds message 0.

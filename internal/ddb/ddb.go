@@ -16,6 +16,10 @@ func (id ID) Int() int {
 	return int(id)
 }
 
+func (id ID16) Int() int {
+	return int(id)
+}
+
 type DDB struct {
 	Version       uint8             `valid:"required,min=1,max=3"`
 	MachineID     arch.Machine      `valid:"required"`

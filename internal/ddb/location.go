@@ -1,6 +1,6 @@
 package ddb
 
-import "github.com/jorgefuertes/QDAAD/internal/qderror"
+import qderror "github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 
 const (
 	MAX_LOCATION_ID ID = 251

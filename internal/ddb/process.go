@@ -1,6 +1,6 @@
 package ddb
 
-import "github.com/jorgefuertes/QDAAD/internal/qderror"
+import qderror "github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 
 // MAX_PROCESS_ID is the last usable process number: the header stores the
 // process count in a single byte, so 255 processes fit and they are numbered

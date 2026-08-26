@@ -10,7 +10,7 @@ func TestNewLabelStore(t *testing.T) {
 	ls := NewLabelStore()
 	require.NotNil(t, ls)
 	require.NotNil(t, ls, "the slice is allocated, not nil")
-	require.Empty(t, ls)
+	require.Len(t, ls, 1, "the store starts with the undefined label")
 }
 
 func TestLabelStoreAdd(t *testing.T) {
