@@ -20,7 +20,9 @@ func (ls *Labels) Add(name string) (ID16, error) {
 		return id, nil
 	}
 
-	var maxID ID16 = 1
+	// The search starts at the undefined label, which always exists and owns
+	// ID 0, so the first label added gets ID 1.
+	maxID := LabelUndefined
 	for _, l := range *ls {
 		if l.ID > maxID {
 			maxID = l.ID

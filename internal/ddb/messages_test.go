@@ -1,6 +1,7 @@
 package ddb
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
@@ -14,9 +15,9 @@ const unknownKind MessageKind = 200
 func TestNewMessageStore(t *testing.T) {
 	ms := NewMessageStore()
 	require.NotNil(t, ms)
-	require.Len(t, ms, 2, "one table per kind")
+	require.Len(t, ms, 3, "one table per kind")
 
-	for _, kind := range []MessageKind{SystemMessage, UserMessage} {
+	for _, kind := range []MessageKind{SystemMessage, UserMessage, XMessage} {
 		messages, exists := ms[kind]
 		require.True(t, exists, "kind %d", kind)
 		require.NotNil(t, messages, "the slice is allocated, not nil")
@@ -33,7 +34,7 @@ func TestMessagesAddMessage(t *testing.T) {
 
 		for i := range 3 {
 			require.NoError(t, ms.AddMessage(UserMessage, ID(i+1), "texto"))
-			require.Equal(t, ID(i), ms[UserMessage][i].ID, "message number %d", i)
+			require.Equal(t, ID16(i), ms[UserMessage][i].ID, "message number %d", i)
 		}
 
 		require.Len(t, ms[UserMessage], 3)
@@ -51,9 +52,9 @@ func TestMessagesAddMessage(t *testing.T) {
 		require.Len(t, ms[SystemMessage], 2)
 		require.Len(t, ms[UserMessage], 1)
 
-		require.Equal(t, ID(0), ms[UserMessage][0].ID, "the user table starts at zero too")
-		require.Equal(t, ID(0), ms[SystemMessage][0].ID)
-		require.Equal(t, ID(1), ms[SystemMessage][1].ID)
+		require.Equal(t, ID16(0), ms[UserMessage][0].ID, "the user table starts at zero too")
+		require.Equal(t, ID16(0), ms[SystemMessage][0].ID)
+		require.Equal(t, ID16(1), ms[SystemMessage][1].ID)
 	})
 
 	t.Run("stores every field as given", func(t *testing.T) {
@@ -76,7 +77,7 @@ func TestMessagesAddMessage(t *testing.T) {
 
 		err := ms.AddMessage(unknownKind, 1, "texto")
 		require.ErrorIs(t, err, dberrors.ErrInvalidMessageKind)
-		require.Len(t, ms, 2, "no third table is opened")
+		require.Len(t, ms, 3, "no fourth table is opened")
 	})
 
 	t.Run("exhausted", func(t *testing.T) {
@@ -94,6 +95,49 @@ func TestMessagesAddMessage(t *testing.T) {
 
 		require.NoError(t, ms.AddMessage(UserMessage, 1, "texto"),
 			"the other table has its own room")
+	})
+
+	t.Run("xmessages are numbered past the byte limit", func(t *testing.T) {
+		// The xmessage table is not one of the DDB text tables: nothing counts
+		// it in the header, and its ID is a 16-bit offset into the .XMB file.
+		ms := NewMessageStore()
+
+		for range MAX_MESSSAGE.Int() + 2 {
+			require.NoError(t, ms.AddMessage(XMessage, 1, "texto"))
+		}
+
+		last := ms[XMessage][len(ms[XMessage])-1]
+		require.Equal(t, ID16(MAX_MESSSAGE.Int()+1), last.ID,
+			"an xmessage numbered past 255, where a normal table would be full")
+	})
+
+	t.Run("an xmessage is capped at 511 bytes", func(t *testing.T) {
+		ms := NewMessageStore()
+
+		require.NoError(t, ms.AddMessage(XMessage, 1, strings.Repeat("a", 511)),
+			"exactly 511 fits")
+
+		err := ms.AddMessage(XMessage, 2, strings.Repeat("a", 512))
+		require.ErrorIs(t, err, dberrors.ErrXMessageTooLong)
+		require.Len(t, ms[XMessage], 1, "the long one is not stored")
+	})
+
+	t.Run("the 511 cap is on bytes, not on characters", func(t *testing.T) {
+		// A tilde is two bytes in UTF-8, so 300 of them blow the limit even
+		// though they are only 300 characters.
+		ms := NewMessageStore()
+
+		err := ms.AddMessage(XMessage, 1, strings.Repeat("ñ", 300))
+		require.ErrorIs(t, err, dberrors.ErrXMessageTooLong)
+	})
+
+	t.Run("the other tables have no length limit", func(t *testing.T) {
+		ms := NewMessageStore()
+
+		for _, kind := range []MessageKind{SystemMessage, UserMessage} {
+			require.NoError(t, ms.AddMessage(kind, 1, strings.Repeat("a", 2000)),
+				"kind %d", kind)
+		}
 	})
 }
 

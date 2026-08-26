@@ -103,8 +103,15 @@ Todos verificados sobre el código de `work/DRC` en el commit `e7bb170`.
 | Media | `USintactic.pas:631` vs `:633` | El tope de **511 caracteres de un xmensaje se comprueba antes** de añadir el `#n` que convierte `XMESSAGE` en `XMES`. Un `XMESSAGE` de 511 caracteres produce hasta 513 bytes almacenados, por encima del `BlockRead` de 511 de PCDAAD y del `fread` de 512 de msx2daad. La compresión lo suele tapar |
 | Media | `drb.php:1921-1927` | Con `-x`, un `0.XMB` que pase de 64 KB **trunca los offsets en silencio**: las comprobaciones de `>0xFFFF` cubren solo los xmensajes, y la de `generateXMessages` corre antes de que `-x` añada las tablas de texto |
 | Baja | `UMessageList.pas:65` | El límite de 255 cadenas de `XPLAY`/`XDATA` **informa de otra cosa**: el error dice «Too many messages, total messages in MTX, STX and LTX tables…», que no tiene relación. `OtherTX` no está exenta como sí lo está `XTX` |
+| **Alta** | `drb.php:684` vs `UJSONExport.pas:180` | **La `ñ` tiene dos códigos distintos según dónde esté**: 27 en el vocabulario y 26 en los mensajes. Igual con `ü`/`Ü` y `ç`/`Ç`. Una palabra del `/VOC` con `ñ` se guarda con un código que no coincide con el que teclea el jugador (`PCDAAD/ibmpc.pas:188` lo convierte al 26), así que **no puede reconocerse** |
+| Media | `drb.php:392` | `checkStrings` **no cubre el vocabulario**: solo mensajes, sysmess, localidades y objetos. Bytes mayores de 127 llegan al DDB sin que nadie avise |
+| Media | `drb.php:662-665` | La primera rama de `generateVocabulary` está **muerta y además pierde datos**: compara un byte suelto contra cadenas UTF-8 de 2 bytes, así que nunca casa; y si casara, asigna a la variable temporal y no añade nada al resultado |
+| Baja | `UJSONExport.pas:229` vs `drb.php:249` vs `ibmpc.pas:216` | **`ß` tiene tres respuestas distintas en la misma cadena de herramientas**: código 127 en `drf`, glifo 163 en la ruta heredada de `drb`, y glifo 163 al teclearlo en PCDAAD. La ruta viva es la de `drf` |
+| Baja | `UJSONExport.pas:59-60` | Con `-7`, **`¡` y `¿` se convierten los dos en `#`**, que es el carácter de escape. Si al siguiente le toca ser `A`–`P`, `b`, `e`, `f`, `g`, `k`, `n`, `r`, `s` o `t`, el analizador se lo come como secuencia |
+| Baja | `drb.php:353` y `:374` | El colapso `##` → `#` **existe solo en `drb`** y corre **después** de la pasada de `#A`…`#P`. `drf` no lo entiende |
 | Cosmética | `drf.pas:255` | `AddSymbol(SymbolList,'HERE',LOC_HERE)` duplicado |
 | Cosmética | `drf.pas:386` | `-check-maluva-disabled` imprime "Forced XMessages" |
+| Cosmética | `UJSONExport.pas:170-185` | Los comentarios de `ConvertChars` **están desplazados en uno a partir de `ú`**. Los valores emitidos son los correctos; los comentarios, no |
 
 Constantes declaradas y nunca referenciadas, indicio de funcionalidad prevista y no construida:
 `MAX_V3_DIRECTION`, `MAX_BLOCKABLE_CONNECTIONS` y `NUM_PREFIX_CONDACTS`
@@ -128,6 +135,10 @@ Un compilador no puede arreglarlos, pero sí debe decidir qué generar sabiendo 
 | Baja | msx2daad | Umbral de nombre convertible en 20 en lugar de 40 | Evitar valores de nombre entre 20 y 39 en vocabularios portables |
 | Baja | PCDAAD, NextDAAD | `PAUSE 0` / `GETKEY` **no espera a que se suelte la tecla**, como sí pide la especificación. Dos lecturas seguidas pueden devolver la misma pulsación | No encadenar `GETKEY` sin una espera propia |
 | Baja | NextDAAD | `fKey2` se pone **siempre a 0** tras `GETKEY`; PCDAAD guarda ahí el byte alto del código | No usar `fKey2` para distinguir teclas extendidas en juegos portables |
+| Media | NextDAAD | **Exime a los códigos 16–31 del desplazamiento de `#g`** (`print.asm:130-149`). Un `#gá#t` muestra `á` en Next y el glifo 149 (`ë`) en los otros cuatro | No meter caracteres del rango bajo dentro de un tramo `#g`…`#t` |
+| Media | msx2daad | **Sustituye el `@` siempre**, sin comprobar el idioma (`daad_print.c:128`); los otros tres lo condicionan al bit de español | No usar `@` en bases que no sean españolas |
+| Baja | PCDAAD, jDAAD | El **`_` dentro de un token se expande a espacio** (`tokens.pas:33`, `jdaad.js:1624`); msx2daad y NextDAAD no lo hacen | No poner `_` en los tokens de compresión |
+| Baja | PCDAAD | `PatchStr` comprueba `'\x81'` **dos veces** (`ibmpc.pas:192-193`), así que la `Ü` no se puede teclear | — |
 
 ---
 

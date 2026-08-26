@@ -2,7 +2,6 @@ package ddb
 
 import (
 	"slices"
-	"strings"
 	"unicode"
 
 	qderror "github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
@@ -242,47 +241,54 @@ func (ws Words) getNextGeneralID() (ID, error) {
 	return 0, qderror.ErrWordGeneralIDsExhausted
 }
 
+// precomposed joins a letter and a combining mark into the single character
+// DAAD has a code for. They are the eight pairs of the low charset, and no
+// other accented letter fits in a vocabulary word.
+var precomposed = map[[2]rune]rune{
+	{'A', '́'}: 'Á',
+	{'E', '́'}: 'É',
+	{'I', '́'}: 'Í',
+	{'O', '́'}: 'Ó',
+	{'U', '́'}: 'Ú',
+	{'N', '̃'}: 'Ñ',
+	{'U', '̈'}: 'Ü',
+	{'C', '̧'}: 'Ç',
+}
+
 // NormalizeWord returns the vocabulary form of a word: blanks removed,
-// uppercase, without accents or tildes —"ñ" becomes "n"— and truncated to
-// VocabularyLength characters.
+// uppercase and truncated to MAX_WORD_LEN characters.
+//
+// Accents and tildes are kept: DAAD stores them, it does not strip them. What
+// it does do is fold them back to their lowercase code —there is no uppercase
+// "Á" in the low charset— but that is a property of the DDB character set, so
+// it belongs to the emitter and not here.
 func NormalizeWord(s string) string {
-	// accentReplacements maps the uppercase accented characters of the Spanish
-	// alphabet to their plain equivalent: the DAAD vocabulary is ASCII only.
-	accentReplacements := map[rune]rune{
-		'Á': 'A', 'À': 'A', 'Ä': 'A', 'Â': 'A',
-		'É': 'E', 'È': 'E', 'Ë': 'E', 'Ê': 'E',
-		'Í': 'I', 'Ì': 'I', 'Ï': 'I', 'Î': 'I',
-		'Ó': 'O', 'Ò': 'O', 'Ö': 'O', 'Ô': 'O',
-		'Ú': 'U', 'Ù': 'U', 'Ü': 'U', 'Û': 'U',
-		'Ñ': 'N', 'Ç': 'C',
-	}
-
-	var (
-		sb     strings.Builder
-		length int
-	)
-
-	sb.Grow(MAX_WORD_LEN)
+	word := make([]rune, 0, MAX_WORD_LEN)
 
 	for _, r := range s {
-		// Combining marks are dropped so that decomposed input —"n" plus a
-		// combining tilde— normalizes just like its precomposed form.
-		if unicode.IsSpace(r) || unicode.Is(unicode.Mn, r) {
+		if unicode.IsSpace(r) {
 			continue
 		}
 
-		r = unicode.ToUpper(r)
-		if replacement, found := accentReplacements[r]; found {
-			r = replacement
+		// A combining mark joins the letter already written instead of taking a
+		// slot of its own, so decomposed input —"N" plus a combining tilde—
+		// ends up like its precomposed form.
+		if unicode.Is(unicode.Mn, r) {
+			if len(word) > 0 {
+				if joined, found := precomposed[[2]rune{word[len(word)-1], r}]; found {
+					word[len(word)-1] = joined
+				}
+			}
+
+			continue
 		}
 
-		sb.WriteRune(r)
-
-		length++
-		if length == MAX_WORD_LEN {
+		if len(word) == MAX_WORD_LEN {
 			break
 		}
+
+		word = append(word, unicode.ToUpper(r))
 	}
 
-	return sb.String()
+	return string(word)
 }

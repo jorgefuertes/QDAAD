@@ -139,19 +139,111 @@ direccion_texto = word( offset(puntero_de_cabecera) + 2*n )
 
 ### 2.3 Codificación de caracteres
 
-El frontend convierte el fuente a un juego de caracteres propio de DAAD
-(`UJSONExport.pas:157-266`, `ConvertChars`):
+**No es ASCII.** Es un juego de 256 glifos propio de DAAD, y —esto es lo que suele sorprender—
+**es el mismo para todas las máquinas**. Del manual oficial, apéndice A:
 
-- Los caracteres latinos frecuentes se mapean a los códigos **16 a 31**:
-  `ª ¡ ¿ « » á é í ó ú ñ Ñ ç Ç ü Ü`
-- Otras letras acentuadas se emiten como una secuencia de escape gráfico
-  `0x0E <código> 0x0F`
+> Throughout the whole DAAD system the same character set of 256 characters is used.
 
-La opción `-7` del frontend activa `ConvertAscii7Chars` (`UJSONExport.pas:45-154`), que reduce
-todo a ASCII plano (`ñ` → `ny`, `ß` → `ss`) para targets que no admiten 8 bits.
+El fuente `.DSF` entra en **ISO-8859-1** (ver [12-formato-dsf.md](12-formato-dsf.md)) y el frontend
+lo convierte a ese juego en `ConvertChars` (`UJSONExport.pas:157-266`).
 
-El backend verifica el resultado: `checkStrings` (`drb.php:391-416`) aborta con error si
-sobrevive cualquier byte mayor de 127 en MTX, STX, LTX u OTX.
+#### El reparto del espacio de bytes
+
+Ya deshecho el XOR:
+
+| Valor | Significado |
+|---|---|
+| `0x00`–`0x09` | literales de control, sin uso |
+| **`0x0A`** | **terminador de cadena**; no puede aparecer como dato |
+| `0x0B`–`0x0F` | escapes: `#b`, `#k`, `#n`/`#r`, `#g`, `#t` |
+| **`0x10`–`0x1F`** | los 16 caracteres latinos frecuentes |
+| `0x20`–`0x7F` | ASCII imprimible; el `0x7F` es `ß` |
+| `0x80`–`0xFF` | **referencia a token**, con `id = valor − 128` |
+
+Es decir: un carácter literal ocupa `0x00`–`0x7F` y, **ya ofuscado, sale como `0x80`–`0xFF`**; un
+token es lo contrario. El backend lo verifica: `checkStrings` (`drb.php:391-416`) aborta si
+sobrevive cualquier byte mayor de 127 en MTX, STX, LTX u OTX —antes de ofuscar, claro—.
+
+#### Los 16 códigos bajos
+
+`UJSONExport.pas:170-185`, con el código ISO-8859-1 de origen a la izquierda:
+
+| Código | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 |
+|---|---|---|---|---|---|---|---|---|
+| Carácter | `ª` | `¡` | `¿` | `«` | `»` | `á` | `é` | `í` |
+
+| Código | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 |
+|---|---|---|---|---|---|---|---|---|
+| Carácter | `ó` | `ú` | `ñ` | `Ñ` | `ç` | `Ç` | `ü` | `Ü` |
+
+Es un juego pensado para español y portugués. La copia independiente del backend
+(`drb.php:248`, `335-337`) coincide con esta tabla.
+
+> **Trampa.** Los comentarios al final de cada línea de `ConvertChars` **están desplazados en uno a
+> partir de `ú`** (dicen `//ú - 26`, `//ñ - 27`…). Los valores que de verdad se emiten son los de
+> arriba. Al transcribir, fíate del `\u00XX`, no del comentario.
+
+#### El resto de acentos: `#g` no cambia la codificación
+
+Las demás letras acentuadas —`à ä â è ë ê ì ï î ò ö ô ù û`, todas las mayúsculas acentuadas,
+`å ø ð þ ý`— **no caben en el rango bajo**. Se emiten envueltas en un cambio de fuente
+(`UJSONExport.pas:186-242`):
+
+```text
+#g <n> #t   →   0x0E <n> 0x0F   →   muestra el glifo 128 + n
+```
+
+Así `Á` es el glifo 251, `É` el 252, `Í` el 253, `Ó` el 254, `Ú` el 255 y el euro el 224.
+
+**El byte sigue estando entre 0 y 127.** `#g` no codifica nada distinto: le dice al intérprete que
+sume 128 al código de cada carácter a la hora de buscar el glifo, hasta que llegue un `#t`. Es un
+estado del impresor, no del texto. El condacto `MODE 1` hace lo mismo de forma permanente
+(`MODE_FORCEGCHAR`).
+
+`ß` es la excepción: va al rango bajo, al **código 127**, sin envoltorio (`UJSONExport.pas:229`).
+
+#### Las secuencias de escape
+
+`UJSONExport.pas:249-263`, con su equivalente en el backend en `drb.php:351-353`:
+
+| Escape | Byte | Efecto |
+|---|---|---|
+| `#g` | `0x0E` | pasa a los glifos 128–255 |
+| `#t` | `0x0F` | vuelve a los 0–127 |
+| `#b` | `0x0B` | **borra la ventana** |
+| `#s` | `0x20` | espacio |
+| `#k` | `0x0C` | espera una pulsación |
+| `#n`, `#r`, `\n`, `\r` | `0x0D` | salto de línea |
+| `#f` | `0x7F` | el glifo 127, `ß`. No documentado |
+| `#e` | `0E 60 0F` | el euro, glifo 224 |
+| `#A`…`#P` | `0x10`…`0x1F` | acceso directo a los 16 códigos bajos |
+| `_` | `0x5F` | nombre del objeto, sin artículo |
+| `@` | `0x40` | nombre del objeto, artículo en mayúscula. **Solo español** |
+| `##` | `#` | almohadilla literal; **solo lo entiende `drb`** (`drb.php:373`) |
+
+> **El manual se equivoca con `#b`.** Dice que imprime un espacio; lo que hace es borrar la ventana
+> (`PCDAAD/ibmpc.pas:570`, `msx2daad/src/daad/daad_print.c:40`). El espacio es `#s`.
+
+Las formas antiguas con barra invertida —`\g`, `\t`…— se rechazan con un aviso
+(`drb.php:359-368`).
+
+#### Mayúsculas y minúsculas
+
+**Los mensajes se guardan tal cual se escriben.** No hay ningún plegado de caja en todo el camino,
+ni ningún target que fuerce mayúsculas: al C64 se le inyecta la fuente de DAAD **encima del juego
+de la ROM** (`C64.BAT:102-106`), así que tiene caja mixta como los demás y no usa PETSCII.
+
+El vocabulario es otra cosa: se pasa a mayúsculas y se trunca a 5 (ver §3).
+
+#### La opción `-7`
+
+`ConvertAscii7Chars` (`UJSONExport.pas:45-154`) aplana el texto a ASCII de 7 bits para los targets
+que no admiten 8: `ñ`→`ny`, `Ñ`→`NY`, `ß`→`ss`, `þ`→`th`, `«`→`<<`, y las vocales acentuadas a su
+letra desnuda. Se aplica a las seis listas de cadenas, **pero no al vocabulario**.
+
+No es una garantía de que todo quede por debajo de `0x7E`: **`-7` sigue emitiendo `0x0E`/`0x0F` y
+los códigos 16 a 31** si el fuente usa `#g` o `#A`…`#P` explícitamente. Solo quita los caracteres
+Latin-1 del fuente.
 
 ### 2.4 Mensajes de sistema forzados a RAM
 
@@ -173,9 +265,42 @@ Puntero en `0x16`. **Entradas de 7 bytes, terminadas por un único byte `0x00`**
 | 5 | 1 | Valor de la palabra |
 | 6 | 1 | Tipo de palabra |
 
-El relleno es el espacio ofuscado, `0x20 ^ 0xFF = 0xDF`. Solo se pasan a mayúsculas los bytes
-entre 32 y 127 (`drb.php:702`), de modo que los caracteres acentuados (códigos 16 a 31) pasan
-tal cual.
+El relleno es el espacio ofuscado, `0x20 ^ 0xFF = 0xDF`.
+
+### 3.1 Acentos y mayúsculas: las tildes y las eñes se conservan
+
+Una palabra de vocabulario pasa por tres pasos, y el resultado no es el que uno supondría:
+
+1. **Se trunca a 5 caracteres** (`USintactic.pas:305`, `VOCABULARY_LENGTH`). Se trunca, no se
+   rechaza.
+2. **Se pasa a mayúsculas y después se deshace en los acentos** (`UVocabularyTree.pas:76`):
+
+   ```pascal
+   AVocabularyWord := FixSpanishChars(AnsiUpperCase(AVocabularyWord));
+   ```
+
+   `FixSpanishChars` (`:39-51`) revierte ocho pares, **de mayúscula a minúscula**:
+   `Á→á`, `É→é`, `Í→í`, `Ó→ó`, `Ú→ú`, `Ü→ü`, `Ñ→ñ`, `Ç→ç`.
+3. **El backend solo pasa a mayúsculas los bytes entre 32 y 127** (`drb.php:702`), así que los
+   códigos 16 a 31 llegan intactos al DDB.
+
+Es decir: **los acentos y la eñe no se quitan, se conservan**. Lo que se normaliza es la caja, y
+para los acentuados se normaliza *hacia abajo* porque el juego de caracteres de DAAD no tiene
+mayúsculas acentuadas en el rango bajo —`Á` es el glifo 251, al que solo se llega con `#g`— y en el
+vocabulario no cabe un escape.
+
+Un ejemplo completo: `araña` y `ARAÑA` acaban las dos como `A R A ñ A`, con la eñe en su código
+bajo. La comparación sigue siendo insensible a la caja, que es lo que se buscaba.
+
+> **Un compilador nuevo debe decidir esto conscientemente.** Si normaliza quitando los acentos
+> —`araña` → `ARANA`— produce un vocabulario que **no coincide con el de DRC** y, sobre todo, que
+> no coincide con lo que el intérprete construye a partir de lo que teclea el jugador: PCDAAD
+> convierte una `ñ` tecleada al código 26 (`ibmpc.pas:188`) y solo pliega `a`–`z`
+> (`utils.pas:66-70`). Quitar acentos es defendible, pero **hay que quitarlos también en la
+> entrada del jugador**, y eso es cosa del intérprete, no del compilador.
+>
+> Y hay un bug que lo enreda más: `drb` guarda la `ñ` del vocabulario en el código **27** y la de
+> los mensajes en el **26** ([13-portabilidad.md](13-portabilidad.md#3-bugs-confirmados-en-el-compilador)).
 
 Tipos (`UVocabularyTree.pas:9`):
 

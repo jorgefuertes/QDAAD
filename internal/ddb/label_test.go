@@ -6,33 +6,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// A fresh store is not empty: it holds the undefined label at ID 0, so the
+// counts below are always one above the number of labels added by the test.
+const baseLabelsCount = 1
+
+// firstLabelID is the ID the store hands out first: ID 0 belongs to the
+// undefined label, so real labels start at 1 and run dense from there.
+const firstLabelID ID16 = 1
+
 func TestNewLabelStore(t *testing.T) {
 	ls := NewLabelStore()
-	require.NotNil(t, ls)
 	require.NotNil(t, ls, "the slice is allocated, not nil")
-	require.Len(t, ls, 1, "the store starts with the undefined label")
+	require.Len(t, ls, baseLabelsCount, "the store starts with the undefined label")
+
+	require.Equal(t, LabelUndefined, ls[0].ID)
+	require.Equal(t, "undefined", ls[0].Name)
 }
 
 func TestLabelStoreAdd(t *testing.T) {
-	t.Run("assigns sequential IDs starting at one", func(t *testing.T) {
+	t.Run("assigns ascending IDs", func(t *testing.T) {
 		ls := NewLabelStore()
 
 		for i, name := range []string{"_PUERTA", "_LLAVE", "_COGER"} {
 			id, err := ls.Add(name)
 			require.NoError(t, err)
-			require.Equal(t, ID16(i+1), id, "adding %q", name)
+			require.Equal(t, firstLabelID+ID16(i), id, "adding %q", name)
 		}
 
-		require.Len(t, ls, 3)
+		require.Len(t, ls, baseLabelsCount+3)
 	})
 
-	t.Run("zero is never assigned", func(t *testing.T) {
-		// Get and GetByName report absence with a zero ID, so no label may own it.
+	t.Run("the undefined ID is never assigned", func(t *testing.T) {
+		// Get and GetByName report absence with a zero ID, so no real label may
+		// own it: it belongs to the undefined entry the store is born with.
 		ls := NewLabelStore()
 
 		id, err := ls.Add("_PUERTA")
 		require.NoError(t, err)
-		require.NotZero(t, id)
+		require.NotEqual(t, LabelUndefined, id)
 	})
 
 	t.Run("a repeated name returns the same ID", func(t *testing.T) {
@@ -47,7 +58,7 @@ func TestLabelStoreAdd(t *testing.T) {
 		again, err := ls.Add("_PUERTA")
 		require.NoError(t, err)
 		require.Equal(t, first, again, "the label is not duplicated")
-		require.Len(t, ls, 2, "nothing new is stored")
+		require.Len(t, ls, baseLabelsCount+2, "nothing new is stored")
 	})
 
 	t.Run("names are compared literally", func(t *testing.T) {
@@ -60,7 +71,7 @@ func TestLabelStoreAdd(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NotEqual(t, upper, lower, "case tells two labels apart")
-		require.Len(t, ls, 2)
+		require.Len(t, ls, baseLabelsCount+2)
 	})
 
 	t.Run("an empty name is a label like any other", func(t *testing.T) {
@@ -68,11 +79,39 @@ func TestLabelStoreAdd(t *testing.T) {
 
 		id, err := ls.Add("")
 		require.NoError(t, err)
-		require.Equal(t, ID16(1), id)
+		require.Equal(t, firstLabelID, id)
 
 		again, err := ls.Add("")
 		require.NoError(t, err)
 		require.Equal(t, id, again)
+	})
+
+	t.Run("numbering is dense: no ID is skipped", func(t *testing.T) {
+		// The undefined label owns 0, and the next one must be 1. Starting the
+		// search one too high leaves a hole that nothing else would catch.
+		ls := NewLabelStore()
+
+		for i := range 10 {
+			id, err := ls.Add("_ETIQUETA" + string(rune('A'+i)))
+			require.NoError(t, err)
+			require.Equal(t, ID16(i)+firstLabelID, id, "label number %d", i)
+		}
+
+		for i, l := range ls {
+			require.Equal(t, ID16(i), l.ID, "position %d holds a different ID", i)
+		}
+	})
+
+	t.Run("the undefined label is reachable by name", func(t *testing.T) {
+		ls := NewLabelStore()
+
+		id, exists := ls.GetByName("undefined")
+		require.True(t, exists)
+		require.Equal(t, LabelUndefined, id)
+
+		name, exists := ls.Get(LabelUndefined)
+		require.True(t, exists)
+		require.Equal(t, "undefined", name)
 	})
 
 	t.Run("the next ID follows the highest one, not the count", func(t *testing.T) {

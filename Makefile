@@ -10,7 +10,7 @@ compiler:
 
 test:
 	@go tool executor run -d "vet" -c "go vet ./..."
-	@go tool executor run -d "test" -c "go test -v ./...  -timeout 30s"
+	@go tool executor run -d "test" -c "go test -failfast ./...  -timeout 30s"
 
 test-clean:
 	@go tool executor run -d "clean test cache" -c "go clean -testcache"

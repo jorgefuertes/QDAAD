@@ -95,6 +95,30 @@ cabecera y la cola con `dd`:
 MSX2 no usa `dd`: convierte el `.CHR` a PNG, luego a SC8, luego a IM8, y lo une con un
 `GLUE.IM8`. HTML usa `jDAADFontMaker.php` para producir `font.js`.
 
+#### Qué fuente le toca a cada uno
+
+Aquí está **la única variación de caracteres que hay entre plataformas**, y no es de codificación:
+el juego de 256 glifos es idéntico en todas ([03-secciones.md §2.3](03-secciones.md)), lo que
+cambia es el dibujo. Un `.CHR` son 2048 bytes: 256 glifos de 8 filas.
+
+| Fuente | Targets | Particularidad |
+|---|---|---|
+| `AD8x6.CHR` | ZX, MSX, PCW, Amiga, ST | Se pinta a **6 píxeles de ancho**: hay que dejar libres las tres columnas de la derecha de cada glifo |
+| `AD8x8.CHR` | CPC | Los mismos glifos, celda de 8 px |
+| `C64bold.CHR` | C64, Plus/4 | **Negrita**, porque las letras finas no se leían por RF en un televisor de tubo |
+| `PC.FNT` | PC/DOS | El **único proporcional**: lleva una tabla de 256 anchos delante de los glifos |
+| `font.js` | HTML | Generado del `AD8x6.CHR`, 2048 bytes exactos |
+
+En C64 y Plus/4 la fuente de DAAD **sustituye al juego de la ROM**, así que esas máquinas no usan
+PETSCII ni fuerzan mayúsculas: tienen caja mixta como el resto.
+
+Dos targets, **ZX81 y CPM, no tienen ni fichero de fuente ni `.BAT`**: existen en `drf` y en `drb`,
+pero DAAD Ready no los empaqueta. Son los candidatos naturales a `-7`.
+
+> **MSX2 pierde los glifos 0 a 15.** El conversor los descarta (`chr2png.php:32`) y el intérprete
+> compensa restando 16 al código (`daad_platform_msx2.c:726`). No afecta al texto normal —esos
+> códigos no son imprimibles— pero sí a cualquiera que pensara usarlos como glifos propios.
+
 ### 3.2 ZX 48K: paginación propia
 
 No usa `scrcrop` ni `SCRMAKER`. `ZXsplitter.php <SCR> <líneas>` trocea el SCR según el layout no

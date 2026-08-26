@@ -180,7 +180,7 @@ func TestWordsNew(t *testing.T) {
 
 		_, err := ws.New(1, Noun, None, " araña ", "bicho")
 		require.NoError(t, err)
-		require.Equal(t, []string{"ARANA", "BICHO"}, ws[baseWordsCount].Synonyms)
+		require.Equal(t, []string{"ARAÑA", "BICHO"}, ws[baseWordsCount].Synonyms)
 	})
 
 	t.Run("each option draws from its own range", func(t *testing.T) {
@@ -219,7 +219,7 @@ func TestWordsNewDoesNotAliasSynonyms(t *testing.T) {
 
 		require.Equal(t, []string{"araña", "bicho"}, mine,
 			"New normalized in place instead of into its own slice")
-		require.Equal(t, []string{"ARANA", "BICHO"}, ws[baseWordsCount].Synonyms,
+		require.Equal(t, []string{"ARAÑA", "BICHO"}, ws[baseWordsCount].Synonyms,
 			"the store does keep the vocabulary form")
 	})
 
@@ -396,11 +396,28 @@ func TestWordsGetBySynonym(t *testing.T) {
 	})
 
 	t.Run("the query is normalized", func(t *testing.T) {
-		for _, synonym := range []string{"coger", " Coger ", "cóger"} {
+		for _, synonym := range []string{"coger", " Coger ", "\tCOGER\n"} {
 			w, err := ws.GetBySynonym(synonym)
 			require.NoError(t, err, "looking up %q", synonym)
 			require.Equal(t, ID16(1), w.LabelID)
 		}
+	})
+
+	t.Run("accents are significant, the case is not", func(t *testing.T) {
+		ws := NewWordStore()
+		_, err := ws.New(1, Noun, None, "araña")
+		require.NoError(t, err)
+
+		for _, synonym := range []string{"araña", "ARAÑA", " Araña ", "araña"} {
+			w, err := ws.GetBySynonym(synonym)
+			require.NoError(t, err, "looking up %q", synonym)
+			require.Equal(t, []string{"ARAÑA"}, w.Synonyms)
+		}
+
+		// Stripping the tilde is a different word, as it is for DAAD.
+		w, err := ws.GetBySynonym("arana")
+		require.ErrorIs(t, err, dberrors.ErrWordNotFound)
+		require.Nil(t, w)
 	})
 }
 
@@ -530,15 +547,27 @@ func TestNormalizeWord(t *testing.T) {
 		{"COGER", "COGER"},
 		{"  coger  ", "COGER"},
 		{"salir al norte", "SALIR"},
-		{"araña", "ARANA"},
-		{"ÑU", "NU"},
-		{"ñu", "NU"},
-		{"cañón", "CANON"},
-		{"pingüino", "PINGU"},
-		{"murciélago", "MURCI"},
-		{"IRÁ", "IRA"},
-		// Decomposed input: "n" plus a combining tilde.
-		{"an\u0303o", "ANO"},
+		// Accents and tildes are kept: only the case is normalized.
+		{"ara\u00F1a", "ARA\u00D1A"},
+		{"ARA\u00D1A", "ARA\u00D1A"},
+		{"\u00D1U", "\u00D1U"},
+		{"\u00F1u", "\u00D1U"},
+		{"ca\u00F1\u00F3n", "CA\u00D1\u00D3N"},
+		{"ir\u00E1", "IR\u00C1"},
+		{"IR\u00C1", "IR\u00C1"},
+		{"\u00E7edilla", "\u00C7EDIL"},
+		// An accented letter takes one slot, not two.
+		{"ping\u00FCino", "PING\u00DC"},
+		{"murci\u00E9lago", "MURCI"},
+		// Decomposed input: the combining mark joins the letter before it instead
+		// of taking a slot of its own.
+		{"an\u0303o", "A\u00D1O"},
+		{"pingu\u0308ino", "PING\u00DC"},
+		{"ira\u0301", "IR\u00C1"},
+		// A combining mark with nothing to join, or on a letter DAAD has no
+		// precomposed code for, is dropped.
+		{"\u0303", ""},
+		{"a\u0308", "A"},
 		{"abcdefgh", "ABCDE"},
 		// Blanks are dropped before the cut, so this yields five letters.
 		{"a b c d e f", "ABCDE"},
