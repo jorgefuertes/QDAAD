@@ -2,7 +2,6 @@ package decompiler
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/urfave/cli/v3"
 )
@@ -16,8 +15,5 @@ func RunAction(_ context.Context, cmd *cli.Command) error {
 	inputFile := cmd.String("input")
 	outputDir := cmd.String("output")
 
-	fmt.Println("Decompiling DAAD file:", inputFile)
-	fmt.Println("Output directory:", outputDir)
-
-	return nil
+	return Decompile(inputFile, outputDir)
 }

@@ -6,8 +6,10 @@ import (
 	qderror "github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 )
 
-const MAX_MESSSAGE ID = 254
-const MAX_MESSSAGE16 ID16 = 65534
+const (
+	MAX_MESSSAGE   ID   = 254
+	MAX_MESSSAGE16 ID16 = 65534
+)
 
 type MessageKind uint8
 

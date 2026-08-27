@@ -5,19 +5,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jorgefuertes/QDAAD/cmd/undaad/decompiler"
+	"github.com/jorgefuertes/QDAAD/cmd/qundaad/decompiler"
 	"github.com/urfave/cli/v3"
-)
-
-const (
-	UnDAADVersion = "0.1.0b"
 )
 
 func main() {
 	cmd := &cli.Command{
-		Name:    "UnDAAD",
+		Name:    "qundaad",
 		Usage:   "Queru's DAAD decompiler",
-		Version: UnDAADVersion,
+		Version: decompiler.VERSION,
 		Commands: []*cli.Command{
 			{
 				Name:  "decompile",
