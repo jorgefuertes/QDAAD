@@ -237,6 +237,66 @@ func (r *Reader) TextTable(pointerIndex, count int) ([]string, error) {
 	return texts, nil
 }
 
+// Object gathers what the database says about one object. There is no object
+// record in a DDB: the data lives in parallel arrays with a pointer each, so
+// this is assembled by indexing every one of them with the same number.
+type Object struct {
+	InitialLocation byte
+	Weight          byte // 0-63
+	Container       bool
+	Wearable        bool
+	Noun            byte // NoWord when it has none
+	Adjective       byte
+}
+
+// NoWord marks an absent word, in an object's name as well as in a process
+// entry, where it reads as a wildcard.
+const NoWord = 0xFF
+
+// Objects reads the object arrays and joins them.
+func (r *Reader) Objects() ([]Object, error) {
+	count := r.NumObjects()
+
+	locations := r.Pointer(ptrObjectLocation)
+	names := r.Pointer(ptrObjectName)
+	weights := r.Pointer(ptrObjectWeight)
+
+	for name, p := range map[string]int{
+		"initial locations": locations + count,
+		"names":             names + 2*count,
+		"weights":           weights + count,
+	} {
+		if p > len(r.data) {
+			return nil, fmt.Errorf("object %s run past the end of the file", name)
+		}
+	}
+
+	objects := make([]Object, 0, count)
+
+	for i := range count {
+		// One byte holds the weight and the two flags: the low 6 bits are the
+		// weight, bit 6 marks a container and bit 7 something wearable.
+		packed := r.data[weights+i]
+
+		objects = append(objects, Object{
+			InitialLocation: r.data[locations+i],
+			Weight:          packed & 0x3F,
+			Container:       packed&0x40 != 0,
+			Wearable:        packed&0x80 != 0,
+			Noun:            r.data[names+2*i],
+			Adjective:       r.data[names+2*i+1],
+		})
+	}
+
+	return objects, nil
+}
+
+// HasObjectAttributes reports whether the database carries the extra attribute
+// bits. Version 1 has no pointer for them, so there is nothing to read.
+func (r *Reader) HasObjectAttributes() bool {
+	return r.headerSize >= headerSizeV2 && r.Pointer(ptrObjectAttrs) != 0
+}
+
 // Movement is one exit of a location: a word and where it leads.
 type Movement struct {
 	Word byte

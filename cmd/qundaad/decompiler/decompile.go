@@ -22,6 +22,7 @@ const (
 	objTextFile     = "object-text.sce"
 	locTextFile     = "location-text.sce"
 	connectionsFile = "connections.sce"
+	objectsFile     = "objects.sce"
 )
 
 // Word types, in the spelling the compiler expects. Note it is CONJUGATION,
@@ -69,6 +70,7 @@ func Decompile(inputFile, outputDir string) error {
 		{objTextFile, textSection("/OTX", "Object descriptions", ptrObjectText, (*Reader).NumObjects)},
 		{locTextFile, textSection("/LTX", "Location descriptions", ptrLocationText, (*Reader).NumLocations)},
 		{connectionsFile, writeConnections},
+		{objectsFile, writeObjects},
 	}
 
 	names := make([]string, 0, len(sections))
@@ -236,8 +238,9 @@ func writeVocabulary(r *Reader) (string, error) {
 
 // Word types, as the database numbers them.
 const (
-	kindVerb = 0
-	kindNoun = 2
+	kindVerb      = 0
+	kindNoun      = 2
+	kindAdjective = 3
 )
 
 func writeConnections(r *Reader) (string, error) {
@@ -272,6 +275,96 @@ func writeConnections(r *Reader) (string, error) {
 	}
 
 	return sb.String(), nil
+}
+
+// Initial locations that are not locations at all.
+const (
+	locNotCreated = 252
+	locWorn       = 253
+	locCarried    = 254
+)
+
+func writeObjects(r *Reader) (string, error) {
+	objects, err := r.Objects()
+	if err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+
+	sb.WriteString("; Objects: where each one starts, what it weighs, whether it is a\n")
+	sb.WriteString("; container or can be worn, and the words that name it.\n")
+	sb.WriteString(";\n")
+	sb.WriteString("; Object 0 is the light source, by convention of the interpreter.\n")
+
+	if r.HasObjectAttributes() {
+		sb.WriteString(";\n")
+		sb.WriteString("; WARNING: this database carries the extra attribute bits that version\n")
+		sb.WriteString("; 2 added, and the 1991 source syntax has no column for them. They are\n")
+		sb.WriteString("; NOT written below and would be lost on a recompile.\n")
+	}
+
+	sb.WriteString("\n/OBJ\n")
+	sb.WriteString(";obj  starts.at    weight  cont  worn  noun      adjective\n")
+
+	null := string(rune(r.NullWord()))
+
+	flag := func(on bool) string {
+		if on {
+			return "Y"
+		}
+
+		return null
+	}
+
+	for i, o := range objects {
+		noun, err := r.objectWord(o.Noun, kindNoun, i, "noun")
+		if err != nil {
+			return "", err
+		}
+
+		adjective, err := r.objectWord(o.Adjective, kindAdjective, i, "adjective")
+		if err != nil {
+			return "", err
+		}
+
+		fmt.Fprintf(&sb, "/%-4d %-12s %-7d %-5s %-5s %-9s %s\n",
+			i, initialLocation(o.InitialLocation, null), o.Weight,
+			flag(o.Container), flag(o.Wearable), noun, adjective)
+	}
+
+	return sb.String(), nil
+}
+
+// initialLocation names the three values that are not a location number. HERE
+// is not among them: an object cannot start where the player happens to be.
+func initialLocation(value byte, null string) string {
+	switch value {
+	case locNotCreated:
+		return null
+	case locWorn:
+		return "WORN"
+	case locCarried:
+		return "CARRIED"
+	}
+
+	return fmt.Sprint(value)
+}
+
+// objectWord names the noun or the adjective of an object, or the null word
+// when it has none.
+func (r *Reader) objectWord(value, kind byte, object int, field string) (string, error) {
+	if value == NoWord {
+		return string(rune(r.NullWord())), nil
+	}
+
+	word, found := r.WordFor(value, kind)
+	if !found {
+		return "", fmt.Errorf("object %d has %s value %d, which is in no vocabulary entry",
+			object, field, value)
+	}
+
+	return word, nil
 }
 
 // rangeNote heads the value ranges the interpreter gives a meaning of its own,
