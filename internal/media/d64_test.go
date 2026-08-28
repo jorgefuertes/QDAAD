@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const commodoreImage = "../../work/AO/Commodore64/Aventura Original.d64"
+const commodoreImage = "../../work/aventuras/La_Aventura_Original/Commodore64/Aventura Original.d64"
 
 func openCommodore(t *testing.T) media.Volume {
 	t.Helper()

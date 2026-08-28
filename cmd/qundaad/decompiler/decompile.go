@@ -47,7 +47,13 @@ var languageNames = map[byte]string{0: "English", 1: "Spanish"}
 type database struct {
 	dir    string // empty when the input was a database on its own
 	source string
-	data   []byte
+	reader *Reader
+}
+
+// blob is somewhere a database might be hiding, and what to call that place.
+type blob struct {
+	where string
+	data  []byte
 }
 
 // Decompile writes the source of a database into outputDir.
@@ -80,8 +86,8 @@ func databasesIn(path string) ([]database, error) {
 
 	// A database on its own is the common case, and it reads as one straight
 	// away. Only if it does not is the file worth trying as an image.
-	if _, err := NewReader(data); err == nil {
-		return []database{{source: filepath.Base(path), data: data}}, nil
+	if r, ok := readerAt(data, 0); ok {
+		return []database{{source: filepath.Base(path), reader: r}}, nil
 	}
 
 	volume, err := media.Open(path)
@@ -89,11 +95,15 @@ func databasesIn(path string) ([]database, error) {
 		return nil, fmt.Errorf("%s is neither a database nor an image we can read: %w", path, err)
 	}
 
-	files, err := volume.Files()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
+	image := filepath.Base(path)
 
+	// A disk formatted for its own loader has no filesystem and returns an
+	// error here. That is not fatal: the sectors are still readable, and the
+	// search below is what such a disk needs anyway.
+	files, filesErr := volume.Files()
+
+	// Where a database was shipped as a file, the name it was given is the one
+	// to file its source under.
 	var found []database
 
 	for _, f := range files {
@@ -104,19 +114,72 @@ func databasesIn(path string) ([]database, error) {
 			continue
 		}
 
+		r, ok := readerAt(f.Data, 0)
+		if !ok {
+			return nil, fmt.Errorf("%s in %s does not read as a database", f.Name, image)
+		}
+
 		found = append(found, database{
 			// Names come off the disk as the machine wrote them, upper case on
 			// some and lower on others. One case keeps the output comparable.
 			dir:    strings.ToLower(strings.TrimSuffix(name, extension)),
-			source: fmt.Sprintf("%s (from %s)", f.Name, filepath.Base(path)),
-			data:   f.Data,
+			source: fmt.Sprintf("%s (from %s)", f.Name, image),
+			reader: r,
 		})
 	}
 
+	if len(found) > 0 {
+		return found, nil
+	}
+
+	// Nothing named like a database. This is where the eight-bit editions land,
+	// none of which shipped one as a file, so there is nothing left but to
+	// search: inside every file if the disk has any, and the sectors themselves
+	// if it has not.
+	var blobs []blob
+
+	for _, f := range files {
+		blobs = append(blobs, blob{where: f.Name, data: f.Data})
+	}
+
+	// Only when the volume gave up nothing to look inside is the image itself
+	// worth searching. Doing both would find the same database twice, once in a
+	// file and once again in the sectors that hold it.
+	if img, ok := volume.(media.Image); ok && len(blobs) == 0 {
+		blobs = append(blobs, blob{where: "the contents", data: img.Payload()})
+	}
+
+	if len(blobs) == 0 {
+		// Either the volume would not give up its files, or it gave up none.
+		if filesErr != nil {
+			return nil, fmt.Errorf("%s: %w", path, filesErr)
+		}
+
+		return nil, fmt.Errorf("%s: %s, and it is empty", path, volume.Format())
+	}
+
+	for _, b := range blobs {
+		for _, r := range FindDatabases(b.data) {
+			found = append(found, database{
+				source: fmt.Sprintf("%s at %#x (from %s)", b.where, r.Offset(), image),
+				reader: r,
+			})
+		}
+	}
+
 	if len(found) == 0 {
-		// The Commodore edition is the one that lands here: it has no databases
-		// of its own, each part being a single program with one inside it.
-		return nil, fmt.Errorf("%s: %s, and it holds no databases", path, volume.Format())
+		return nil, fmt.Errorf("%s: %s, and no database is to be found in it", path, volume.Format())
+	}
+
+	// Nothing names these. One on its own goes where it was asked to go, the
+	// same as a database in a file of its own — a tape holding a single part
+	// should not bury it under a directory saying which part of itself it is.
+	// Several are numbered in the order they lie, which for a multi-part
+	// adventure is the order of its parts.
+	if len(found) > 1 {
+		for i := range found {
+			found[i].dir = fmt.Sprintf("part%d", i+1)
+		}
 	}
 
 	return found, nil
@@ -124,12 +187,9 @@ func databasesIn(path string) ([]database, error) {
 
 func decompileOne(db database, outputDir string) error {
 	fmt.Printf("Decompiling %q to %q\n", db.source, outputDir)
-	startTime := time.Now()
 
-	reader, err := NewReader(db.data)
-	if err != nil {
-		return fmt.Errorf("%s: %w", db.source, err)
-	}
+	startTime := time.Now()
+	reader := db.reader
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", outputDir, err)
@@ -200,6 +260,13 @@ func banner(r *Reader, source string) string {
 	add("Header size    : %d bytes   (deduced, not declared)", r.HeaderSize())
 	add("Endianness     : %s   (deduced, not declared)", endianName(r.BigEndian()))
 	add("Declared length: %d bytes", r.DeclaredLength())
+
+	// A database found inside a program or on a disk holds addresses, not
+	// offsets, so where it was laid has to be worked out to read it at all.
+	if r.Base() != 0 {
+		add("Found at       : %#x, laid at address %#04x   (deduced, not declared)",
+			r.Offset(), r.Base())
+	}
 	add("%s", line)
 	add("Objects        : %d", r.NumObjects())
 	add("Locations      : %d", r.NumLocations())
@@ -228,6 +295,15 @@ func writeMain(r *Reader, source string, includes []string) string {
 
 func writeTokens(r *Reader) (string, error) {
 	var sb strings.Builder
+
+	// Compiled without a compression table, so the source gets no /TOK either:
+	// writing an empty one would not compile back to the same database.
+	if len(r.Tokens()) == 0 {
+		sb.WriteString("; This database was compiled without a compression table, so there is\n")
+		sb.WriteString("; no /TOK section. Every text stands on its own.\n")
+
+		return sb.String(), nil
+	}
 
 	sb.WriteString("; ---------------------------------------------------------------------\n")
 	sb.WriteString("; GENERATED FILE - DO NOT EDIT BY HAND\n")
@@ -422,6 +498,14 @@ func writeProcesses(r *Reader) (string, error) {
 	sb.WriteString("; matches them. The null word matches anything.\n")
 	sb.WriteString(";\n")
 	sb.WriteString("; Skip distances are written as numbers of entries, not as labels.\n\n")
+
+	if at := r.UnreadableProcess(); at >= 0 {
+		fmt.Fprintf(&sb, "; INCOMPLETE. The database declares %d process tables, and the %d\n",
+			r.NumProcesses(), at)
+		sb.WriteString("; below are all that could be read: the pointer to the next one is not\n")
+		sb.WriteString("; an address. Recompiling this source will not reproduce the database\n")
+		sb.WriteString("; it came from.\n\n")
+	}
 
 	for number, entries := range all {
 		fmt.Fprintf(&sb, "; %s\n", strings.Repeat("-", 70))
@@ -678,12 +762,11 @@ func textSection(tag, title string, pointer int, count func(*Reader) int) func(*
 			fmt.Fprintf(&sb, "/%d\n", i)
 
 			for _, line := range sourceLines(text) {
-				// A line starting with "/" would read as the next entry.
-				// Emitting one silently would produce a source that compiles
-				// into something else.
-				if strings.HasPrefix(line, "/") {
-					return "", fmt.Errorf("%s entry %d has a line starting with '/', "+
-						"which cannot be written as source", tag, i)
+				// Emitting a line the compiler would read as anything but text
+				// gives a source that compiles into something else.
+				if readsAsMarkup(line) {
+					return "", fmt.Errorf("%s entry %d has a line reading %q, which the "+
+						"compiler would take for markup rather than text", tag, i, line)
 				}
 
 				sb.WriteString(line)
@@ -693,6 +776,37 @@ func textSection(tag, title string, pointer int, count func(*Reader) int) func(*
 
 		return sb.String(), nil
 	}
+}
+
+// The section markers the compiler's tokenizer recognises, from the rules in
+// DSF.l. It matches the whole word, not the slash, which is why a line holding
+// only a slash is text and not markup: system message 17 of Cozumel is exactly
+// that, one slash and nothing else.
+var sectionMarkers = [...]string{
+	"/CON", "/CTL", "/END", "/LTX", "/MTX", "/OBJ", "/OTX", "/PRO", "/STX", "/VOC", "/TOK",
+}
+
+// readsAsMarkup says whether the compiler would take a line of text for
+// something other than text.
+//
+// Two things it would: a section marker, and the "/12" that numbers an entry
+// within a text section, lexed as \/[0-9]+.
+func readsAsMarkup(line string) bool {
+	if !strings.HasPrefix(line, "/") {
+		return false
+	}
+
+	if len(line) > 1 && line[1] >= '0' && line[1] <= '9' {
+		return true
+	}
+
+	for _, marker := range sectionMarkers {
+		if strings.HasPrefix(strings.ToUpper(line), marker) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func report(r *Reader, startTime time.Time) {
@@ -705,7 +819,14 @@ func report(r *Reader, startTime time.Time) {
 	fmt.Printf("  %d objects, %d locations\n", r.NumObjects(), r.NumLocations())
 	fmt.Printf("  %d user messages, %d system messages\n", r.NumMessages(), r.NumSysMessages())
 	fmt.Printf("  %d processes\n", r.NumProcesses())
-	fmt.Printf("  %d bytes total, %d bytes declared\n", len(r.data), r.DeclaredLength())
+	if r.Base() == 0 {
+		fmt.Printf("  %d bytes total, %d bytes declared\n", len(r.data), r.DeclaredLength())
+	} else {
+		// One found inside something has no size of its own: what follows it
+		// belongs to whatever it was buried in.
+		fmt.Printf("  %d bytes declared, found at %#x, laid at address %#04x\n",
+			r.DeclaredLength(), r.Offset(), r.Base())
+	}
 	fmt.Printf("  Decompilation took %s\n", time.Since(startTime))
 }
 

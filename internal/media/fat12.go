@@ -89,6 +89,17 @@ func (f *FAT12) Format() string {
 		f.bytesPerSector, f.sectorsPerCluster)
 }
 
+// Payload returns the image as it stands. A raw sector dump needs no
+// assembling: the sectors are already in order and contiguous, which is what
+// makes it worth searching when the directory turns out to be empty.
+//
+// A plausible boot sector is no promise of a filesystem. The MSX edition of El
+// Jabato keeps one and then formats the rest of the disk for its own loader, so
+// the root directory holds Z80 code where the entries should be.
+func (f *FAT12) Payload() []byte {
+	return f.data
+}
+
 func (f *FAT12) Files() ([]File, error) {
 	root := f.data[f.rootStart : f.rootStart+f.rootEntries*dirEntrySize]
 

@@ -27,6 +27,22 @@ type Volume interface {
 	Files() ([]File, error)
 }
 
+// Image is a volume that can also hand back its contents as one run of bytes,
+// for searching when there is no filesystem to walk or when walking one finds
+// nothing.
+//
+// Both happen. The Amstrad and Spectrum editions were shipped on disks
+// formatted for their own loader, with no directory at all, and Files returns an
+// error for those rather than an empty list, so that a caller ignoring this
+// interface cannot mistake one for an empty disk. A raw sector dump can also
+// carry a boot sector describing a filesystem that was never written — the MSX
+// edition of El Jabato does — and there Files succeeds and returns nothing.
+type Image interface {
+	Volume
+	// Payload returns the sector data, in the order the numbering gives.
+	Payload() []byte
+}
+
 // Open identifies an image and returns a reader for it.
 //
 // Identification goes by content wherever the format has a signature, and by
@@ -42,12 +58,12 @@ func Open(path string) (Volume, error) {
 	case bytes.HasPrefix(data, []byte("DOS")):
 		return NewADF(data)
 
-	case bytes.HasPrefix(data, []byte("MV - CPCEMU")),
-		bytes.HasPrefix(data, []byte("EXTENDED CPC DSK")):
-		return nil, notYet("Amstrad CPC / Spectrum +3 disk image")
+	case bytes.HasPrefix(data, []byte(dskSignature)),
+		bytes.HasPrefix(data, []byte(dskSignatureExt)):
+		return NewDSK(data)
 
-	case bytes.HasPrefix(data, []byte("ZXTape!")):
-		return nil, notYet("ZX Spectrum tape")
+	case looksLikeTape(data):
+		return NewTape(data)
 
 	case bytes.HasPrefix(data, []byte("C64-TAPE-RAW")):
 		// This one holds the timings of the pulses on the tape rather than

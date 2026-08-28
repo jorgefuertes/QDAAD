@@ -322,7 +322,7 @@ func TestSynonymPersistence(t *testing.T) {
 		// Appending may reallocate the backing array: the store, not any
 		// pointer taken earlier, is the source of truth.
 		for i := ID16(3); i < 20; i++ {
-			_, err := ws.New(i, Noun, None, "PALABRA")
+			_, err := ws.New(i, Noun, None, "WORD")
 			require.NoError(t, err)
 		}
 

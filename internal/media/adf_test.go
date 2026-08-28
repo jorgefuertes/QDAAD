@@ -11,7 +11,7 @@ import (
 
 // La Aventura Original for the Amiga. The expected contents were checked
 // against an independent extraction of the same image.
-const amigaImage = "../../work/AO/Amiga/ORIGINAL.ADF"
+const amigaImage = "../../work/aventuras/La_Aventura_Original/Amiga/ORIGINAL.ADF"
 
 func openAmiga(t *testing.T) media.Volume {
 	t.Helper()

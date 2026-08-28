@@ -212,12 +212,12 @@ func TestMessagesGetMessageByLabelID(t *testing.T) {
 	t.Run("returns the first match", func(t *testing.T) {
 		// Nothing stops a label from being reused: the store does not check it.
 		ms := NewMessageStore()
-		require.NoError(t, ms.AddMessage(UserMessage, 5, "el primero"))
-		require.NoError(t, ms.AddMessage(UserMessage, 5, "el segundo"))
+		require.NoError(t, ms.AddMessage(UserMessage, 5, "the first"))
+		require.NoError(t, ms.AddMessage(UserMessage, 5, "the second"))
 
 		content, ok := ms.GetMessageByLabelID(UserMessage, 5)
 		require.True(t, ok)
-		require.Equal(t, "el primero", content)
+		require.Equal(t, "the first", content)
 	})
 
 	t.Run("not found", func(t *testing.T) {

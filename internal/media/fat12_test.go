@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const atariImage = "../../work/AO/AtariST/ORIGINAL.ST"
+const atariImage = "../../work/aventuras/La_Aventura_Original/AtariST/ORIGINAL.ST"
 
 func openAtari(t *testing.T) media.Volume {
 	t.Helper()
