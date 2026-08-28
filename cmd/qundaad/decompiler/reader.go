@@ -3,6 +3,7 @@ package decompiler
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -235,6 +236,119 @@ func (r *Reader) TextTable(pointerIndex, count int) ([]string, error) {
 	}
 
 	return texts, nil
+}
+
+// Condact is one instruction of a process, as the database stores it.
+type Condact struct {
+	Opcode byte
+	// Indirect is bit 7 of the opcode byte: the first parameter is then a flag
+	// number and the interpreter uses the flag's content instead.
+	Indirect bool
+	Params   []byte
+}
+
+// Entry is one line of a process table: the verb and noun it answers to, and
+// what to do about it. NoWord in either is the wildcard that matches anything.
+type Entry struct {
+	Verb     byte
+	Noun     byte
+	Condacts []Condact
+}
+
+// Processes reads the whole process section: three levels deep, a word per
+// process pointing at a table of 4-byte entries, each of which points at a
+// block of condacts.
+func (r *Reader) Processes() ([][]Entry, error) {
+	const (
+		entrySize    = 4
+		endOfProcess = 0x00 // in the place of a verb
+	)
+
+	count := r.NumProcesses()
+
+	table := r.Pointer(ptrProcesses)
+	if table == 0 || table+2*count > len(r.data) {
+		return nil, fmt.Errorf("process table out of range: %d for %d processes", table, count)
+	}
+
+	all := make([][]Entry, 0, count)
+
+	for i := range count {
+		p := int(r.word(table + 2*i))
+
+		var entries []Entry
+
+		for {
+			if p+entrySize > len(r.data) {
+				return nil, fmt.Errorf("process %d: entries run past the end of the file", i)
+			}
+
+			if r.data[p] == endOfProcess {
+				break
+			}
+
+			condacts, err := r.condactsAt(int(r.word(p + 2)))
+			if err != nil {
+				return nil, fmt.Errorf("process %d, entry %d: %w", i, len(entries), err)
+			}
+
+			entries = append(entries, Entry{Verb: r.data[p], Noun: r.data[p+1], Condacts: condacts})
+			p += entrySize
+		}
+
+		all = append(all, entries)
+	}
+
+	return all, nil
+}
+
+// condactsAt decodes one block.
+//
+// The arity is not in the binary, so every step depends on the condact table
+// being right: read one parameter too few and everything after it shifts. A
+// block ends at 0xFF, or at a condact that ends it by itself, in which case the
+// compiler saves the byte.
+func (r *Reader) condactsAt(p int) ([]Condact, error) {
+	const endOfCondacts = 0xFF
+
+	var condacts []Condact
+
+	for {
+		if p >= len(r.data) {
+			return nil, errors.New("condacts run past the end of the file")
+		}
+
+		b := r.data[p]
+		p++
+
+		if b == endOfCondacts {
+			return condacts, nil
+		}
+
+		opcode := b &^ 0x80
+
+		def, found := r.Condact(opcode)
+		if !found {
+			return nil, fmt.Errorf("opcode %d is not a condact", opcode)
+		}
+
+		n := def.NumParams()
+		if p+n > len(r.data) {
+			return nil, fmt.Errorf("%s: parameters run past the end of the file", def.Name)
+		}
+
+		condacts = append(condacts, Condact{
+			Opcode:   opcode,
+			Indirect: b&0x80 != 0,
+			Params:   slices.Clone(r.data[p : p+n]),
+		})
+
+		p += n
+
+		if def.Terminal {
+			return condacts, nil
+		}
+	}
 }
 
 // Object gathers what the database says about one object. There is no object

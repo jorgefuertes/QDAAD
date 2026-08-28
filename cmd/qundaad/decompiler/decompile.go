@@ -7,6 +7,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/jorgefuertes/QDAAD/internal/ddb"
+	"github.com/jorgefuertes/QDAAD/internal/media"
 )
 
 // The source is split one section per file, joined by #INCLUDE from a main
@@ -23,6 +26,7 @@ const (
 	locTextFile     = "location-text.sce"
 	connectionsFile = "connections.sce"
 	objectsFile     = "objects.sce"
+	processesFile   = "processes.sce"
 )
 
 // Word types, in the spelling the compiler expects. Note it is CONJUGATION,
@@ -38,19 +42,93 @@ var machineNames = map[byte]string{
 
 var languageNames = map[byte]string{0: "English", 1: "Spanish"}
 
-// Decompile reads a DDB and writes the source files into outputDir.
-func Decompile(inputFile, outputDir string) error {
-	fmt.Printf("Decompiling %q to %q\n", inputFile, outputDir)
-	startTime := time.Now()
+// database is one database to decompile, with the name to file it under and a
+// label naming where it came from.
+type database struct {
+	dir    string // empty when the input was a database on its own
+	source string
+	data   []byte
+}
 
-	data, err := os.ReadFile(inputFile)
+// Decompile writes the source of a database into outputDir.
+//
+// The input can be the database itself or a disk image holding several. Every
+// machine but the Commodore shipped its databases as ordinary files on the
+// disk, so an image is opened, walked, and each database inside it decompiled
+// into a directory of its own.
+func Decompile(inputFile, outputDir string) error {
+	databases, err := databasesIn(inputFile)
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", inputFile, err)
+		return err
 	}
 
-	reader, err := NewReader(data)
+	for _, db := range databases {
+		if err := decompileOne(db, filepath.Join(outputDir, db.dir)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// databasesIn works out what there is to decompile behind a path.
+func databasesIn(path string) ([]database, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("%s: %w", inputFile, err)
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	// A database on its own is the common case, and it reads as one straight
+	// away. Only if it does not is the file worth trying as an image.
+	if _, err := NewReader(data); err == nil {
+		return []database{{source: filepath.Base(path), data: data}}, nil
+	}
+
+	volume, err := media.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s is neither a database nor an image we can read: %w", path, err)
+	}
+
+	files, err := volume.Files()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+
+	var found []database
+
+	for _, f := range files {
+		name := filepath.Base(f.Name)
+
+		extension := filepath.Ext(name)
+		if !strings.EqualFold(extension, ".ddb") {
+			continue
+		}
+
+		found = append(found, database{
+			// Names come off the disk as the machine wrote them, upper case on
+			// some and lower on others. One case keeps the output comparable.
+			dir:    strings.ToLower(strings.TrimSuffix(name, extension)),
+			source: fmt.Sprintf("%s (from %s)", f.Name, filepath.Base(path)),
+			data:   f.Data,
+		})
+	}
+
+	if len(found) == 0 {
+		// The Commodore edition is the one that lands here: it has no databases
+		// of its own, each part being a single program with one inside it.
+		return nil, fmt.Errorf("%s: %s, and it holds no databases", path, volume.Format())
+	}
+
+	return found, nil
+}
+
+func decompileOne(db database, outputDir string) error {
+	fmt.Printf("Decompiling %q to %q\n", db.source, outputDir)
+	startTime := time.Now()
+
+	reader, err := NewReader(db.data)
+	if err != nil {
+		return fmt.Errorf("%s: %w", db.source, err)
 	}
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
@@ -71,6 +149,7 @@ func Decompile(inputFile, outputDir string) error {
 		{locTextFile, textSection("/LTX", "Location descriptions", ptrLocationText, (*Reader).NumLocations)},
 		{connectionsFile, writeConnections},
 		{objectsFile, writeObjects},
+		{processesFile, writeProcesses},
 	}
 
 	names := make([]string, 0, len(sections))
@@ -88,7 +167,7 @@ func Decompile(inputFile, outputDir string) error {
 		names = append(names, s.name)
 	}
 
-	main := writeMain(reader, inputFile, names)
+	main := writeMain(reader, db.source, names)
 	if err := os.WriteFile(filepath.Join(outputDir, mainFile), []byte(main), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", mainFile, err)
 	}
@@ -100,14 +179,14 @@ func Decompile(inputFile, outputDir string) error {
 
 // banner describes where the source came from, so a reader of the output knows
 // what was deduced rather than read.
-func banner(r *Reader, inputFile string) string {
+func banner(r *Reader, source string) string {
 	var sb strings.Builder
 
 	line := strings.Repeat("-", 74)
 	add := func(f string, a ...any) { fmt.Fprintf(&sb, "; "+f+"\n", a...) }
 
 	add("%s", line)
-	add("Decompiled by QUnDAAD from %s", filepath.Base(inputFile))
+	add("Decompiled by QUnDAAD from %s", source)
 	add("Queru's DAAD decompiler v%s", VERSION)
 	add("%s", line)
 	add("DAAD version   : %d", r.Version())
@@ -132,10 +211,10 @@ func banner(r *Reader, inputFile string) string {
 	return sb.String()
 }
 
-func writeMain(r *Reader, inputFile string, includes []string) string {
+func writeMain(r *Reader, source string, includes []string) string {
 	var sb strings.Builder
 
-	sb.WriteString(banner(r, inputFile))
+	sb.WriteString(banner(r, source))
 	sb.WriteString("\n/CTL\n")
 	sb.WriteString(string(rune(r.NullWord())))
 	sb.WriteString("\n\n")
@@ -275,6 +354,195 @@ func writeConnections(r *Reader) (string, error) {
 	}
 
 	return sb.String(), nil
+}
+
+// processRole describes what a table is for. Only table 0 has a role the 1991
+// manual fixes; the rest are sub-processes, and what each one does is a
+// decision of whoever wrote the adventure. Rather than guess at a template,
+// the caller notes which tables reach this one.
+func processRole(number int, calledFrom []int) string {
+	if number == 0 {
+		return "MAIN LOOP. The interpreter enters here after initialising, with an\n" +
+			"; empty logical sentence. Falling off the end or reaching DONE returns\n" +
+			"; to the operating system rather than to a calling table."
+	}
+
+	if len(calledFrom) == 0 {
+		return "SUB-PROCESS. No PROCESS condact in this database reaches it: it is\n" +
+			"; either dead code or entered some other way."
+	}
+
+	callers := make([]string, 0, len(calledFrom))
+	for _, c := range calledFrom {
+		callers = append(callers, fmt.Sprint(c))
+	}
+
+	return "SUB-PROCESS, called from table " + strings.Join(callers, ", ") + "."
+}
+
+// callers maps every process to the tables that invoke it with PROCESS. The
+// parameter is only meaningful when it is not indirect: an indirect call names
+// a flag, and where it lands is only known at run time.
+func callers(all [][]Entry) map[int][]int {
+	const opProcess = 75
+
+	out := map[int][]int{}
+
+	for from, entries := range all {
+		for _, e := range entries {
+			for _, c := range e.Condacts {
+				if c.Opcode != opProcess || c.Indirect || len(c.Params) == 0 {
+					continue
+				}
+
+				to := int(c.Params[0])
+				if !slices.Contains(out[to], from) {
+					out[to] = append(out[to], from)
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+func writeProcesses(r *Reader) (string, error) {
+	all, err := r.Processes()
+	if err != nil {
+		return "", err
+	}
+
+	from := callers(all)
+	null := string(rune(r.NullWord()))
+
+	var sb strings.Builder
+
+	sb.WriteString("; The process tables: the program of the adventure. Each entry names a\n")
+	sb.WriteString("; verb and a noun, and the condacts below run when the player's sentence\n")
+	sb.WriteString("; matches them. The null word matches anything.\n")
+	sb.WriteString(";\n")
+	sb.WriteString("; Skip distances are written as numbers of entries, not as labels.\n\n")
+
+	for number, entries := range all {
+		fmt.Fprintf(&sb, "; %s\n", strings.Repeat("-", 70))
+		fmt.Fprintf(&sb, "; TABLE %d - %s\n", number, processRole(number, from[number]))
+		fmt.Fprintf(&sb, "; %s\n", strings.Repeat("-", 70))
+		fmt.Fprintf(&sb, "/PRO %d\n\n", number)
+
+		for _, e := range entries {
+			if err := writeEntry(&sb, r, e, null); err != nil {
+				return "", fmt.Errorf("table %d: %w", number, err)
+			}
+		}
+	}
+
+	return sb.String(), nil
+}
+
+func writeEntry(sb *strings.Builder, r *Reader, e Entry, null string) error {
+	verb, err := r.entryWord(e.Verb, null)
+	if err != nil {
+		return err
+	}
+
+	noun, err := r.entryWord(e.Noun, null)
+	if err != nil {
+		return err
+	}
+
+	head := fmt.Sprintf("%-8s %-8s ", verb, noun)
+
+	for _, c := range e.Condacts {
+		text, err := r.condactText(c)
+		if err != nil {
+			return err
+		}
+
+		sb.WriteString(head)
+		sb.WriteString(text)
+		sb.WriteString("\n")
+
+		head = strings.Repeat(" ", 18) // the condacts after the first line up
+	}
+
+	sb.WriteString("\n")
+
+	return nil
+}
+
+// entryWord names the verb or the noun of an entry. An entry matches on the
+// word value, so any synonym would do; the first one is used.
+func (r *Reader) entryWord(value byte, null string) (string, error) {
+	if value == NoWord {
+		return null, nil
+	}
+
+	word, found := r.WordFor(value, kindVerb, kindNoun)
+	if !found {
+		return "", fmt.Errorf("entry uses word value %d, which is in no vocabulary entry", value)
+	}
+
+	return word, nil
+}
+
+// condactText writes one condact with its parameters.
+func (r *Reader) condactText(c Condact) (string, error) {
+	def, found := r.Condact(c.Opcode)
+	if !found {
+		return "", fmt.Errorf("opcode %d is not a condact", c.Opcode)
+	}
+
+	out := def.Name
+
+	for i, value := range c.Params {
+		out += " "
+
+		// Only the first parameter can be indirect, and then it is a flag
+		// number rather than a value of its declared type.
+		if i == 0 && c.Indirect {
+			out += "@" + fmt.Sprint(value)
+
+			continue
+		}
+
+		out += r.paramText(def.Params[i], value)
+	}
+
+	// Where the sources disagree on how many bytes a condact takes, say so on
+	// the line itself: reading one too many shifts everything after it, so a
+	// wrong guess here is not a local mistake.
+	if note, uncertain := uncertainArity[c.Opcode]; uncertain && r.OldFormat() {
+		out += "   ; TODO " + note
+	}
+
+	return out, nil
+}
+
+// paramText renders a parameter. Those naming a vocabulary word are written as
+// the word; the rest stay numbers, which is what the source holds anyway.
+func (r *Reader) paramText(kind ddb.ParamKind, value byte) string {
+	vocabulary := map[ddb.ParamKind]byte{
+		ddb.ParamVerb:        kindVerb,
+		ddb.ParamNoun:        kindNoun,
+		ddb.ParamAdjective:   kindAdjective,
+		ddb.ParamAdverb:      1,
+		ddb.ParamPreposition: 4,
+	}
+
+	wordKind, isWord := vocabulary[kind]
+	if !isWord {
+		return fmt.Sprint(value)
+	}
+
+	if value == NoWord {
+		return string(rune(r.NullWord()))
+	}
+
+	if word, found := r.WordFor(value, wordKind); found {
+		return word
+	}
+
+	return fmt.Sprint(value)
 }
 
 // Initial locations that are not locations at all.
