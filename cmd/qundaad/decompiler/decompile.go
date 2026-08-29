@@ -48,6 +48,69 @@ type database struct {
 	dir    string // empty when the input was a database on its own
 	source string
 	reader *Reader
+	assets []asset // the character set and the graphics that shipped with it
+}
+
+// The kinds of file that travelled alongside a database. A database found by
+// searching a disk has none of these: there is no filesystem naming them.
+var assetExtensions = map[string]bool{
+	".CHR": true, ".CH0": true, // character sets
+	".CGA": true, ".EGA": true, // archives of illustrations
+	".CGS": true, ".EGS": true, ".SCR": true, // loading screens
+	".DAT": true, ".AGP": true, // archives of the later adventures
+}
+
+// assetsFor picks out the files belonging to one database. They share its name
+// and differ only in the extension: PART1.DDB is drawn by PART1.CHR and
+// illustrated by PART1.CGA.
+func assetsFor(databaseName string, candidates []asset) []asset {
+	stem := strings.TrimSuffix(databaseName, filepath.Ext(databaseName))
+
+	var found []asset
+
+	for _, a := range candidates {
+		name := filepath.Base(a.name)
+
+		extension := filepath.Ext(name)
+		if !assetExtensions[strings.ToUpper(extension)] {
+			continue
+		}
+
+		if !strings.EqualFold(strings.TrimSuffix(name, extension), stem) {
+			continue
+		}
+
+		found = append(found, asset{name: name, data: a.data, amiga: a.amiga})
+	}
+
+	return found
+}
+
+// siblingAssets reads the files sitting next to a database in its directory.
+func siblingAssets(path string) []asset {
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return nil
+	}
+
+	var candidates []asset
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+
+		beside := filepath.Join(filepath.Dir(path), e.Name())
+
+		data, err := os.ReadFile(beside)
+		if err != nil {
+			continue
+		}
+
+		candidates = append(candidates, asset{name: e.Name(), data: data})
+	}
+
+	return assetsFor(filepath.Base(path), candidates)
 }
 
 // blob is somewhere a database might be hiding, and what to call that place.
@@ -56,20 +119,30 @@ type blob struct {
 	data  []byte
 }
 
+// Options change what a decompilation writes.
+type Options struct {
+	// Binaries says whether to keep the files that shipped with the database
+	// as they came. With it off only what can be read is written: the source,
+	// the character sets and the pictures, and the index naming what is in an
+	// archive. It is worth turning off — the archives of illustrations run to
+	// hundreds of kilobytes apiece and are already on the disk they came from.
+	Binaries bool
+}
+
 // Decompile writes the source of a database into outputDir.
 //
 // The input can be the database itself or a disk image holding several. Every
 // machine but the Commodore shipped its databases as ordinary files on the
 // disk, so an image is opened, walked, and each database inside it decompiled
 // into a directory of its own.
-func Decompile(inputFile, outputDir string) error {
+func Decompile(inputFile, outputDir string, opts Options) error {
 	databases, err := databasesIn(inputFile)
 	if err != nil {
 		return err
 	}
 
 	for _, db := range databases {
-		if err := decompileOne(db, filepath.Join(outputDir, db.dir)); err != nil {
+		if err := decompileOne(db, filepath.Join(outputDir, db.dir), opts); err != nil {
 			return err
 		}
 	}
@@ -87,7 +160,11 @@ func databasesIn(path string) ([]database, error) {
 	// A database on its own is the common case, and it reads as one straight
 	// away. Only if it does not is the file worth trying as an image.
 	if r, ok := readerAt(data, 0); ok {
-		return []database{{source: filepath.Base(path), reader: r}}, nil
+		return []database{{
+			source: filepath.Base(path),
+			reader: r,
+			assets: siblingAssets(path),
+		}}, nil
 	}
 
 	volume, err := media.Open(path)
@@ -101,6 +178,15 @@ func databasesIn(path string) ([]database, error) {
 	// error here. That is not fatal: the sectors are still readable, and the
 	// search below is what such a disk needs anyway.
 	files, filesErr := volume.Files()
+
+	// Which machine's disk this is decides how its pictures are laid out, and
+	// nothing inside the pictures says so.
+	_, fromAmiga := volume.(*media.ADF)
+
+	candidates := make([]asset, 0, len(files))
+	for _, f := range files {
+		candidates = append(candidates, asset{name: f.Name, data: f.Data, amiga: fromAmiga})
+	}
 
 	// Where a database was shipped as a file, the name it was given is the one
 	// to file its source under.
@@ -125,6 +211,7 @@ func databasesIn(path string) ([]database, error) {
 			dir:    strings.ToLower(strings.TrimSuffix(name, extension)),
 			source: fmt.Sprintf("%s (from %s)", f.Name, image),
 			reader: r,
+			assets: assetsFor(name, candidates),
 		})
 	}
 
@@ -185,7 +272,7 @@ func databasesIn(path string) ([]database, error) {
 	return found, nil
 }
 
-func decompileOne(db database, outputDir string) error {
+func decompileOne(db database, outputDir string, opts Options) error {
 	fmt.Printf("Decompiling %q to %q\n", db.source, outputDir)
 
 	startTime := time.Now()
@@ -230,6 +317,10 @@ func decompileOne(db database, outputDir string) error {
 	main := writeMain(reader, db.source, names)
 	if err := os.WriteFile(filepath.Join(outputDir, mainFile), []byte(main), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", mainFile, err)
+	}
+
+	if err := writeAssets(db.assets, outputDir, opts); err != nil {
+		return err
 	}
 
 	report(reader, startTime)

@@ -15,5 +15,7 @@ func RunAction(_ context.Context, cmd *cli.Command) error {
 	inputFile := cmd.String("input")
 	outputDir := cmd.String("output")
 
-	return Decompile(inputFile, outputDir)
+	return Decompile(inputFile, outputDir, Options{
+		Binaries: !cmd.Bool("no-binaries"),
+	})
 }

@@ -75,19 +75,19 @@ EDITIONS := \
 	ao/pc/part2:work/aventuras/La_Aventura_Original/PC/PART2.DDB \
 	ao/amiga:work/aventuras/La_Aventura_Original/Amiga/ORIGINAL.ADF \
 	ao/atarist:work/aventuras/La_Aventura_Original/AtariST/ORIGINAL.ST \
-	ao/cpc:work/aventuras/La_Aventura_Original/AmstradCPC/ORIGINAL.DSK \
-	ao/spectrum:work/aventuras/La_Aventura_Original/ZXSpectrum/La\ Aventura\ Original.dsk \
-	ao/cdt/part1:work/aventuras/La_Aventura_Original/AmstradCPC/La\ aventura\ original\ \(Cara\ A\).cdt \
-	ao/cdt/part2:work/aventuras/La_Aventura_Original/AmstradCPC/La\ aventura\ original\ \(Cara\ B\).cdt \
-	ao/tzx/part1:work/aventuras/La_Aventura_Original/ZXSpectrum/La\ Aventura\ Original\ -\ Part\ 1.tzx \
-	ao/tzx/part2:work/aventuras/La_Aventura_Original/ZXSpectrum/La\ Aventura\ Original\ -\ Part\ 2.tzx \
+	ao/cpc/dsk:work/aventuras/La_Aventura_Original/AmstradCPC/ORIGINAL.DSK \
+	ao/spectrum/dsk:work/aventuras/La_Aventura_Original/ZXSpectrum/La\ Aventura\ Original.dsk \
+	ao/cpc/cdt/part1:work/aventuras/La_Aventura_Original/AmstradCPC/La\ aventura\ original\ \(Cara\ A\).cdt \
+	ao/cpc/cdt/part2:work/aventuras/La_Aventura_Original/AmstradCPC/La\ aventura\ original\ \(Cara\ B\).cdt \
+	ao/spectrum/tzx/part1:work/aventuras/La_Aventura_Original/ZXSpectrum/La\ Aventura\ Original\ -\ Part\ 1.tzx \
+	ao/spectrum/tzx/part2:work/aventuras/La_Aventura_Original/ZXSpectrum/La\ Aventura\ Original\ -\ Part\ 2.tzx \
 	jabato/pc-ega/part1:work/aventuras/El_Jabato/PC/Ega/PART1.DDB \
 	jabato/pc-ega/part2:work/aventuras/El_Jabato/PC/Ega/PART2.DDB \
 	jabato/pc-cga/part1:work/aventuras/El_Jabato/PC/CGA/PART1.DDB \
 	jabato/pc-cga/part2:work/aventuras/El_Jabato/PC/CGA/PART2.DDB \
 	jabato/amiga:work/aventuras/El_Jabato/Amiga/JABATO.ADF \
 	jabato/atarist:work/aventuras/El_Jabato/AtariST/JABATO1.ST \
-	jabato/spectrum:work/aventuras/El_Jabato/ZXSpectrum/Jabato.dsk \
+	jabato/spectrum/dsk:work/aventuras/El_Jabato/ZXSpectrum/Jabato.dsk \
 	chichen/pc/part1:work/aventuras/Chichén_Itzá/PC/PART1.DDB \
 	chichen/pc/part2:work/aventuras/Chichén_Itzá/PC/PART2.DDB \
 	chichen/amiga:work/aventuras/Chichén_Itzá/Amiga/CHICHEN.ADF \
@@ -96,20 +96,23 @@ EDITIONS := \
 	cozumel/pc/part2:work/aventuras/Cozumel/PC/PART2.DDB \
 	cozumel/amiga:work/aventuras/Cozumel/Amiga/COZUMEL.ADF \
 	cozumel/atarist:work/aventuras/Cozumel/AtariST/Cozumel.st \
-	cozumel/cpc:work/aventuras/Cozumel/AmstradCPC/Cozumel\ \(S\)\ \[Original\]\ \[Dinamic\].dsk \
-	cozumel/cdt/part1:work/aventuras/Cozumel/AmstradCPC/COZUMEL1.CDT \
-	cozumel/cdt/part2:work/aventuras/Cozumel/AmstradCPC/COZUMEL2.CDT \
-	cozumel/spectrum:work/aventuras/Cozumel/ZXSpectrum/Cozumel.dsk \
-	cozumel/tzx/part1:work/aventuras/Cozumel/ZXSpectrum/cozumel1_2e.tzx \
-	cozumel/tzx/part2:work/aventuras/Cozumel/ZXSpectrum/cozumel2_2e.tzx \
+	cozumel/cpc/dsk:work/aventuras/Cozumel/AmstradCPC/Cozumel\ \(S\)\ \[Original\]\ \[Dinamic\].dsk \
+	cozumel/cpc/cdt/part1:work/aventuras/Cozumel/AmstradCPC/COZUMEL1.CDT \
+	cozumel/cpc/cdt/part2:work/aventuras/Cozumel/AmstradCPC/COZUMEL2.CDT \
+	cozumel/spectrum/dsk:work/aventuras/Cozumel/ZXSpectrum/Cozumel.dsk \
+	cozumel/spectrum/tzx/part1:work/aventuras/Cozumel/ZXSpectrum/cozumel1_2e.tzx \
+	cozumel/spectrum/tzx/part2:work/aventuras/Cozumel/ZXSpectrum/cozumel2_2e.tzx \
 	templos/pc/part1:work/aventuras/Los_templos_sagrados/PC/PART1.DDB \
 	templos/pc/part2:work/aventuras/Los_templos_sagrados/PC/PART2.DDB \
 	templos/amiga:work/aventuras/Los_templos_sagrados/Amiga/Templos\ Sagrados,\ Los\ \(1991\).adf \
 	templos/atarist:work/aventuras/Los_templos_sagrados/AtariST/TEMPLOS1.ST \
 	templos/atarist:work/aventuras/Los_templos_sagrados/AtariST/TEMPLOS2.ST
 
-# Pairs that have to decompile to exactly the same source, bar game.sce, which
-# names the file it was read from and so differs by definition.
+# Pairs that have to decompile to exactly the same source. Left out of the
+# comparison: game.sce, which names the file it was read from and so differs by
+# definition, and the chr and gfx directories, which hold what shipped alongside
+# the database rather than source — a different character set and a different
+# picture format on every machine.
 #
 # The tape against the disk is the strongest of these: two containers with
 # nothing whatever in common — a stream of blocks written for the ear, against a
@@ -117,16 +120,16 @@ EDITIONS := \
 SAME_SOURCE := \
 	ao/amiga/part1:ao/atarist/part1 \
 	ao/amiga/part2:ao/atarist/part2 \
-	ao/cpc/part1:ao/cdt/part1 \
-	ao/cpc/part2:ao/cdt/part2 \
-	ao/spectrum/part1:ao/tzx/part1 \
-	ao/spectrum/part2:ao/tzx/part2 \
+	ao/cpc/dsk/part1:ao/cpc/cdt/part1 \
+	ao/cpc/dsk/part2:ao/cpc/cdt/part2 \
+	ao/spectrum/dsk/part1:ao/spectrum/tzx/part1 \
+	ao/spectrum/dsk/part2:ao/spectrum/tzx/part2 \
 	jabato/amiga/part1:jabato/atarist/part1 \
 	jabato/amiga/part2:jabato/atarist/part2 \
 	jabato/pc-ega/part2:jabato/pc-cga/part2 \
-	cozumel/cpc/part1:cozumel/cdt/part1 \
-	cozumel/cpc/part2:cozumel/cdt/part2 \
-	cozumel/spectrum/part1:cozumel/tzx/part1
+	cozumel/cpc/dsk/part1:cozumel/cpc/cdt/part1 \
+	cozumel/cpc/dsk/part2:cozumel/cpc/cdt/part2 \
+	cozumel/spectrum/dsk/part1:cozumel/spectrum/tzx/part1
 
 # Pairs that have to agree on the text and the data, but not on everything.
 # Machines that differ in endianness, in size and in every offset reaching one
@@ -137,7 +140,7 @@ SAME_TEXT := \
 	ao/pc/part2:ao/amiga/part2 \
 	ao/pc/part1:ao/atarist/part1 \
 	ao/pc/part2:ao/atarist/part2 \
-	ao/cpc/part1:ao/spectrum/part1 \
+	ao/cpc/dsk/part1:ao/spectrum/dsk/part1 \
 	jabato/pc-ega/part1:jabato/amiga/part1 \
 	jabato/pc-ega/part2:jabato/amiga/part2 \
 	jabato/pc-ega/part1:jabato/pc-cga/part1 \
@@ -159,6 +162,10 @@ SAME_TEXT := \
 #                  the EGA one, which says more about token expansion than
 #                  comparing two identical tables ever could. Where the tables
 #                  do matter they are compared whole, by SAME_SOURCE.
+# Mirrors fontsDir and graphicsDir in cmd/qundaad/decompiler/assets.go.
+fontsDir := chr
+graphicsDir := gfx
+
 SHARED_SECTIONS := vocabulary.sce sysmess.sce messages.sce \
 	object-text.sce location-text.sce connections.sce objects.sce
 
@@ -167,7 +174,7 @@ decomp-check:
 	@for edition in $(EDITIONS); do \
 		target=$${edition%%:*}; \
 		input=$${edition#*:}; \
-		go run cmd/qundaad/qundaad.go decompile \
+		go run cmd/qundaad/qundaad.go decompile --no-binaries \
 			--input "$$input" --output "tmp/decomp/$$target" || exit 1; \
 	done
 	@echo "Decompiled into tmp/decomp:"
@@ -177,7 +184,8 @@ decomp-check:
 	for pair in $(SAME_SOURCE); do \
 		a=$${pair%%:*}; \
 		b=$${pair#*:}; \
-		diff -r -q -x game.sce "tmp/decomp/$$a" "tmp/decomp/$$b" > /dev/null \
+		diff -r -q -x game.sce -x $(fontsDir) -x $(graphicsDir) \
+			"tmp/decomp/$$a" "tmp/decomp/$$b" > /dev/null \
 			|| { echo "  FAIL $$a and $$b are not the same source"; failed=1; }; \
 	done; \
 	for pair in $(SAME_TEXT); do \

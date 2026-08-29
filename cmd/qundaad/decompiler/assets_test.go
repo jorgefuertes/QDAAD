@@ -1,0 +1,363 @@
+package decompiler
+
+import (
+	"image/color"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/jorgefuertes/QDAAD/internal/media"
+	"github.com/stretchr/testify/require"
+)
+
+const charset = "../../../work/aventuras/La_Aventura_Original/PC/PART1.CHR"
+
+func readAsset(t *testing.T, path string) []byte {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("the file is not in the tree: %v", err)
+	}
+
+	return data
+}
+
+// The character sets carry the 128-byte header the Amstrad tooling put on its
+// binaries, and it is recognised by its own checksum rather than by its size.
+func TestAmsdosHeaderIsRecognised(t *testing.T) {
+	data := readAsset(t, charset)
+	require.Len(t, data, amsdosHeaderSize+fontSize)
+
+	body := withoutAmsdosHeader(data)
+	require.Len(t, body, fontSize, "the header comes off, leaving 256 glyphs of 8 bytes")
+
+	// Nothing is taken off something that does not add up.
+	broken := append([]byte(nil), data...)
+	broken[amsdosChecksumAt] ^= 0xFF
+	require.Len(t, withoutAmsdosHeader(broken), len(broken))
+}
+
+// TestGlyphsAreTheDaadCharset reads the shapes rather than trusting the tables
+// of other people's tools. Codes 16 to 31 are where DAAD keeps the letters
+// Spanish needs and ASCII has not.
+func TestGlyphsAreTheDaadCharset(t *testing.T) {
+	font := withoutAmsdosHeader(readAsset(t, charset))
+
+	glyph := func(code int) []byte { return font[code*glyphHeight : (code+1)*glyphHeight] }
+
+	// An inverted exclamation mark: the dot on top, the stroke below it.
+	require.Equal(t,
+		[]byte{0b00100000, 0, 0b00100000, 0b00100000, 0b00100000, 0b00100000, 0b00100000, 0},
+		glyph(17), "code 17 is the inverted exclamation mark")
+
+	// A and á differ by the accent, and by nothing else below it.
+	a, accented := glyph('a'), glyph(21)
+	require.Equal(t, byte(0b00010000), accented[0], "the accent sits above the letter")
+	require.Equal(t, a[2:], accented[2:], "and the rest of the two is the same shape")
+
+	// Every letter is drawn six pixels wide inside its eight, which is what
+	// the name of one of these files, AO6X8.BIN, says. That holds for the
+	// accented codes as well as for ASCII.
+	for code := 16; code < 127; code++ {
+		for _, row := range glyph(code) {
+			require.Zero(t, row&0x03, "glyph %d uses more than six columns", code)
+		}
+	}
+
+	// The top half of the set is not letters. It holds fills for shading, and
+	// those do use the full eight columns, edge to edge so they tile.
+	patterns := 0
+
+	for code := 128; code < numGlyphs; code++ {
+		for _, row := range glyph(code) {
+			if row&0x03 != 0 {
+				patterns++
+
+				break
+			}
+		}
+	}
+
+	require.Equal(t, 26, patterns, "the shading patterns of the upper half")
+}
+
+// nrgba is what comes back out of the images, which are NRGBA. The palettes are
+// written as RGBA because that is how the modes are usually set down.
+func nrgba(c color.RGBA) color.NRGBA {
+	return color.NRGBA(c)
+}
+
+func TestFontAtlasSize(t *testing.T) {
+	img := fontAtlas(withoutAmsdosHeader(readAsset(t, charset)))
+
+	bounds := img.Bounds()
+	require.Equal(t, atlasAcross*glyphHeight, bounds.Dx())
+	require.Equal(t, (numGlyphs/atlasAcross)*glyphHeight, bounds.Dy())
+}
+
+// TestCgaScreenIsDeinterlaced guards the part that is easy to get wrong. CGA
+// keeps the even scanlines in one half of the buffer and the odd ones in the
+// other, so reading it straight through gives a picture squashed into the top
+// half and repeated.
+func TestCgaScreenIsDeinterlaced(t *testing.T) {
+	data := make([]byte, cgaScreenSize)
+
+	// Colour 3 across the whole of row 1, which lives in the second bank.
+	for x := range cgaBytesPerRow {
+		data[cgaBankSize+x] = 0xFF
+	}
+
+	img := cgaScreen(data)
+
+	require.Equal(t, nrgba(cgaPalette[3]), img.At(0, 1), "row 1 comes from the second bank")
+	require.Equal(t, nrgba(cgaPalette[0]), img.At(0, 0), "row 0 comes from the first")
+	require.Equal(t, nrgba(cgaPalette[0]), img.At(0, 3), "and no other row was painted")
+}
+
+// TestEgaScreenCombinesThePlanes checks the other easy mistake: a pixel's
+// colour is one bit from each of the four planes, not four bits from one.
+func TestEgaScreenCombinesThePlanes(t *testing.T) {
+	data := make([]byte, 4*egaPlaneSize)
+
+	// The leftmost pixel: set in planes 0 and 2, which makes colour 5.
+	data[0*egaPlaneSize] = 0x80
+	data[2*egaPlaneSize] = 0x80
+
+	img := egaScreen(data)
+
+	require.Equal(t, nrgba(egaPalette[5]), img.At(0, 0))
+	require.Equal(t, nrgba(egaPalette[0]), img.At(1, 0))
+}
+
+// A picture is only written for what can be drawn. The archives of
+// illustrations cannot be yet, and are saved as they came.
+func TestOnlyWhatCanBeDrawnIsDrawn(t *testing.T) {
+	_, drawn := draw(asset{name: "PART1.CHR", data: readAsset(t, charset)})
+	require.True(t, drawn)
+
+	_, drawn = draw(asset{name: "PART1.CGA", data: make([]byte, 78840)})
+	require.False(t, drawn, "the archives are not a single picture")
+}
+
+func TestAssetsAreMatchedByName(t *testing.T) {
+	candidates := []asset{
+		{name: "PART1.CHR"}, {name: "PART1.CGA"}, {name: "PART1.SCR"},
+		{name: "PART2.CHR"},   // another part
+		{name: "PART1.DDB"},   // the database itself
+		{name: "AD.EXE"},      // the interpreter
+		{name: "c/PART1.CGS"}, // in a subdirectory of the disk
+	}
+
+	var names []string
+	for _, a := range assetsFor("PART1.DDB", candidates) {
+		names = append(names, a.name)
+	}
+
+	require.Equal(t, []string{"PART1.CHR", "PART1.CGA", "PART1.SCR", "PART1.CGS"}, names)
+}
+
+// TestDegasLayoutFollowsTheMachine covers the difference that scrambles a
+// picture if it is got wrong. The Atari interleaves the four bit planes a word
+// at a time along each row; the Amiga keeps each plane whole. Nothing in the
+// file says which, so it is taken from the disk it came off.
+func TestDegasLayoutFollowsTheMachine(t *testing.T) {
+	build := func(amiga bool) []byte {
+		d := make([]byte, degasScreenSize)
+
+		// Colour 15: every plane set, for the leftmost eight pixels of row 1.
+		for plane := range 4 {
+			at := degasHeaderSize
+			if amiga {
+				at += plane*egaPlaneSize + egaBytesPerRow
+			} else {
+				at += degasBytesPerRow + plane*2
+			}
+
+			d[at] = 0xFF
+		}
+
+		// A palette of three-bit white in the last entry.
+		d[2+15*2], d[2+15*2+1] = 0x07, 0x77
+
+		return d
+	}
+
+	white := color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
+
+	for _, tc := range []struct {
+		name  string
+		amiga bool
+	}{
+		{"atari", false}, {"amiga", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := degasScreen(build(tc.amiga), tc.amiga)
+
+			require.Equal(t, white, img.At(0, 1), "the pixels that were set")
+			require.Equal(t, white, img.At(7, 1))
+			require.NotEqual(t, white, img.At(8, 1), "and no others")
+			require.NotEqual(t, white, img.At(0, 0))
+
+			// Read with the other machine's layout, it lands somewhere else.
+			require.NotEqual(t, white, degasScreen(build(tc.amiga), !tc.amiga).At(0, 1))
+		})
+	}
+}
+
+// The palette is three bits a component on the Atari and four on the Amiga and
+// the STE, and which it is has to be read off the values.
+func TestDegasPaletteDepth(t *testing.T) {
+	var threeBit, fourBit [2 + 2*degasColours]byte
+
+	threeBit[2], threeBit[3] = 0x07, 0x77 // white, if seven is the top
+	fourBit[2], fourBit[3] = 0x0F, 0xFF   // white, if fifteen is
+
+	require.Equal(t, color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}, degasPalette(threeBit[2:])[0])
+	require.Equal(t, color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}, degasPalette(fourBit[2:])[0])
+
+	// Seven read as a four-bit value would come out halfway, not white.
+	fourBit[4], fourBit[5] = 0x07, 0x77
+	require.Equal(t, uint8(0x77), degasPalette(fourBit[2:])[1].R)
+}
+
+// The three archives the two shapes appear in. Two of them live inside a disk
+// image rather than beside it, which is the usual way round for these.
+const (
+	archive68000   = "../../../work/aventuras/La_Aventura_Original/AtariST/ORIGINAL.ST"
+	archiveLater   = "../../../work/aventuras/Los_templos_sagrados/AtariST/TEMPLOS1.ST"
+	archiveLaterPC = "../../../work/aventuras/Los_templos_sagrados/PC/PART1.DAT"
+)
+
+// readArchive reads PART1.DAT, out of a disk image when that is where it is.
+func readArchive(t *testing.T, path string) []byte {
+	t.Helper()
+
+	data := readAsset(t, path)
+	if strings.HasSuffix(strings.ToUpper(path), ".DAT") {
+		return data
+	}
+
+	volume, err := media.Open(path)
+	require.NoError(t, err)
+
+	files, err := volume.Files()
+	require.NoError(t, err)
+
+	for _, f := range files {
+		if strings.EqualFold(f.Name, "PART1.DAT") {
+			return f.Data
+		}
+	}
+
+	t.Fatalf("%s holds no PART1.DAT", path)
+
+	return nil
+}
+
+// TestUnpackIllustration decodes a picture the way the interpreter does. The
+// scheme is the interpreter's own — a mask in the picture saying which of the
+// sixteen colours carry a run length — so nothing but the real thing tests it.
+func TestUnpackIllustration(t *testing.T) {
+	// The first location of La Aventura Original, which is of the earlier of
+	// the two archive shapes: big-endian, and its pixels gathered a bit from
+	// each of four bytes.
+	layout := daadLayouts[0]
+
+	data := readArchive(t, archive68000)
+
+	at := layout.long(data, layout.header+3*layout.record)
+	require.Equal(t, layout.firstPicture(), at,
+		"the first picture begins where the table ends")
+
+	width, height, planes, ok := unpackDAAD(data[at:], layout)
+	require.True(t, ok)
+	require.Equal(t, 240, width)
+	require.Equal(t, 96, height)
+
+	// Half a byte to the pixel, which is how the interpreter works the size out.
+	require.Len(t, planes, width/2*height)
+
+	// Every colour of the palette is used somewhere in it, which a picture
+	// decoded wrong would not manage.
+	seen := map[int]bool{}
+
+	for pixel := range width * height {
+		base := pixel / daadGroupBits * daadGroupBytes
+		bit := 7 - pixel%daadGroupBits
+
+		colour := 0
+
+		for plane := range daadGroupBytes {
+			if planes[base+plane]&(1<<bit) != 0 {
+				colour |= 1 << plane
+			}
+		}
+
+		seen[colour] = true
+	}
+
+	require.Len(t, seen, degasColours, "all sixteen colours appear")
+}
+
+// TestBothArchiveShapesRead covers the difference between the generations. The
+// later adventures widened the slot and changed how the pixels are gathered,
+// and the PC editions of those hold the same archive the other way round.
+func TestBothArchiveShapesRead(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		nibbles bool
+		little  bool
+	}{
+		{name: "the earlier shape", path: archive68000},
+		{name: "the later shape", path: archiveLater, nibbles: true},
+		{name: "the later shape on a PC", path: archiveLaterPC, nibbles: true, little: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pieces, index, ok := daadArchive(readArchive(t, tc.path))
+			require.True(t, ok, "the archive reads")
+			require.NotEmpty(t, pieces)
+
+			drawn := 0
+
+			for _, p := range pieces {
+				if p.img != nil {
+					drawn++
+				}
+			}
+
+			require.Equal(t, len(pieces), drawn, "every picture in it draws")
+			require.Contains(t, index, "bit planes")
+		})
+	}
+}
+
+// An archive of one shape must not read as the other. Both put their first
+// picture where their own table ends, and only one reading can be right.
+func TestArchiveShapesDoNotCross(t *testing.T) {
+	data := readArchive(t, archiveLater)
+
+	_, _, ok := daadArchiveAs(data, daadLayouts[0])
+	require.False(t, ok, "the later archive is not of the earlier shape")
+
+	later := daadLayouts[1]
+	later.little = true
+
+	_, _, ok = daadArchiveAs(data, later)
+	require.False(t, ok, "nor is it little-endian")
+}
+
+// A picture whose header does not say it is compressed, or whose body ends
+// before the mask, is not one we can read.
+func TestUnpackRejectsRubbish(t *testing.T) {
+	layout := daadLayouts[0]
+
+	_, _, _, ok := unpackDAAD([]byte{0x00, 0xF0, 0x00, 0x60, 0x00, 0x00, 0x00, 0x00}, layout)
+	require.False(t, ok, "the flag says it is not compressed")
+
+	_, _, _, ok = unpackDAAD([]byte{0x80, 0xF0, 0x00, 0x60}, layout)
+	require.False(t, ok, "too short to hold the mask")
+}

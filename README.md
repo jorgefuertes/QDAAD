@@ -17,6 +17,9 @@ go build -o dist/qundaad cmd/qundaad/qundaad.go
 qundaad decompile --input PART1.DDB              --output src/
 qundaad decompile --input ORIGINAL.ADF           --output src/
 qundaad decompile --input "Aventura Original.dsk" --output src/
+
+# only what can be read, without copies of the original binaries
+qundaad decompile --input ORIGINAL.ST --output src/ --no-binaries
 ```
 
 The input can be the database on its own or **the image of the original disk or
@@ -28,6 +31,12 @@ joined with `#INCLUDE` from `game.sce` — which is how the sources of the time
 were organised: the 1991 manual warns about the dangers of "including a TOK file
 which contains an extra `/TOK`", a warning that only makes sense if splitting
 was the normal practice.
+
+Two more directories go beside the source: `chr/` for the character sets and
+`gfx/` for the pictures. Each is kept **as the binary it came as and as a PNG**,
+and the archives of illustrations are cut into their separate drawings as well,
+with an index naming which locations use each and in what palette.
+`--no-binaries` keeps only the conversions, which halves the space.
 
 ### What it works out instead of assuming
 
@@ -65,6 +74,42 @@ game's own loader. There is no directory to walk, so the databases are found by
 signature among the sectors and made to prove they are one — a header that
 describes itself, text tables and connection lists that read, and prose that
 reads like prose — before being accepted.
+
+## The pictures and the character sets
+
+A character set is 2176 bytes: a **128-byte AMSDOS header and 256 glyphs of eight
+rows**. That the Amstrad header is still on them in the PC edition says where the
+tooling came from — Aventuras AD worked on the CPC and the PCW. The letters are
+drawn in six of the eight columns; the glyphs from 128 up are not letters but
+**shading patterns**, and those do use all eight.
+
+They also confirm the DAAD character set from the bitmaps themselves rather than
+from other people's tables: 16 = ª, 17 = ¡, 18 = ¿, 19 = «, 20 = », 21 to 25 =
+á é í ó ú, 26 = ñ, 27 = Ñ, 28 = ç, 29 = Ç, 30 = ü, 31 = Ü.
+
+The **loading screens** are drawn four ways: CGA mode 4 with its interleaved
+banks, EGA mode 0Dh in four planes, and 68000 Degas — which on the Atari
+interleaves the planes a word at a time and on the Amiga keeps each whole,
+something the file does not say and has to be taken from the disk it came off.
+
+The **illustrations** come out since their compression was worked out, and it is
+no known format: a pixel is four bits, and the header carries **a sixteen-bit
+mask saying which colours are followed by a run length**. Because the meaning of
+the next four bits depends on the colour just read, no standard scheme fits. It
+came from reading the interpreters with `objdump -m m68k` — the routine at
+0x20aa of the Atari one for La Aventura Original, and 0x269a for Los Templos
+Sagrados.
+
+There are two generations of archive, and nothing in the file says which it is.
+The later adventures widened the slot from 44 bytes to 48 and changed where the
+pixels are gathered from — a nibble of a longword instead of a bit from each of
+four bytes — and their PC editions hold the same archive with the bytes the
+other way round. Each shape is tried and the one that adds up is kept: an
+archive lays its first picture exactly where its table of slots ends, and only
+the right reading puts it there.
+
+**1428 pictures** are converted as things stand: 37 character sets, 15 loading
+screens and 1376 illustrations.
 
 ## What it has been tested with
 
@@ -122,9 +167,16 @@ The exception is the Spectrum tapes of El Jabato, which load in 128-byte chunks
 and do transform the data. Even there, the disk for the same machine reads
 without trouble.
 
-Still to do: work out the load map of those loaders — it would unblock MSX,
-Amstrad CPC and Commodore 64 in one go — and read the MSX `.CAS`, Commodore
-`.T64` and PCW disk formats.
+Still to do on the databases: work out the load map of those loaders — it would
+unblock MSX, Amstrad CPC and Commodore 64 in one go — and read the MSX `.CAS`,
+Commodore `.T64` and PCW disk formats.
+
+And on the pictures, one thing. The PC editions of the first three adventures
+keep their illustrations in `.CGA` and `.EGA` archives, and those are not pixels
+at all — some seventy distinct byte values at four and a half bits of entropy,
+which is a stream of drawing orders, not a bitmap. Reading it would want the
+drawing routine of `AD.EXE`, and would likely open the eight-bit editions too,
+since those are vector as well.
 
 ## Layout
 

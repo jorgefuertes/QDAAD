@@ -12,11 +12,16 @@ go build -o dist/qundaad cmd/qundaad/qundaad.go
 qundaad decompile --input PART1.DDB              --output src/
 qundaad decompile --input ORIGINAL.ADF           --output src/
 qundaad decompile --input "Aventura Original.dsk" --output src/
+
+# solo lo legible: sin copias de los binarios originales
+qundaad decompile --input ORIGINAL.ST --output src/ --no-binaries
 ```
 
 La entrada puede ser la base de datos suelta o **la imagen del disco o la cinta original**. Una imagen se abre, se recorre y cada base de datos que haya dentro se descompila en su propio directorio.
 
 La salida es UTF-8, legible y modificable hoy, repartida en un fichero por sección y unida con `#INCLUDE` desde `game.sce` — que es como se organizaban los fuentes de la época: el manual de 1991 avisa de los peligros de «incluir un fichero TOK que contenga otro `/TOK`», advertencia que solo tiene sentido si trocear era lo normal.
+
+Junto al fuente van dos directorios más: `chr/` con las tipografías y `gfx/` con las imágenes. De cada cosa se guarda **el binario tal como venía y su conversión a PNG**, y de los archivos de ilustraciones también cada dibujo por separado, con un índice que dice qué localidades usan cada uno y con qué paleta. Con `--no-binaries` se dejan solo las conversiones, que ahorra la mitad del espacio.
 
 ### Lo que deduce en vez de suponer
 
@@ -39,6 +44,20 @@ Una `.DDB` no declara casi nada de lo que hace falta para leerla. `qundaad` no s
 | Commodore `.TAP` | no: guarda los pulsos, no los bytes |
 
 Varios de estos discos **no llevan sistema de ficheros**: se formatearon para el cargador del propio juego. Ahí no hay directorio que recorrer, así que se buscan las bases de datos por firma entre los sectores y se las obliga a demostrar que lo son —cabecera coherente, tablas de texto y conexiones que leen, y prosa que parece prosa— antes de aceptarlas.
+
+## Las imágenes y las tipografías
+
+Las tipografías son 2176 bytes: **cabecera AMSDOS de 128 y 256 glifos de ocho filas**. Que lleven la cabecera de Amstrad hasta en la versión de PC dice de dónde salió la herramienta — Aventuras AD trabajaba en CPC y PCW. Las letras se dibujan en seis columnas de las ocho; los glifos del 128 en adelante no son letras sino **tramas de sombreado**, y esas sí usan las ocho.
+
+De ahí sale además la confirmación del juego de caracteres de DAAD leída en los propios bitmaps, no en el código de otras herramientas: 16 = ª, 17 = ¡, 18 = ¿, 19 = «, 20 = », 21 a 25 = á é í ó ú, 26 = ñ, 27 = Ñ, 28 = ç, 29 = Ç, 30 = ü, 31 = Ü.
+
+Las **portadas** se dibujan en las cuatro rutas: CGA modo 4 con sus bancos entrelazados, EGA modo 0Dh en cuatro planos, y Degas de 68000 — que en Atari entrelaza los planos por palabra y en Amiga los guarda enteros, cosa que el fichero no dice y hay que tomar del soporte.
+
+Las **ilustraciones** salen desde que se descifró su compresión, que no es ningún formato conocido: cada píxel son cuatro bits, y la cabecera lleva **una máscara de dieciséis bits que dice qué colores van seguidos de una repetición**. Como el significado de los cuatro bits siguientes depende del color recién leído, no hay esquema estándar que encaje. Salió leyendo los intérpretes con `objdump -m m68k`: la rutina `0x20aa` del Atari de La Aventura Original, y la `0x269a` de Los Templos Sagrados.
+
+Hay dos generaciones de archivo y el fichero no dice cuál es. Las aventuras tardías ensancharon la ranura de 44 a 48 bytes y cambiaron de dónde se sacan los píxeles —un nibble de un longword en vez de un bit de cada uno de cuatro bytes—, y sus ediciones de PC llevan el mismo archivo con los bytes al revés. Se prueban las formas y se queda la que cuadra: un archivo pone su primera imagen justo donde acaba su tabla de ranuras, y solo la lectura correcta la deja ahí.
+
+Ahora mismo se convierten **1428 imágenes**: 37 tipografías, 15 portadas y 1376 ilustraciones.
 
 ## Con qué se ha probado
 
@@ -77,7 +96,9 @@ texto está en otro sitio.
 
 La excepción son las cintas del Spectrum de El Jabato, que cargan en trozos de 128 bytes y sí transforman los datos. Pero incluso ahí el disco de la misma máquina se lee sin problema.
 
-Queda por hacer: entender el mapa de carga de esos cargadores —desbloquearía MSX, Amstrad CPC y Commodore 64 de una vez— y leer los formatos `.CAS` de MSX, `.T64` de Commodore y los discos de PCW.
+Queda por hacer en las bases de datos: entender el mapa de carga de esos cargadores —desbloquearía MSX, Amstrad CPC y Commodore 64 de una vez— y leer los formatos `.CAS` de MSX, `.T64` de Commodore y los discos de PCW.
+
+Y en las imágenes, una cosa. Las ediciones de PC de las tres primeras aventuras guardan sus ilustraciones en archivos `.CGA` y `.EGA`, y esas no son píxeles — unos setenta valores de byte distintos y cuatro bits y medio de entropía, que es un flujo de órdenes de dibujo, no un mapa de bits. Leerlo pide la rutina de dibujo de `AD.EXE`, y probablemente abriría también las ediciones de 8 bits, que son vectoriales igualmente.
 
 ## Estructura
 

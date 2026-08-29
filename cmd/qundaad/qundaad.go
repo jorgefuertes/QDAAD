@@ -31,6 +31,12 @@ func main() {
 						Usage:    "Output directory for the decompiled source code",
 						Required: true,
 					},
+					&cli.BoolFlag{
+						Name:    "no-binaries",
+						Aliases: []string{"B"},
+						Usage: "Write only what can be read, leaving out the character sets, " +
+							"screens and image archives as they came",
+					},
 				},
 				Action: decompiler.RunAction,
 			},
