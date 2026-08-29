@@ -1,4 +1,4 @@
-# qDAAD
+# QDAAD
 
 A Go reimplementation of DAAD, the adventure writing system.
 

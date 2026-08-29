@@ -1,4 +1,4 @@
-# qDAAD
+# QDAAD
 
 Reimplementación en Go del sistema DAAD de creación de aventuras conversacionales.
 
