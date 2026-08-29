@@ -53,11 +53,13 @@ De ahí sale además la confirmación del juego de caracteres de DAAD leída en 
 
 Las **portadas** se dibujan en las cuatro rutas: CGA modo 4 con sus bancos entrelazados, EGA modo 0Dh en cuatro planos, y Degas de 68000 — que en Atari entrelaza los planos por palabra y en Amiga los guarda enteros, cosa que el fichero no dice y hay que tomar del soporte.
 
-Las **ilustraciones** salen desde que se descifró su compresión, que no es ningún formato conocido: cada píxel son cuatro bits, y la cabecera lleva **una máscara de dieciséis bits que dice qué colores van seguidos de una repetición**. Como el significado de los cuatro bits siguientes depende del color recién leído, no hay esquema estándar que encaje. Salió leyendo los intérpretes con `objdump -m m68k`: la rutina `0x20aa` del Atari de La Aventura Original, y la `0x269a` de Los Templos Sagrados.
+Hay **tres compresiones**, una por generación, y ninguna es un formato conocido. La del PC salió del propio compresor: `DMG.EXE`, el gestor de gráficos que construyó estos archivos, sigue viniendo con la entrega de 1991, y su rutina en `0x3b4f` cuenta cuántas veces sale cada valor de byte en la imagen, se queda con los cuatro más frecuentes y escribe la imagen byte a byte — salvo que un byte de esos cuatro va seguido de la cuenta de cuántas veces se repite. Cuántos de los cuatro reciben ese trato se decide probando los cuatro y quedándose con el que menos ocupa. Al leerla, 189 de las 191 comprimidas dan exactamente el tamaño que dice su cabecera habiéndose comido el flujo entero.
+
+Las otras dos son las de 68000, y ninguna cede a ningún esquema estándar: cada píxel son cuatro bits, y la cabecera lleva **una máscara de dieciséis bits que dice qué colores van seguidos de una repetición**. Como el significado de los cuatro bits siguientes depende del color recién leído, no hay esquema estándar que encaje. Salió leyendo los intérpretes con `objdump -m m68k`: la rutina `0x20aa` del Atari de La Aventura Original, y la `0x269a` de Los Templos Sagrados.
 
 Hay dos generaciones de archivo y el fichero no dice cuál es. Las aventuras tardías ensancharon la ranura de 44 a 48 bytes y cambiaron de dónde se sacan los píxeles —un nibble de un longword en vez de un bit de cada uno de cuatro bytes—, y sus ediciones de PC llevan el mismo archivo con los bytes al revés. Se prueban las formas y se queda la que cuadra: un archivo pone su primera imagen justo donde acaba su tabla de ranuras, y solo la lectura correcta la deja ahí.
 
-Ahora mismo se convierten **1428 imágenes**: 37 tipografías, 15 portadas y 1376 ilustraciones.
+Ahora mismo se convierten **1795 imágenes**: tipografías, portadas e ilustraciones, en todas las máquinas cuyas bases de datos se pueden leer.
 
 ## Con qué se ha probado
 
@@ -98,7 +100,7 @@ La excepción son las cintas del Spectrum de El Jabato, que cargan en trozos de 
 
 Queda por hacer en las bases de datos: entender el mapa de carga de esos cargadores —desbloquearía MSX, Amstrad CPC y Commodore 64 de una vez— y leer los formatos `.CAS` de MSX, `.T64` de Commodore y los discos de PCW.
 
-Y en las imágenes, una cosa. Las ediciones de PC de las tres primeras aventuras guardan sus ilustraciones en archivos `.CGA` y `.EGA`, y esas no son píxeles — unos setenta valores de byte distintos y cuatro bits y medio de entropía, que es un flujo de órdenes de dibujo, no un mapa de bits. Leerlo pide la rutina de dibujo de `AD.EXE`, y probablemente abriría también las ediciones de 8 bits, que son vectoriales igualmente.
+De las imágenes ya no queda nada pendiente en las máquinas cuyas bases de datos se leen: sale toda ilustración de toda edición alcanzable.
 
 ## Estructura
 

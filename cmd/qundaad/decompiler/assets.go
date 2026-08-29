@@ -99,37 +99,44 @@ var (
 	}
 )
 
-// writeAssets saves what came alongside the database: every file as it stands,
-// under the name it had, and next to it a PNG of whatever can be drawn.
+// writeAssets saves what came alongside the database, in two directories: the
+// character sets in one and everything drawn in the other.
 //
-// The binary is always written, whether or not it can be turned into a picture.
-// The archives of illustrations cannot be yet — how a drawing is encoded inside
-// them is still unknown — so for those the binary is all there is.
+// What is written are pictures, numbered from one, and beside each the bytes it
+// was made from. The names of the original files are not carried over: the
+// directory already says which part of the adventure this is, and PART1.SCR.png
+// inside part1/gfx says it twice and adds an extension that means nothing.
 func writeAssets(assets []asset, outputDir string, opts Options) error {
+	var fonts, graphics []asset
+
 	for _, a := range assets {
-		dir := graphicsDir
 		if isFont(a.name) {
-			dir = fontsDir
+			fonts = append(fonts, a)
+		} else {
+			graphics = append(graphics, a)
 		}
+	}
 
-		into := filepath.Join(outputDir, dir)
-		if err := os.MkdirAll(into, 0o755); err != nil {
-			return fmt.Errorf("creating %s: %w", into, err)
-		}
+	if err := writeFonts(fonts, filepath.Join(outputDir, fontsDir), opts); err != nil {
+		return err
+	}
 
-		// The name it came with, and .bin when it came without an extension.
-		name := a.name
-		if filepath.Ext(name) == "" {
-			name += ".bin"
-		}
+	return writeGraphics(graphics, filepath.Join(outputDir, graphicsDir), opts)
+}
 
-		if opts.Binaries {
-			if err := os.WriteFile(filepath.Join(into, name), a.data, 0o644); err != nil {
-				return fmt.Errorf("writing %s: %w", name, err)
-			}
-		}
+// writeFonts draws each character set as a sheet of its glyphs. A part carries
+// one or two of them, and they are numbered in the order the disk holds them.
+func writeFonts(fonts []asset, into string, opts Options) error {
+	if len(fonts) == 0 {
+		return nil
+	}
 
-		if err := writePieces(a, into, name, opts); err != nil {
+	if err := os.MkdirAll(into, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", into, err)
+	}
+
+	for i, a := range fonts {
+		if err := keepOriginal(a, into, opts); err != nil {
 			return err
 		}
 
@@ -138,12 +145,7 @@ func writeAssets(assets []asset, outputDir string, opts Options) error {
 			continue
 		}
 
-		// The whole name and then .png, rather than swapping the extension:
-		// several assets share a stem, and PART1.CGA and PART1.SCR would
-		// otherwise both want to be PART1.png.
-		asPNG := name + ".png"
-
-		if err := writePNG(filepath.Join(into, asPNG), img); err != nil {
+		if err := writePNG(filepath.Join(into, numbered(i+1, ".png")), img); err != nil {
 			return err
 		}
 	}
@@ -151,26 +153,99 @@ func writeAssets(assets []asset, outputDir string, opts Options) error {
 	return nil
 }
 
-// writePieces cuts an archive of illustrations into its parts, each as it lies,
-// with an index beside them naming what is known about each.
+// writeGraphics draws everything else into one directory: the loading screen as
+// scr.png, and the illustrations of the archives numbered from one.
 //
-// Nothing here can be drawn yet. What it gives is the illustrations separated
-// out and told apart, which is what anyone working on the encoding needs first.
-func writePieces(a asset, into, name string, opts Options) error {
-	pieces, index, isArchive := splitArchive(a)
-	if !isArchive {
+// The archives are numbered through, not restarted for each, because a part has
+// only ever one of them and numbering per archive would invite a collision that
+// never shows up in what we have.
+func writeGraphics(graphics []asset, into string, opts Options) error {
+	if len(graphics) == 0 {
 		return nil
 	}
 
-	dir := filepath.Join(into, name+".images")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating %s: %w", dir, err)
+	if err := os.MkdirAll(into, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", into, err)
 	}
 
+	drawings, screens := 0, 0
+
+	for _, a := range graphics {
+		if err := keepOriginal(a, into, opts); err != nil {
+			return err
+		}
+
+		if pieces, index, isArchive := splitArchive(a); isArchive {
+			if err := writePieces(pieces, index, into, &drawings, opts); err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		img, drawn := draw(a)
+		if !drawn {
+			continue
+		}
+
+		// A part has one loading screen. Should another ever turn up it is
+		// numbered rather than quietly overwriting the first.
+		name := "scr.png"
+		if screens++; screens > 1 {
+			name = fmt.Sprintf("scr%d.png", screens)
+		}
+
+		if err := writePNG(filepath.Join(into, name), img); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// keepOriginal writes a file as it came, under the name it came with, unless
+// the caller asked for only what can be read.
+func keepOriginal(a asset, into string, opts Options) error {
+	if !opts.Binaries {
+		return nil
+	}
+
+	// The name it came with, and .bin when it came without an extension.
+	name := filepath.Base(a.name)
+	if filepath.Ext(name) == "" {
+		name += ".bin"
+	}
+
+	if err := os.WriteFile(filepath.Join(into, name), a.data, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// numbered gives a piece its name: three digits and an extension.
+func numbered(at int, extension string) string {
+	return fmt.Sprintf("%03d%s", at, extension)
+}
+
+// writePieces writes the illustrations of one archive, each as it lies in it
+// and, where the drawing can be read, as a picture beside it.
+//
+// The index goes with them, naming for each what is known: where it lies, how
+// big it is, which locations use it and in what palette. For the archives whose
+// drawings are still unread that index is the whole of what we have.
+func writePieces(pieces []piece, index, into string, from *int, opts Options) error {
+	var listing strings.Builder
+
+	listing.WriteString(index)
+
 	for _, p := range pieces {
+		*from++
+
 		if opts.Binaries {
-			if err := os.WriteFile(filepath.Join(dir, p.name), p.data, 0o644); err != nil {
-				return fmt.Errorf("writing %s: %w", p.name, err)
+			at := filepath.Join(into, numbered(*from, ".bin"))
+			if err := os.WriteFile(at, p.data, 0o644); err != nil {
+				return fmt.Errorf("writing %s: %w", at, err)
 			}
 		}
 
@@ -178,13 +253,13 @@ func writePieces(a asset, into, name string, opts Options) error {
 			continue
 		}
 
-		if err := writePNG(filepath.Join(dir, p.name+".png"), p.img); err != nil {
+		if err := writePNG(filepath.Join(into, numbered(*from, ".png")), p.img); err != nil {
 			return err
 		}
 	}
 
-	at := filepath.Join(dir, "index.txt")
-	if err := os.WriteFile(at, []byte(index), 0o644); err != nil {
+	at := filepath.Join(into, "index.txt")
+	if err := os.WriteFile(at, []byte(listing.String()), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", at, err)
 	}
 

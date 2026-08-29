@@ -92,8 +92,18 @@ banks, EGA mode 0Dh in four planes, and 68000 Degas — which on the Atari
 interleaves the planes a word at a time and on the Amiga keeps each whole,
 something the file does not say and has to be taken from the disk it came off.
 
-The **illustrations** come out since their compression was worked out, and it is
-no known format: a pixel is four bits, and the header carries **a sixteen-bit
+There are **three compression schemes**, one per generation, and none is a known
+format. The PC one came out of the compressor itself: `DMG.EXE`, the graphics
+manager that built these archives, still ships with the 1991 release, and the
+routine at 0x3b4f of it counts how often each byte value occurs in a picture,
+keeps the four commonest, and writes the picture a byte at a time — except that
+a byte among those four is followed by a count of how many times it repeats. How
+many of the four are treated that way is chosen by trying all four and keeping
+whichever came out smallest. Read back, 189 of the 191 compressed pictures
+unpack to exactly the size their header implies, having eaten their whole
+stream.
+
+The other two are the 68000 ones, and neither yields to any standard scheme: a pixel is four bits, and the header carries **a sixteen-bit
 mask saying which colours are followed by a run length**. Because the meaning of
 the next four bits depends on the colour just read, no standard scheme fits. It
 came from reading the interpreters with `objdump -m m68k` — the routine at
@@ -108,8 +118,8 @@ other way round. Each shape is tried and the one that adds up is kept: an
 archive lays its first picture exactly where its table of slots ends, and only
 the right reading puts it there.
 
-**1428 pictures** are converted as things stand: 37 character sets, 15 loading
-screens and 1376 illustrations.
+**1795 pictures** are converted as things stand: character sets, loading screens
+and illustrations, on every machine whose databases can be read.
 
 ## What it has been tested with
 
@@ -171,12 +181,8 @@ Still to do on the databases: work out the load map of those loaders — it woul
 unblock MSX, Amstrad CPC and Commodore 64 in one go — and read the MSX `.CAS`,
 Commodore `.T64` and PCW disk formats.
 
-And on the pictures, one thing. The PC editions of the first three adventures
-keep their illustrations in `.CGA` and `.EGA` archives, and those are not pixels
-at all — some seventy distinct byte values at four and a half bits of entropy,
-which is a stream of drawing orders, not a bitmap. Reading it would want the
-drawing routine of `AD.EXE`, and would likely open the eight-bit editions too,
-since those are vector as well.
+Nothing is left of the pictures on the machines whose databases read. Every
+illustration of every edition that can be reached comes out.
 
 ## Layout
 
