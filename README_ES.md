@@ -72,12 +72,12 @@ Las cinco aventuras de Aventuras AD, en todas las ediciones que se han conseguid
 | Aventura | PC | Amiga | Atari ST | Amstrad CPC | ZX Spectrum | C64 | MSX | PCW |
 |----------|----|-------|----------|-------------|-------------|-----|-----|-----|
 | La Aventura Original | sí | sí | sí | sí | sí | no | — | — |
-| El Jabato | sí | sí | 1/2 | no | 1/3 | no | no | — |
+| El Jabato | sí | sí | sí | no | sí | no | no | — |
 | Cozumel | sí | sí | sí | sí | sí | no | no | sí |
 | Chichén Itzá | sí | sí | sí | no | no | no | no | — |
 | Los templos sagrados | sí | sí | sí | no | no | no | no | sí |
 
-(«1/2» en el Atari ST de El Jabato es el segundo disco, que solo trae gráficos.)
+Cada casilla dice si la aventura se lee en esa máquina, sus dos partes, no si se lee cada fichero que se distribuyó para ella. Hay dos que conviene detallar, las dos de El Jabato: su segundo disco de Atari ST lleva un único fichero, el archivo de ilustraciones de la parte 2, así que ahí no hay base de datos que leer; y sus cintas de Spectrum no se leen, aunque el disco de esa misma máquina da las dos partes.
 
 ### Cómo se comprueba que el resultado es correcto
 
@@ -97,6 +97,8 @@ De paso han salido cosas sobre las aventuras: **el Amiga distribuyó la base de 
 
 Casi todo lo que falla comparte una causa, y **no es protección anticopia**. El formato de disco a medida sí lo es en parte, pero eso ya se supera. Lo que bloquea es que **el cargador guarda la base de datos troceada** y la arma en RAM,
 así que en el medio nunca está seguida.
+
+Los discos de Amstrad lo dicen sin rodeos. Sí llevan directorio CP/M, y lo que nombra es `JABATO.B00`, `.B01` y `.B02`, o `TEMPLOS1.B00` hasta `.B02`: los bancos del cargador, numerados. Los ficheros están ahí para leerlos, y la base de datos va repartida entre ellos.
 
 La prueba está en la versión de MSX de El Jabato: su cabecera, sus 288 palabras de vocabulario —las mismas que la de PC— y sus 128 tokens decodifican perfectamente. Con cifrado o compresión no leería ninguna de las tres; solo el
 texto está en otro sitio.

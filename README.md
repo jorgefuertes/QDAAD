@@ -140,13 +140,16 @@ media files, yielding 53 databases**.
 | Adventure | PC | Amiga | Atari ST | Amstrad CPC | ZX Spectrum | C64 | MSX | PCW |
 |-----------|----|-------|----------|-------------|-------------|-----|-----|-----|
 | La Aventura Original | yes | yes | yes | yes | yes | no | — | — |
-| El Jabato | yes | yes | 1/2 | no | 1/3 | no | no | — |
+| El Jabato | yes | yes | yes | no | yes | no | no | — |
 | Cozumel | yes | yes | yes | yes | yes | no | no | yes |
 | Chichén Itzá | yes | yes | yes | no | no | no | no | — |
 | Los templos sagrados | yes | yes | yes | no | no | no | no | yes |
 
-("1/2" for the Atari ST of El Jabato is its second disk, which holds only
-graphics.)
+A cell says whether the adventure reads on that machine, both of its parts, not
+whether every file shipped for it does. Two are worth spelling out, both in El
+Jabato: its second Atari ST disk holds a single file, the picture archive of
+part two, so there is no database on it to read; and its Spectrum tapes do not
+read at all, though the disk for the same machine gives both parts.
 
 ### How the result is checked
 
@@ -181,6 +184,11 @@ Nearly everything that fails shares one cause, and it is **not copy protection**
 The custom disk format partly is, but that much is already got past. What blocks
 it is that **the loader keeps the database in pieces** and assembles it in RAM,
 so on the medium it is never contiguous.
+
+The Amstrad disks say as much outright. They do carry a CP/M directory, and what
+it names is `JABATO.B00`, `.B01` and `.B02`, or `TEMPLOS1.B00` through `.B02`:
+the loader's banks, numbered. The files are there to read and the database is
+spread across them.
 
 The proof is the MSX edition of El Jabato: its header, its 288 vocabulary words —
 the same as the PC edition — and its 128 tokens all decode perfectly. With
