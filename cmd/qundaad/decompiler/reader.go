@@ -203,36 +203,88 @@ func readerAt(data []byte, off int) (*Reader, bool) {
 	for _, whole := range []bool{true, false} {
 		for _, size := range []int{headerSizeV1, headerSizeV2} {
 			for _, big := range []bool{true, false} {
-				r := &Reader{data: data[off:], bigEndian: big, headerSize: size, unreadableProcess: -1}
+				for _, base := range candidateBases(data[off:], whole, size, big) {
+					r := &Reader{
+						data: data[off:], bigEndian: big, headerSize: size,
+						base: base, unreadableProcess: -1,
+					}
 
-				if !whole {
-					// The vocabulary follows the header, near enough, so its
-					// pointer gives away the address it was all laid at.
-					r.base = int(r.word(8+2*ptrVocabulary)) - size
+					if !r.headerAgrees() {
+						continue
+					}
+
+					if whole && !r.lengthAccountsForFile() {
+						continue
+					}
+
+					if err := r.readTokens(); err != nil {
+						continue
+					}
+
+					if err := r.readVocabulary(); err != nil {
+						continue
+					}
+
+					return r, true
 				}
-
-				if !r.headerAgrees() {
-					continue
-				}
-
-				if whole && !r.lengthAccountsForFile() {
-					continue
-				}
-
-				if err := r.readTokens(); err != nil {
-					continue
-				}
-
-				if err := r.readVocabulary(); err != nil {
-					continue
-				}
-
-				return r, true
 			}
 		}
 	}
 
 	return nil, false
+}
+
+// candidateBases lists the addresses the database might have been laid at.
+//
+// One in a file of its own is at zero, and there is nothing to work out. One
+// found inside a program or on a disk has absolute addresses, and the
+// vocabulary is what gives the address away: it follows the header, so the base
+// is the difference between where its pointer says it is and where it can
+// actually be.
+//
+// What stops that from being one subtraction is the padding some builds left
+// between the header and the vocabulary: six bytes on the Amstrad PCW, where
+// the base comes out at 0x100 because that is where CP/M loads a program, and
+// twenty-six in Los Templos Sagrados. So every width of padding that has a word
+// at the end of it is offered, and the reading that parses decides.
+func candidateBases(data []byte, whole bool, size int, big bool) []int {
+	const (
+		maxPadding = 512
+		wordLen    = 5
+	)
+
+	if whole {
+		return []int{0}
+	}
+
+	if len(data) < size+wordLen {
+		return nil
+	}
+
+	probe := &Reader{data: data, bigEndian: big, headerSize: size}
+	pointer := int(probe.word(8 + 2*ptrVocabulary))
+
+	var bases []int
+
+	for pad := 0; pad <= maxPadding; pad++ {
+		at := size + pad
+		if at+wordLen > len(data) {
+			break
+		}
+
+		base := pointer - at
+		if base < 0 {
+			break
+		}
+
+		if !looksLikeWord(data[at : at+wordLen]) {
+			continue
+		}
+
+		bases = append(bases, base)
+	}
+
+	return bases
 }
 
 // lengthAccountsForFile says whether the declared length covers what is there,
@@ -743,6 +795,37 @@ func (r *Reader) Vocabulary() []VocabularyEntry { return r.vocabulary }
 
 // readVocabulary loads the table. Entries are seven bytes and it ends with a
 // single zero where a word would start.
+// looksLikeWord says whether five bytes of the vocabulary are a word.
+//
+// This is what tells a vocabulary from a stretch of bytes that happens to lie
+// where a wrong reading of the header points. A word is letters, padded on the
+// right with spaces to five: the accented codes count, and nothing else does.
+// The padding has to be at the end, so that a run of spaces with rubbish after
+// it is not taken for one.
+func looksLikeWord(raw []byte) bool {
+	padding := false
+
+	for _, b := range raw {
+		c := b ^ obfuscate
+
+		switch {
+		case c == ' ':
+			padding = true
+		case padding:
+			// A letter after the padding started: not a word.
+			return false
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c >= 16 && c < 32:
+			// The accented letters Spanish and Portuguese need.
+		default:
+			return false
+		}
+	}
+
+	// All five spaces is not a word either.
+	return raw[0]^obfuscate != ' '
+}
+
 func (r *Reader) readVocabulary() error {
 	const entrySize = 7
 
@@ -759,9 +842,20 @@ func (r *Reader) readVocabulary() error {
 		}
 
 		if r.data[p] == 0 {
+			// No adventure has an empty vocabulary: it cannot be played
+			// without one. A pointer that lands on a zero is a reading that
+			// happens to survive the header checks, not a database.
+			if len(entries) == 0 {
+				return errors.New("the vocabulary is empty")
+			}
+
 			r.vocabulary = entries
 
 			return nil
+		}
+
+		if !looksLikeWord(r.data[p : p+5]) {
+			return fmt.Errorf("the vocabulary holds something that is not a word at %d", p)
 		}
 
 		var word strings.Builder

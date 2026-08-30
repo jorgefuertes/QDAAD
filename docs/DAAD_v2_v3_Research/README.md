@@ -23,7 +23,7 @@ Todo el software analizado es libre.
 | [06 — El parser](06-parser.md) | Vocabulario, frase lógica, inglés frente a español, enclíticos |
 | [07 — Qué es DAAD v3](07-daad-v3.md) | **El delta v2 → v3 completo**, y qué no es v3 |
 | [08 — Los intérpretes](08-interpretes.md) | **Matriz de soporte de v3**, peculiaridades y divergencias |
-| [09 — Imágenes](09-graficos.md) | Formatos por plataforma, conversores, empaquetado, `GFX` |
+| [09 — Imágenes](09-graficos.md) | Formatos por plataforma, conversores, empaquetado, `GFX`, y el motor vectorial de 8 bits |
 | [10 — Sonido y música](10-audio.md) | `BEEP`, `SFX`, `XPLAY`, formatos y motores |
 | [11 — Build por plataforma](11-build-plataformas.md) | De `.DSF` a TAP, DSK, D64, ADF, EXE o web |
 | [12 — El fuente `.DSF`](12-formato-dsf.md) | Gramática, preprocesador, símbolos, **el JSON intermedio** |

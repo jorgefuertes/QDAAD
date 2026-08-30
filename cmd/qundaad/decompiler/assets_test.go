@@ -142,7 +142,9 @@ func TestOnlyWhatCanBeDrawnIsDrawn(t *testing.T) {
 
 func TestAssetsAreMatchedByName(t *testing.T) {
 	candidates := []asset{
-		{name: "PART1.CHR"}, {name: "PART1.CGA"}, {name: "PART1.SCR"},
+		{name: "PART1.CHR"},
+		{name: "PART1.CGA"},
+		{name: "PART1.SCR"},
 		{name: "PART2.CHR"},   // another part
 		{name: "PART1.DDB"},   // the database itself
 		{name: "AD.EXE"},      // the interpreter

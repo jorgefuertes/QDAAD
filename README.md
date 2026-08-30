@@ -50,8 +50,12 @@ data itself:
   adventures.
 - **The address it was loaded at**, when the database is not a file but is linked
   into a program or laid straight onto a disk. Its pointers are absolute
-  addresses, and the vocabulary, which sits right after the header, gives away
-  where it was all loaded.
+  addresses, and the vocabulary gives away where it was all loaded — but only
+  *near enough* after the header, since some builds left padding between the
+  two, six bytes on the Amstrad PCW and twenty-six in Los Templos Sagrados. So
+  every width of padding that has a word at the end of it is tried, and the
+  reading that parses decides. That is what turns up 0x100 for the PCW, which
+  is where CP/M loads a program.
 - **Whether there is a compression table**, which is optional: the CGA build of
   El Jabato was compiled without one.
 
@@ -66,13 +70,20 @@ hardly ever a contiguous run of bytes on the original medium:
 | Atari ST and MSX `.ST`, `.DSK` | FAT12 |
 | Commodore `.d64` | CBM DOS, linked sectors |
 | Amstrad and Spectrum `.DSK` | CPCEMU, both the original and extended variants |
+| Amstrad CPC, PCW and Spectrum +3 | CP/M, where the disk carries a directory |
 | `.TZX` and `.CDT` tapes | all 25 block types of the format |
 | Commodore `.TAP` | no: it holds the pulses, not the bytes |
 
-Several of these disks **carry no filesystem**: they were formatted for the
-game's own loader. There is no directory to walk, so the databases are found by
-signature among the sectors and made to prove they are one — a header that
-describes itself, text tables and connection lists that read, and prose that
+The `.DSK` disks come **two ways, and the container never says which**. Some are
+ordinary CP/M volumes: the Amstrad PCW ones name their files outright, and so,
+it turns out, does the Spectrum +3 disk of Cozumel. Others were formatted for
+the game's own loader and hold nothing but a run of sectors. Reading the
+directory is the test — and it has to be a strict one, since a disk of program
+and picture data has sectors that pass for a directory if you let them.
+
+Where there is none, the databases are found by signature among the sectors and
+made to prove they are one — a header that describes itself, a vocabulary whose
+words are words, text tables and connection lists that read, and prose that
 reads like prose — before being accepted.
 
 ## The pictures and the character sets
@@ -118,21 +129,21 @@ other way round. Each shape is tried and the one that adds up is kept: an
 archive lays its first picture exactly where its table of slots ends, and only
 the right reading puts it there.
 
-**1795 pictures** are converted as things stand: character sets, loading screens
+**1798 pictures** are converted as things stand: character sets, loading screens
 and illustrations, on every machine whose databases can be read.
 
 ## What it has been tested with
 
 The five Aventuras AD adventures, in every edition that could be found: **81
-media files, yielding 49 databases**.
+media files, yielding 53 databases**.
 
 | Adventure | PC | Amiga | Atari ST | Amstrad CPC | ZX Spectrum | C64 | MSX | PCW |
 |-----------|----|-------|----------|-------------|-------------|-----|-----|-----|
 | La Aventura Original | yes | yes | yes | yes | yes | no | — | — |
 | El Jabato | yes | yes | 1/2 | no | 1/3 | no | no | — |
-| Cozumel | yes | yes | yes | yes | yes | no | no | no |
+| Cozumel | yes | yes | yes | yes | yes | no | no | yes |
 | Chichén Itzá | yes | yes | yes | no | no | no | no | — |
-| Los templos sagrados | yes | yes | yes | no | no | no | no | no |
+| Los templos sagrados | yes | yes | yes | no | no | no | no | yes |
 
 ("1/2" for the Atari ST of El Jabato is its second disk, which holds only
 graphics.)
@@ -140,8 +151,8 @@ graphics.)
 ### How the result is checked
 
 `make decomp-check` decompiles the five adventures and holds the editions
-against one another: **29 pairs**, twelve that have to give the same source
-whole and seventeen that have to agree on the text and the data.
+against one another: **31 pairs**, twelve that have to give the same source
+whole and nineteen that have to agree on the text and the data.
 
 It is a strong check because the binaries compared have nothing in common —
 different byte order, different size, different offsets throughout — and still
@@ -156,6 +167,9 @@ The two comparisons that say the most:
 - **EGA against CGA in El Jabato.** One was compiled with a compression table and
   the other with none at all, and every line of prose comes out identical. That
   says rather more about token expansion than comparing two identical tables.
+- **The Amstrad PCW against the PC in Los Templos Sagrados.** A Z80 build for
+  CP/M, laid at 0x100 with padding after its header, against a PC one of the
+  other byte order: all seven shared sections come out identical, both parts.
 
 Things about the adventures have come out along the way: **the Amiga shipped the
 database compiled for the Atari**, without recompiling it, in both La Aventura
@@ -178,8 +192,8 @@ and do transform the data. Even there, the disk for the same machine reads
 without trouble.
 
 Still to do on the databases: work out the load map of those loaders — it would
-unblock MSX, Amstrad CPC and Commodore 64 in one go — and read the MSX `.CAS`,
-Commodore `.T64` and PCW disk formats.
+unblock MSX, Amstrad CPC and Commodore 64 in one go — and read the MSX `.CAS`
+and Commodore `.T64` formats.
 
 Nothing is left of the pictures on the machines whose databases read. Every
 illustration of every edition that can be reached comes out.

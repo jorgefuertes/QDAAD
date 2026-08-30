@@ -11,6 +11,11 @@ import (
 const (
 	amstradImage  = "../../work/aventuras/La_Aventura_Original/AmstradCPC/ORIGINAL.DSK"
 	spectrumImage = "../../work/aventuras/La_Aventura_Original/ZXSpectrum/La Aventura Original.dsk"
+	pcwImage      = "../../work/aventuras/Cozumel/AmstradPCW/Cozumel_A.dsk"
+
+	// Written by a tool whose opening line reads "MV - CPC format Disk Image
+	// (DU54)" rather than the usual "MV - CPCEMU Disk-File".
+	pcwTemplosImage = "../../work/aventuras/Los_templos_sagrados/AmstradPCW/templosa.DSK"
 )
 
 func openDSK(t *testing.T, path string) media.Image {
@@ -99,4 +104,36 @@ func TestDSKPayloadIsInOrder(t *testing.T) {
 			require.Equal(t, "\x15RBOL", string(word), "the first word is ÁRBOL, with its accent")
 		})
 	}
+}
+
+// The Amstrad PCW disks are the other kind: ordinary CP/M volumes with a
+// directory, on the same container the loader disks use. Reading it is what
+// tells the two apart, and the character set is the check that says the lengths
+// come out right — 2176 bytes is a 128-byte AMSDOS header and 256 glyphs of
+// eight rows, and nothing else.
+func TestDSKReadsAmsdosDirectory(t *testing.T) {
+	files, err := openDSK(t, pcwImage).Files()
+	require.NoError(t, err)
+
+	sizes := map[string]int{}
+	for _, f := range files {
+		sizes[f.Name] = len(f.Data)
+	}
+
+	require.Equal(t, map[string]int{
+		"PARTE001.DDB": 33280,
+		"PARTE001.DAT": 111360,
+		"PARTE001.CHR": 2176,
+		"PARTE000.PIC": 16000,
+		"AD.COM":       8960,
+	}, sizes)
+}
+
+// Only the first eight characters of the opening line identify the original
+// variant: the disks of Los Templos Sagrados were written by a tool that put
+// its own wording after them, and refusing those would lose the edition.
+func TestDSKAcceptsAnotherWording(t *testing.T) {
+	require.Equal(t,
+		"CPCEMU disk image, 40 tracks, 1 side(s)",
+		openDSK(t, pcwTemplosImage).Format())
 }

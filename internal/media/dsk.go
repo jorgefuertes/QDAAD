@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // The DSK container, as CPCEMU defined it and everything since has followed.
@@ -14,10 +15,16 @@ import (
 // Two variants exist. The original gives every track the same size, padding the
 // short ones; the extended one carries a table of sizes instead, so a track can
 // be shorter or missing altogether.
+//
+// Only the first eight characters identify the original variant. The rest of
+// that opening line is free text the writing tool chooses, and the tools
+// disagree: CPCEMU wrote "MV - CPCEMU Disk-File", while the Amstrad PCW disks
+// of Los Templos Sagrados say "MV - CPC format Disk Image (DU54)". Everything
+// after it is laid out the same, so eight characters is what we ask for.
 const (
 	dskHeaderSize   = 256
 	dskTrackHeader  = 256
-	dskSignature    = "MV - CPCEMU"
+	dskSignature    = "MV - CPC"
 	dskSignatureExt = "EXTENDED CPC DSK"
 )
 
@@ -46,14 +53,15 @@ const (
 	sectorLength = 6 // the extended variant only
 )
 
-// DSK reads an Amstrad CPC or Spectrum +3 disk image.
+// DSK reads an Amstrad CPC, Amstrad PCW or Spectrum +3 disk image.
 //
-// It deliberately does not try to read a filesystem. Both editions of the
-// adventure were shipped on disks formatted for their own loader — the Amstrad
-// one holds 1 KiB sectors from track 1 onwards, the Spectrum one rotates its
-// sector numbering from track to track — and neither carries a CP/M directory.
-// There is nothing to name, so there are no files: what a caller gets is the
-// payload, and it is up to whoever wants something out of it to recognise it.
+// These disks come two ways and the container says nothing about which. Some
+// were formatted for the game's own loader — the Amstrad disk of La Aventura
+// Original holds 1 KiB sectors from track 1 onwards, the Spectrum one rotates
+// its sector numbering from track to track — and carry no directory at all.
+// Others, the PCW ones among them, are ordinary CP/M volumes. So the directory
+// is looked for, and a caller that finds no files still has the payload to
+// search through.
 type DSK struct {
 	data     []byte
 	extended bool
@@ -86,16 +94,60 @@ func (d *DSK) Format() string {
 		variant = "extended CPCEMU"
 	}
 
-	creator := string(bytes.TrimRight(d.data[dskCreator:dskCreator+dskCreatorLen], " \x00"))
+	// A tool whose opening line runs past the creator field overwrites it, so
+	// what is there is only worth printing if it reads as a name.
+	creator := strings.Map(func(r rune) rune {
+		if r < ' ' || r > '~' {
+			return -1
+		}
+
+		return r
+	}, string(d.data[dskCreator:dskCreator+dskCreatorLen]))
+
+	creator = strings.TrimSpace(creator)
+	if creator == "" || strings.Contains(creator, "Disk-Info") {
+		return fmt.Sprintf("%s disk image, %d tracks, %d side(s)", variant, d.tracks, d.sides)
+	}
 
 	return fmt.Sprintf("%s disk image, %d tracks, %d side(s), written by %s",
 		variant, d.tracks, d.sides, creator)
 }
 
-// Files returns nothing: these disks carry no filesystem. The error says so
-// rather than leaving a caller to read an empty list as an empty disk.
+// Files returns what the CP/M directory names, when there is one.
+//
+// These disks come both ways and the container does not say which: some carry
+// an ordinary AMSDOS filesystem and others were formatted for the game's own
+// loader and hold nothing but a run of sectors. Reading the directory is the
+// test. When it names nothing the error says so, rather than leaving a caller
+// to read an empty list as an empty disk.
 func (d *DSK) Files() ([]File, error) {
+	files := cpmFiles(d.Payload(), d.trackBytes())
+	if len(files) > 0 {
+		return files, nil
+	}
+
 	return nil, fmt.Errorf("%s: formatted for its own loader, with no filesystem to walk", d.Format())
+}
+
+// trackBytes is how much one track adds to the payload, which is what turns a
+// count of reserved tracks into an offset into it.
+func (d *DSK) trackBytes() int {
+	offset := dskHeaderSize
+
+	for i := range d.tracks * d.sides {
+		size := d.trackSize(i)
+		if size == 0 {
+			continue
+		}
+
+		if offset+dskTrackHeader > len(d.data) {
+			break
+		}
+
+		return len(d.trackPayload(d.data[offset:min(offset+size, len(d.data))]))
+	}
+
+	return 0
 }
 
 // Payload returns the sector data of the whole disk, tracks in order and the

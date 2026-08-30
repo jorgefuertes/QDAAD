@@ -28,7 +28,8 @@ Junto al fuente van dos directorios más: `chr/` con las tipografías y `gfx/` c
 Una `.DDB` no declara casi nada de lo que hace falta para leerla. `qundaad` no se fía de tablas indexadas por plataforma —de ahí que las herramientas de referencia den una base de datos de PC por *little-endian* cuando no lo es— y lo saca de los propios datos:
 
 - **Orden de bytes y tamaño de cabecera**, probando las cuatro combinaciones y quedándose con la que hace que la cabecera se describa a sí misma. En estas cinco aventuras aparecen las cuatro.
-- **La dirección de carga**, cuando la base de datos no es un fichero sino que está incrustada en un programa o puesta a pelo sobre un disco. Sus punteros son direcciones absolutas, y el vocabulario, que va pegado a la cabecera, delata dónde se cargó todo. - **Si hay tabla de compresión**, que es opcional: la versión CGA de El Jabato se compiló sin ninguna.
+- **La dirección de carga**, cuando la base de datos no es un fichero sino que está incrustada en un programa o puesta a pelo sobre un disco. Sus punteros son direcciones absolutas, y el vocabulario delata dónde se cargó todo — pero solo va *casi* pegado a la cabecera, porque algunas compilaciones dejaron relleno entre las dos: 6 bytes en el Amstrad PCW y 26 en Los templos sagrados. Así que se prueba cada anchura de relleno que tenga una palabra al final, y decide la lectura que cuadra. De ahí sale el `0x100` del PCW, que es donde CP/M carga un programa.
+- **Si hay tabla de compresión**, que es opcional: la versión CGA de El Jabato se compiló sin ninguna.
 
 ### Soportes que abre
 
@@ -40,10 +41,13 @@ Una `.DDB` no declara casi nada de lo que hace falta para leerla. `qundaad` no s
 | Atari ST y MSX `.ST`, `.DSK` | FAT12 |
 | Commodore `.d64` | CBM DOS, sectores encadenados |
 | Amstrad y Spectrum `.DSK` | CPCEMU, variante original y extendida |
+| Amstrad CPC, PCW y Spectrum +3 | CP/M, cuando el disco lleva directorio |
 | Cintas `.TZX` y `.CDT` | los 25 tipos de bloque del formato |
 | Commodore `.TAP` | no: guarda los pulsos, no los bytes |
 
-Varios de estos discos **no llevan sistema de ficheros**: se formatearon para el cargador del propio juego. Ahí no hay directorio que recorrer, así que se buscan las bases de datos por firma entre los sectores y se las obliga a demostrar que lo son —cabecera coherente, tablas de texto y conexiones que leen, y prosa que parece prosa— antes de aceptarlas.
+Los discos `.DSK` vienen **de dos maneras, y el contenedor no dice cuál**. Unos son volúmenes CP/M corrientes: los del Amstrad PCW nombran sus ficheros, y resulta que el disco de Spectrum +3 de Cozumel también. Otros se formatearon para el cargador del propio juego y no son más que una tira de sectores. La prueba es leer el directorio — y tiene que ser una prueba severa, porque un disco de programa y de gráficos tiene sectores que pasan por directorio si se les deja.
+
+Donde no lo hay, se buscan las bases de datos por firma entre los sectores y se las obliga a demostrar que lo son —cabecera coherente, un vocabulario cuyas palabras son palabras, tablas de texto y conexiones que leen, y prosa que parece prosa— antes de aceptarlas.
 
 ## Las imágenes y las tipografías
 
@@ -59,32 +63,33 @@ Las otras dos son las de 68000, y ninguna cede a ningún esquema estándar: cada
 
 Hay dos generaciones de archivo y el fichero no dice cuál es. Las aventuras tardías ensancharon la ranura de 44 a 48 bytes y cambiaron de dónde se sacan los píxeles —un nibble de un longword en vez de un bit de cada uno de cuatro bytes—, y sus ediciones de PC llevan el mismo archivo con los bytes al revés. Se prueban las formas y se queda la que cuadra: un archivo pone su primera imagen justo donde acaba su tabla de ranuras, y solo la lectura correcta la deja ahí.
 
-Ahora mismo se convierten **1795 imágenes**: tipografías, portadas e ilustraciones, en todas las máquinas cuyas bases de datos se pueden leer.
+Ahora mismo se convierten **1798 imágenes**: tipografías, portadas e ilustraciones, en todas las máquinas cuyas bases de datos se pueden leer.
 
 ## Con qué se ha probado
 
-Las cinco aventuras de Aventuras AD, en todas las ediciones que se han conseguido: **81 ficheros de soporte, de los que salen 49 bases de datos**.
+Las cinco aventuras de Aventuras AD, en todas las ediciones que se han conseguido: **81 ficheros de soporte, de los que salen 53 bases de datos**.
 
 | Aventura | PC | Amiga | Atari ST | Amstrad CPC | ZX Spectrum | C64 | MSX | PCW |
 |----------|----|-------|----------|-------------|-------------|-----|-----|-----|
 | La Aventura Original | sí | sí | sí | sí | sí | no | — | — |
 | El Jabato | sí | sí | 1/2 | no | 1/3 | no | no | — |
-| Cozumel | sí | sí | sí | sí | sí | no | no | no |
+| Cozumel | sí | sí | sí | sí | sí | no | no | sí |
 | Chichén Itzá | sí | sí | sí | no | no | no | no | — |
-| Los templos sagrados | sí | sí | sí | no | no | no | no | no |
+| Los templos sagrados | sí | sí | sí | no | no | no | no | sí |
 
 («1/2» en el Atari ST de El Jabato es el segundo disco, que solo trae gráficos.)
 
 ### Cómo se comprueba que el resultado es correcto
 
-`make decomp-check` descompila las cinco aventuras y contrasta las ediciones entre sí: **29 emparejamientos**, doce que tienen que dar el mismo fuente entero y diecisiete que tienen que coincidir en el texto y los datos.
+`make decomp-check` descompila las cinco aventuras y contrasta las ediciones entre sí: **31 emparejamientos**, doce que tienen que dar el mismo fuente entero y diecinueve que tienen que coincidir en el texto y los datos.
 
 Es una comprobación fuerte porque los binarios comparados no se parecen en nada —distinto orden de bytes, distinto tamaño, distintos desplazamientos— y aun así tienen que converger en el mismo texto. Si se rompe la deducción del orden de bytes, la tabla de tokens o la aritmética de punteros, alguno deja de cuadrar.
 
-Los dos contrastes que más dicen:
+Los contrastes que más dicen:
 
 - **La cinta contra el disco.** Dos contenedores sin nada en común —una tira de bloques pensada para el oído, contra una tabla de sectores— dando el mismo texto byte a byte.
 - **EGA contra CGA en El Jabato.** Una se compiló con tabla de compresión y la otra sin ninguna, y toda la prosa sale idéntica. Dice bastante más sobre la expansión de tokens que comparar dos tablas iguales.
+- **El Amstrad PCW contra el PC en Los templos sagrados.** Una compilación de Z80 para CP/M, cargada en `0x100` y con relleno tras la cabecera, contra una de PC con el orden de bytes contrario: las siete secciones comunes salen idénticas, en las dos partes.
 
 De paso han salido cosas sobre las aventuras: **el Amiga distribuyó la base de datos compilada para Atari**, sin recompilar, en La Aventura Original y en El Jabato.
 
@@ -98,7 +103,7 @@ texto está en otro sitio.
 
 La excepción son las cintas del Spectrum de El Jabato, que cargan en trozos de 128 bytes y sí transforman los datos. Pero incluso ahí el disco de la misma máquina se lee sin problema.
 
-Queda por hacer en las bases de datos: entender el mapa de carga de esos cargadores —desbloquearía MSX, Amstrad CPC y Commodore 64 de una vez— y leer los formatos `.CAS` de MSX, `.T64` de Commodore y los discos de PCW.
+Queda por hacer en las bases de datos: entender el mapa de carga de esos cargadores —desbloquearía MSX, Amstrad CPC y Commodore 64 de una vez— y leer los formatos `.CAS` de MSX y `.T64` de Commodore.
 
 De las imágenes ya no queda nada pendiente en las máquinas cuyas bases de datos se leen: sale toda ilustración de toda edición alcanzable.
 

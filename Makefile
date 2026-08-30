@@ -102,11 +102,19 @@ EDITIONS := \
 	cozumel/spectrum/dsk:work/aventuras/Cozumel/ZXSpectrum/Cozumel.dsk \
 	cozumel/spectrum/tzx/part1:work/aventuras/Cozumel/ZXSpectrum/cozumel1_2e.tzx \
 	cozumel/spectrum/tzx/part2:work/aventuras/Cozumel/ZXSpectrum/cozumel2_2e.tzx \
+	cozumel/pcw/a:work/aventuras/Cozumel/AmstradPCW/Cozumel_A.dsk \
+	cozumel/pcw/b:work/aventuras/Cozumel/AmstradPCW/Cozumel_B.dsk \
 	templos/pc/part1:work/aventuras/Los_templos_sagrados/PC/PART1.DDB \
 	templos/pc/part2:work/aventuras/Los_templos_sagrados/PC/PART2.DDB \
 	templos/amiga:work/aventuras/Los_templos_sagrados/Amiga/Templos\ Sagrados,\ Los\ \(1991\).adf \
 	templos/atarist:work/aventuras/Los_templos_sagrados/AtariST/TEMPLOS1.ST \
-	templos/atarist:work/aventuras/Los_templos_sagrados/AtariST/TEMPLOS2.ST
+	templos/atarist:work/aventuras/Los_templos_sagrados/AtariST/TEMPLOS2.ST \
+	templos/pcw/a:work/aventuras/Los_templos_sagrados/AmstradPCW/templosa.DSK \
+	templos/pcw/b:work/aventuras/Los_templos_sagrados/AmstradPCW/templosb.dsk
+# The two Amstrad PCW disks of Los Templos Sagrados are labelled the other way
+# round to what they hold: disk A carries PARTE002 and disk B carries PARTE001.
+# The output is named after the database, not the disk, so the pairs below look
+# crossed and are not.
 
 # Pairs that have to decompile to exactly the same source. Left out of the
 # comparison: game.sce, which names the file it was read from and so differs by
@@ -152,7 +160,9 @@ SAME_TEXT := \
 	templos/pc/part1:templos/amiga/part1 \
 	templos/pc/part2:templos/amiga/part2 \
 	templos/amiga/part1:templos/atarist/part1 \
-	templos/amiga/part2:templos/atarist/part2
+	templos/amiga/part2:templos/atarist/part2 \
+	templos/pc/part1:templos/pcw/b/parte001 \
+	templos/pc/part2:templos/pcw/a/parte002
 
 # The sections a SAME_TEXT pair is held to. Left out:
 #   processes.sce  editions genuinely differ here: the 68000 build of La

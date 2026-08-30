@@ -267,3 +267,95 @@ de alto. Desde la versión A de DAAD Ready el split ya no es el modo por defecto
 4. Un compilador que quiera cubrir toda la cadena tiene que orquestar herramientas externas por
    plataforma; la secuencia exacta está en
    [11-build-plataformas.md](11-build-plataformas.md).
+
+---
+
+## 9. El motor vectorial de 8 bits (Aventuras AD, anterior a DAAD v2)
+
+Todo lo anterior describe imágenes de mapa de bits. **Las aventuras españolas de 8 bits no las
+usaban**: en las versiones de Spectrum y Amstrad de La Aventura Original, El Jabato o Cozumel un
+dibujo no es una imagen, es **un programa** — una tira de órdenes que el intérprete ejecuta para
+trazarlo en pantalla. Es otro sistema, contemporáneo del DDB v1, y no tiene nada que ver con
+`SCRMAKER` ni con los `.GRA` del +3.
+
+Queda documentado aquí porque el juego de instrucciones **sí está resuelto**, aunque la extracción
+se haya aparcado (ver «Por qué está parado», más abajo).
+
+Fuente: desensamblado del intérprete `Interpreters/Spectrum/DS48IS.P3F` del DAAD de 1991, 8142
+bytes, origen `0x6000` — deducido exigiendo que los saltos caigan dentro del módulo, cosa que
+cumple el 92,6 % de los 530 que tiene.
+
+### 9.1. El juego de instrucciones
+
+El despachador está en `0x7A23`. Toma el byte de orden, se queda con los **3 bits bajos** y salta
+por una tabla de 8 entradas en `0x7A3A`:
+
+```asm
+7a1d: ld e,0x03        ; longitud por defecto de una orden
+7a21: add ix,de        ; ix recorre la tira de ordenes
+7a23: ld a,(ix+0)
+7a26: and 0x07         ; el opcode son los 3 bits bajos
+7a28: sla a
+7a2a: ld hl,0x7a3a     ; tabla de saltos
+7a39: jp (hl)
+```
+
+| # | Dirección | Orden | Notas |
+|---|-----------|-------|-------|
+| 0 | `0x7A4A` | `PLOT` | pasa por `PLOT-SUB` de la ROM (`0x22E5`) |
+| 1 | `0x7A60` | `DRAW` | línea; el modo en los bits 3-4; actualiza `COORDS` (`0x5C7D`) |
+| 2 | `0x7AC0` | `FILL` | relleno con patrón; tabla de patrones en `0x7AE2`; el bit 5 es bandera |
+| 3 | `0x7B47` | `CALL` | invoca otro dibujo por número; anida con `(iy+10)` |
+| 4 | `0x7B9B` | `AT` | emite `chr$(22)` + fila/columna; **ocupa 4 bytes** |
+| 5 | `0x7BC5` | `PAPER` | `chr$(17)`, o `BRIGHT` (`chr$(19)`) si el bit 7 |
+| 6 | `0x7BDD` | `INK` | `chr$(16)`, o `FLASH` (`chr$(18)`) si el bit 7 |
+| 7 | `0x7BEA` | `RET` | `pop ix`, `dec (iy+10)`; fin del dibujo |
+
+**Byte de orden**: bits 0-2 el opcode, bits 3-6 el color (`rrca` ×3 y `and 0x0f`), bit 7
+modificador. Toda orden ocupa 3 bytes salvo `AT`, que ocupa 4.
+
+### 9.2. Cómo se localiza un dibujo
+
+La rutina de entrada (`0x79B0`) convierte un número de dibujo en un puntero:
+
+```asm
+79b4: ld hl,(0xfff1)   ; base de la tabla de dibujos
+79b8: add hl,hl        ; numero x 2  -> entradas de 16 bits
+79b9: add hl,de        ; + base
+79ba: ld e,(hl) / inc hl / ld d,(hl)
+79bd: push de / pop ix ; ix = la tira de ordenes del dibujo
+79ce: call 0x7a23      ; a interpretarla
+```
+
+Es decir: **el dibujo N está en `[(0xFFF1) + N×2]`**, una tabla plana de punteros de 16 bits. La
+orden `CALL` usa **esa misma tabla**, así que cualquier dibujo puede invocar a otro por número —
+que es lo que hace que quepan tantos: los elementos repetidos se trazan una vez y se llaman desde
+donde hagan falta.
+
+### 9.3. El motor está también en los discos del juego
+
+No es solo material del DAAD de 1991. En el disco de La Aventura Original de Spectrum la firma del
+despachador aparece **dos veces, una por parte**, en los offsets `0x482E` y `0x1042D` de la carga
+útil. No es casualidad de bytes: dos firmas independientes —el despachador y el `PLOT` por ROM—
+guardan entre sí exactamente la misma distancia que en el original, y los 8 manejadores de la
+tabla de saltos caen los 8 dentro del fichero. En las dos partes el motor vive en las mismas
+direcciones absolutas (`0x7C58` y siguientes).
+
+En la carga útil del Amstrad **la firma no aparece**: o su motor está ensamblado de otra forma, o
+llega comprimido.
+
+### 9.4. Por qué está parado
+
+Falta un dato, y no está en el código: **la dirección de la tabla**. El motor la lee de `(0xFFF1)`,
+que es una casilla que rellena el cargador al arrancar. Sin ella no hay por dónde empezar a
+recorrer.
+
+Tampoco vale extrapolarla. Desde la tabla de saltos se puede deducir el mapa de carga del trozo
+donde está el motor (`dirección − 0x3403` para la parte 1), pero **el disco no se carga de una
+pieza**, así que ese mapa no alcanza a la zona de dibujos. Buscar la tabla a ciegas exigiendo que
+las tiras encadenen —el final de una donde empieza la siguiente— da 7 aciertos de 11, que es ruido.
+
+La salida sería el cargador: la rutina que lee sectores y reparte diría a qué dirección va cada
+trozo y qué se escribe en `0xFFF1`. **Es el mismo problema que bloquea las bases de datos
+empaquetadas de MSX, Amstrad y Commodore 64**, así que conviene atacarlo una vez para todos y no
+por separado.
