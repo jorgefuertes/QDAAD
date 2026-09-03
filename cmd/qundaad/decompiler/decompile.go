@@ -331,7 +331,8 @@ func decompileOne(db database, outputDir string, opts Options) error {
 	console.Sayln(console.LevelInfo, "Decompilation Report:")
 
 	t := console.NewTable().Horizontal(true)
-	t.Row("DAAD", fmt.Sprintf("v%d, %s", r.Version(), nameOr(machineNames, r.Machine())))
+	t.Row("DAAD", fmt.Sprintf("v%d", r.Version()))
+	t.Row("Machine", nameOr(machineNames, r.Machine()))
 	t.Row("Language", nameOr(languageNames, r.Language()))
 	t.Row("Header size", strconv.Itoa(r.HeaderSize())+" bytes")
 	t.Row("Endianness", endianName(r.BigEndian()))
