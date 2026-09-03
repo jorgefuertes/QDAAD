@@ -62,45 +62,17 @@ func hex2(b byte) string {
 	return string([]byte{digits[b>>4], digits[b&0x0F]})
 }
 
-// sourceLines lays a decoded text out the way the compiler reads it back.
+// sourceText lays a decoded text out as the single quoted string the compiler
+// reads back.
 //
-// Two rules from the manual (section 5.1, notes i and j) drive this: it joins
-// consecutive lines with a space, and turns a null line into a carriage
-// return. So each run of text goes on a single line, and the carriage returns
-// inside it become blank lines. An empty text produces no lines at all: a
-// blank one would compile into a carriage return that was never there.
-func sourceLines(text string) []string {
-	if text == "" {
-		return nil
-	}
-
-	parts := strings.Split(text, "\n")
-	lines := make([]string, 0, len(parts)*2)
-
-	for i, part := range parts {
-		if i > 0 {
-			lines = append(lines, "") // the null line that means a return
-		}
-
-		lines = append(lines, protectSpaces(part))
-	}
-
-	return lines
-}
-
-// protectSpaces writes the spaces at either end as \s. They are significant —
-// the compiler joins lines with a space of its own — and text editors are known
-// to strip them, which is why the escape exists at all.
-func protectSpaces(line string) string {
-	trimmed := strings.Trim(line, " ")
-	if trimmed == line {
-		return line
-	}
-
-	leading := len(line) - len(strings.TrimLeft(line, " "))
-	trailing := len(line) - len(strings.TrimRight(line, " "))
-
-	return strings.Repeat(`\s`, leading) + trimmed + strings.Repeat(`\s`, trailing)
+// The only thing that cannot go in as it stands is the carriage return, which
+// would end the line and so the string. It becomes the escape \n. Everything
+// else is safe between quotes, spaces at either end included: they are
+// significant, and it was the old line-per-line layout — where the compiler
+// joined lines with a space of its own and an editor could strip them — that
+// needed them written as \s.
+func sourceText(text string) string {
+	return strings.ReplaceAll(text, "\n", `\n`)
 }
 
 // tokenText renders a compression token as it expands into a text: spaces are

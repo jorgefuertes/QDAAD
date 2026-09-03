@@ -33,7 +33,7 @@ func TestMessagesAddMessage(t *testing.T) {
 		ms := NewMessageStore()
 
 		for i := range 3 {
-			require.NoError(t, ms.AddMessage(UserMessage, ID(i+1), "texto"))
+			require.NoError(t, ms.AddMessage(UserMessage, ID16(i+1), "texto"))
 			require.Equal(t, ID16(i), ms[UserMessage][i].ID, "message number %d", i)
 		}
 
@@ -84,7 +84,7 @@ func TestMessagesAddMessage(t *testing.T) {
 		ms := NewMessageStore()
 
 		for i := 0; i <= MAX_MESSSAGE.Int(); i++ {
-			require.NoError(t, ms.AddMessage(SystemMessage, ID(i), "texto"), "message number %d", i)
+			require.NoError(t, ms.AddMessage(SystemMessage, ID16(i), "texto"), "message number %d", i)
 		}
 
 		require.Len(t, ms[SystemMessage], MAX_MESSSAGE.Int()+1, "255 messages, numbered 0 to 254")
@@ -224,7 +224,7 @@ func TestMessagesGetMessageByLabelID(t *testing.T) {
 		cases := []struct {
 			name    string
 			kind    MessageKind
-			labelID ID
+			labelID ID16
 		}{
 			{"unknown label", SystemMessage, 9},
 			{"right label, wrong kind", UserMessage, 8},

@@ -19,7 +19,9 @@ qundaad decompile --input ORIGINAL.ST --output src/ --no-binaries
 
 La entrada puede ser la base de datos suelta o **la imagen del disco o la cinta original**. Una imagen se abre, se recorre y cada base de datos que haya dentro se descompila en su propio directorio.
 
-La salida es UTF-8, legible y modificable hoy, repartida en un fichero por sección y unida con `#INCLUDE` desde `game.sce` — que es como se organizaban los fuentes de la época: el manual de 1991 avisa de los peligros de «incluir un fichero TOK que contenga otro `/TOK`», advertencia que solo tiene sentido si trocear era lo normal.
+La salida es UTF-8, legible y modificable hoy, repartida en un fichero por sección y unida con `#include` desde `game.sce` — que es como se organizaban los fuentes de la época: el manual de 1991 avisa de los peligros de «incluir un fichero TOK que contenga otro `/TOK`», advertencia que solo tiene sentido si trocear era lo normal.
+
+**Es fuente que un compilador acepta**, no un listado. Contrastada con el compilador de referencia —DAAD Reborn Compiler 0.40, construido de su propio Pascal—, **compilan 52 de las 53 bases de datos**, devolviendo la codificación a ISO-8859-1 y dejando fuera la sección `/TOK`, que la versión 3 quitó. La que no compila es una base cuyas tablas de proceso no se pueden leer, y su fuente lo dice: sería peor que compilase.
 
 Junto al fuente van dos directorios más: `chr/` con las tipografías y `gfx/` con las imágenes. De cada cosa se guarda **el binario tal como venía y su conversión a PNG**, y de los archivos de ilustraciones también cada dibujo por separado, con un índice que dice qué localidades usan cada uno y con qué paleta. Con `--no-binaries` se dejan solo las conversiones, que ahorra la mitad del espacio.
 
@@ -108,23 +110,3 @@ La excepción son las cintas del Spectrum de El Jabato, que cargan en trozos de 
 Queda por hacer en las bases de datos: entender el mapa de carga de esos cargadores —desbloquearía MSX, Amstrad CPC y Commodore 64 de una vez— y leer los formatos `.CAS` de MSX y `.T64` de Commodore.
 
 De las imágenes ya no queda nada pendiente en las máquinas cuyas bases de datos se leen: sale toda ilustración de toda edición alcanzable.
-
-## Estructura
-
-```
-cmd/qundaad/       el descompilador y su CLI
-cmd/qdaad/         el compilador, en construcción
-internal/ddb/      el modelo de datos: vocabulario, objetos, mensajes, procesos
-internal/media/    lectura de discos y cintas de cada máquina
-docs/              investigación sobre el formato y el manual
-work/              material de referencia, no forma parte del programa
-```
-
-## Desarrollo
-
-```sh
-make test           # go vet y la suite completa
-make lint           # gofumpt, staticcheck, golangci-lint, govulncheck
-make decomp-check   # descompila las cinco aventuras y las contrasta
-make dead           # código sin usar
-```

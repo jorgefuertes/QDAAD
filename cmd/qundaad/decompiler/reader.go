@@ -660,6 +660,9 @@ type Object struct {
 	Wearable        bool
 	Noun            byte // NoWord when it has none
 	Adjective       byte
+	// Attributes are the sixteen extra bits version 2 added, all false in a
+	// version 1 database, which has no table for them.
+	Attributes [16]bool
 }
 
 // NoWord marks an absent word, in an object's name as well as in a process
@@ -684,6 +687,16 @@ func (r *Reader) Objects() ([]Object, error) {
 		}
 	}
 
+	// The extra attributes are a version 2 addition and a table of their own,
+	// one word per object. A version 1 database has no pointer for them.
+	attributes := 0
+	if r.HasObjectAttributes() {
+		attributes = r.Pointer(ptrObjectAttrs)
+		if !r.inRange(attributes, 2*count) {
+			return nil, errors.New("object attributes run outside the database")
+		}
+	}
+
 	objects := make([]Object, 0, count)
 
 	for i := range count {
@@ -691,14 +704,25 @@ func (r *Reader) Objects() ([]Object, error) {
 		// weight, bit 6 marks a container and bit 7 something wearable.
 		packed := r.data[weights+i]
 
-		objects = append(objects, Object{
+		o := Object{
 			InitialLocation: r.data[locations+i],
 			Weight:          packed & 0x3F,
 			Container:       packed&0x40 != 0,
 			Wearable:        packed&0x80 != 0,
 			Noun:            r.data[names+2*i],
 			Adjective:       r.data[names+2*i+1],
-		})
+		}
+
+		if attributes != 0 {
+			// The source writes them highest bit first, so index 0 of the array
+			// is bit 15 and the columns come out in the order ParseOBJ reads.
+			bits := r.word(attributes + 2*i)
+			for b := range o.Attributes {
+				o.Attributes[b] = bits&(1<<(15-b)) != 0
+			}
+		}
+
+		objects = append(objects, o)
 	}
 
 	return objects, nil

@@ -57,6 +57,24 @@ func (ls *Locations) Add(labelID ID16, description string) (ID, error) {
 	return id, nil
 }
 
+func (ls *Locations) NewLegacy(id ID, description string) error {
+	if id > MAX_LOCATION_ID {
+		return qderror.ErrLocationIDOutOfRange
+	}
+
+	if _, err := ls.Get(id); err == nil {
+		return qderror.ErrLocationAlreadyExists
+	}
+
+	*ls = append(*ls, Location{
+		ID:          id,
+		LabelID:     0,
+		Description: description,
+	})
+
+	return nil
+}
+
 func (ls Locations) getNextID() (ID, error) {
 	for id := ID(0); id <= MAX_LOCATION_ID; id++ {
 		if _, err := ls.Get(id); err != nil {

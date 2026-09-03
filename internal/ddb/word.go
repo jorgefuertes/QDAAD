@@ -9,6 +9,13 @@ import (
 
 type WordKind uint8
 
+type Word struct {
+	ID       ID
+	LabelID  ID16
+	Kind     WordKind
+	Synonyms []string
+}
+
 const (
 	// MAX_WORD_LEN is the significant length of a vocabulary word: DAAD only
 	// stores and compares the first five characters of each word.
@@ -64,13 +71,6 @@ func (wk WordKind) IsValid() bool {
 	}
 }
 
-type Word struct {
-	ID       ID
-	LabelID  ID16
-	Kind     WordKind
-	Synonyms []string
-}
-
 func (w *Word) AddSynonym(synonym string) {
 	w.Synonyms = append(w.Synonyms, NormalizeWord(synonym))
 }
@@ -100,6 +100,28 @@ const (
 	NotPronominal
 	ProperNoun
 )
+
+func (ws *Words) NewLegacy(id ID, kind WordKind, word string) error {
+	if !kind.IsValid() {
+		return qderror.ErrInvalidWordKind
+	}
+
+	w, ok := ws.Get(id, kind)
+	if ok {
+		w.Synonyms = append(w.Synonyms, NormalizeWord(word))
+
+		return nil
+	}
+
+	*ws = append(*ws, Word{
+		ID:       id,
+		LabelID:  0,
+		Kind:     kind,
+		Synonyms: []string{NormalizeWord(word)},
+	})
+
+	return nil
+}
 
 func (ws *Words) New(labelID ID16, kind WordKind, option WordOption, synonyms ...string) (ID, error) {
 	if !kind.IsValid() {
@@ -132,7 +154,17 @@ func (ws *Words) New(labelID ID16, kind WordKind, option WordOption, synonyms ..
 
 // The getters return a pointer into the store, not to a copy, so changes made
 // through it —AddSynonym, for instance— are kept.
-func (ws Words) Get(id ID) (*Word, bool) {
+func (ws Words) Get(id ID, kind WordKind) (*Word, bool) {
+	for i := range ws {
+		if ws[i].ID == id && ws[i].Kind == kind {
+			return &ws[i], true
+		}
+	}
+
+	return nil, false
+}
+
+func (ws Words) GetByID(id ID) (*Word, bool) {
 	for i := range ws {
 		if ws[i].ID == id {
 			return &ws[i], true
@@ -193,7 +225,7 @@ func (ws Words) getNextID(option WordOption) (ID, error) {
 
 func (ws Words) getNextDirectionID() (ID, error) {
 	for i := ID(0); i <= MAX_DIRECTION_WORD; i++ {
-		if _, exists := ws.Get(i); !exists {
+		if _, exists := ws.GetByID(i); !exists {
 			return i, nil
 		}
 	}
@@ -203,7 +235,7 @@ func (ws Words) getNextDirectionID() (ID, error) {
 
 func (ws Words) getNextConvertibleID() (ID, error) {
 	for i := ID(MAX_DIRECTION_WORD + 1); i <= MAX_CONVERTIBLE_NAME; i++ {
-		if _, exists := ws.Get(i); !exists {
+		if _, exists := ws.GetByID(i); !exists {
 			return i, nil
 		}
 	}
@@ -213,7 +245,7 @@ func (ws Words) getNextConvertibleID() (ID, error) {
 
 func (ws Words) getNextProperNounID() (ID, error) {
 	for id := MAX_CONVERTIBLE_NAME + 1; id <= MAX_PROPER_NOUN; id++ {
-		if _, exists := ws.Get(id); !exists {
+		if _, exists := ws.GetByID(id); !exists {
 			return id, nil
 		}
 	}
@@ -223,7 +255,7 @@ func (ws Words) getNextProperNounID() (ID, error) {
 
 func (ws Words) getNextNonPronominalVerbID() (ID, error) {
 	for id := LAST_PRONOMINAL_VERB + 1; id <= MAX_WORD_ID; id++ {
-		if _, exists := ws.Get(id); !exists {
+		if _, exists := ws.GetByID(id); !exists {
 			return id, nil
 		}
 	}
@@ -233,7 +265,7 @@ func (ws Words) getNextNonPronominalVerbID() (ID, error) {
 
 func (ws Words) getNextGeneralID() (ID, error) {
 	for id := MAX_PROPER_NOUN + 1; id <= LAST_PRONOMINAL_VERB; id++ {
-		if _, exists := ws.Get(id); !exists {
+		if _, exists := ws.GetByID(id); !exists {
 			return id, nil
 		}
 	}

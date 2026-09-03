@@ -248,7 +248,7 @@ func TestWordsNewDoesNotAliasSynonyms(t *testing.T) {
 		_, err := ws.New(1, Noun, None, mine...)
 		require.NoError(t, err)
 
-		w, ok := ws.Get(MAX_PROPER_NOUN + 1)
+		w, ok := ws.Get(MAX_PROPER_NOUN+1, Noun)
 		require.True(t, ok)
 		w.AddSynonym("MOSCA")
 
@@ -281,7 +281,7 @@ func TestSynonymPersistence(t *testing.T) {
 	want := []string{"COGER", "TOMAR", "ASIR", "ROBAR"}
 
 	t.Run("through Get", func(t *testing.T) {
-		w, ok := ws.Get(id)
+		w, ok := ws.Get(id, Verb)
 		require.True(t, ok)
 		w.AddSynonym("TOMAR")
 	})
@@ -302,7 +302,7 @@ func TestSynonymPersistence(t *testing.T) {
 	t.Run("all of them are kept in the store", func(t *testing.T) {
 		require.Equal(t, want, ws[baseWordsCount].Synonyms)
 
-		w, ok := ws.Get(id)
+		w, ok := ws.Get(id, Verb)
 		require.True(t, ok)
 		require.Equal(t, want, w.Synonyms)
 
@@ -326,7 +326,7 @@ func TestSynonymPersistence(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		w, ok := ws.Get(id)
+		w, ok := ws.Get(id, Verb)
 		require.True(t, ok)
 		require.Equal(t, want, w.Synonyms)
 	})
@@ -338,7 +338,7 @@ func TestWordsGet(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("found", func(t *testing.T) {
-		w, ok := ws.Get(id)
+		w, ok := ws.Get(id, Verb)
 		require.True(t, ok)
 		require.NotNil(t, w)
 		require.Equal(t, id, w.ID)
@@ -347,9 +347,57 @@ func TestWordsGet(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		w, ok := ws.Get(id + 1)
+		w, ok := ws.Get(id+1, Verb)
 		require.False(t, ok)
 		require.Nil(t, w)
+	})
+}
+
+// One value carries a word per type, so the value alone does not name a word.
+// This is not a corner case: La Aventura Original gives 18 to the verb ABRIR
+// and to the noun PASA, and across the five adventures 1144 values are shared
+// between types. A lookup that went by value alone would hand back whichever
+// came first, and a store that refused the second would reject a vocabulary the
+// original compiler wrote.
+func TestWordsTellValuesApartByKind(t *testing.T) {
+	const shared ID = 18
+
+	ws := NewWordStore()
+	require.NoError(t, ws.NewLegacy(shared, Verb, "ABRIR"))
+	require.NoError(t, ws.NewLegacy(shared, Noun, "PASA"))
+
+	t.Run("each kind keeps its own word", func(t *testing.T) {
+		verb, ok := ws.Get(shared, Verb)
+		require.True(t, ok)
+		require.Equal(t, []string{"ABRIR"}, verb.Synonyms)
+
+		noun, ok := ws.Get(shared, Noun)
+		require.True(t, ok)
+		require.Equal(t, []string{"PASA"}, noun.Synonyms)
+	})
+
+	t.Run("a kind that was never given the value is not found", func(t *testing.T) {
+		w, ok := ws.Get(shared, Adjective)
+		require.False(t, ok)
+		require.Nil(t, w)
+	})
+
+	t.Run("a synonym joins the word of its own kind", func(t *testing.T) {
+		require.NoError(t, ws.NewLegacy(shared, Noun, "QUIER"))
+
+		noun, ok := ws.Get(shared, Noun)
+		require.True(t, ok)
+		require.Equal(t, []string{"PASA", "QUIER"}, noun.Synonyms)
+
+		verb, ok := ws.Get(shared, Verb)
+		require.True(t, ok)
+		require.Equal(t, []string{"ABRIR"}, verb.Synonyms, "the verb is untouched")
+	})
+
+	t.Run("GetByID answers with whichever it finds, so it cannot discriminate", func(t *testing.T) {
+		w, ok := ws.GetByID(shared)
+		require.True(t, ok)
+		require.Contains(t, []WordKind{Verb, Noun}, w.Kind)
 	})
 }
 

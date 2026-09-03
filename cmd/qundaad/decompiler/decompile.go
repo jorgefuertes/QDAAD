@@ -5,9 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
-	"time"
 
+	"github.com/jorgefuertes/QDAAD/internal/console"
 	"github.com/jorgefuertes/QDAAD/internal/ddb"
 	"github.com/jorgefuertes/QDAAD/internal/media"
 )
@@ -273,59 +274,86 @@ func databasesIn(path string) ([]database, error) {
 }
 
 func decompileOne(db database, outputDir string, opts Options) error {
-	fmt.Printf("Decompiling %q to %q\n", db.source, outputDir)
+	r := db.reader
 
-	startTime := time.Now()
-	reader := db.reader
+	err := console.Make(
+		fmt.Sprintf("Decompiling %s", console.PathStyle.Render(db.source)),
+		func() error {
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				return fmt.Errorf("creating %s: %w", outputDir, err)
+			}
+			// The order is the one the compiler expects, asnd it is not arbitrary: the
+			// tokens have to be known before any text refers to them.
+			sections := []struct {
+				name  string
+				write func(*Reader) (string, error)
+			}{
+				{tokensFile, writeTokens},
+				{vocabFile, writeVocabulary},
+				{sysMessFile, textSection("/STX", "System messages", ptrSysMessageText, (*Reader).NumSysMessages)},
+				{messagesFile, textSection("/MTX", "User messages", ptrMessageText, (*Reader).NumMessages)},
+				{objTextFile, textSection("/OTX", "Object descriptions", ptrObjectText, (*Reader).NumObjects)},
+				{locTextFile, textSection("/LTX", "Location descriptions", ptrLocationText, (*Reader).NumLocations)},
+				{connectionsFile, writeConnections},
+				{objectsFile, writeObjects},
+				{processesFile, writeProcesses},
+			}
 
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return fmt.Errorf("creating %s: %w", outputDir, err)
+			names := make([]string, 0, len(sections))
+
+			for _, s := range sections {
+				body, err := s.write(r)
+				if err != nil {
+					return fmt.Errorf("%s: %w", s.name, err)
+				}
+
+				if err := os.WriteFile(filepath.Join(outputDir, s.name), []byte(body), 0o644); err != nil {
+					return fmt.Errorf("writing %s: %w", s.name, err)
+				}
+
+				names = append(names, s.name)
+			}
+
+			main := writeMain(r, db.source, names)
+			if err := os.WriteFile(filepath.Join(outputDir, mainFile), []byte(main), 0o644); err != nil {
+				return fmt.Errorf("writing %s: %w", mainFile, err)
+			}
+
+			if err := writeAssets(db.assets, outputDir, opts); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	)
+
+	console.Sayln(console.LevelInfo, "Source written to ", console.PathStyle.Render(outputDir))
+	console.Sayln(console.LevelInfo, "Decompilation Report:")
+
+	t := console.NewTable().Horizontal(true)
+	t.Row("DAAD", fmt.Sprintf("v%d, %s", r.Version(), nameOr(machineNames, r.Machine())))
+	t.Row("Language", nameOr(languageNames, r.Language()))
+	t.Row("Header size", strconv.Itoa(r.HeaderSize())+" bytes")
+	t.Row("Endianness", endianName(r.BigEndian()))
+	t.Row("Vocabulary entries", strconv.Itoa(len(r.Vocabulary())))
+	t.Row("Tokens", strconv.Itoa(len(r.Tokens())))
+	t.Row("Objects", strconv.Itoa(r.NumObjects()))
+	t.Row("Locations", strconv.Itoa(r.NumLocations()))
+	t.Row("User messages", strconv.Itoa(r.NumMessages()))
+	t.Row("System messages", strconv.Itoa(r.NumSysMessages()))
+	t.Row("Processes", strconv.Itoa(r.NumProcesses()))
+	if r.Base() == 0 {
+		t.Row("Total size", strconv.Itoa(len(r.data))+" bytes")
+		t.Row("Declared length", strconv.Itoa(r.DeclaredLength())+" bytes")
+	} else {
+		t.Row("Declared length", strconv.Itoa(r.DeclaredLength())+" bytes")
+		t.Row("Found at offset", fmt.Sprintf("%#x", r.Offset()))
+		t.Row("Laid at address", fmt.Sprintf("%#04x", r.Base()))
 	}
 
-	// The order is the one the compiler expects, asnd it is not arbitrary: the
-	// tokens have to be known before any text refers to them.
-	sections := []struct {
-		name  string
-		write func(*Reader) (string, error)
-	}{
-		{tokensFile, writeTokens},
-		{vocabFile, writeVocabulary},
-		{sysMessFile, textSection("/STX", "System messages", ptrSysMessageText, (*Reader).NumSysMessages)},
-		{messagesFile, textSection("/MTX", "User messages", ptrMessageText, (*Reader).NumMessages)},
-		{objTextFile, textSection("/OTX", "Object descriptions", ptrObjectText, (*Reader).NumObjects)},
-		{locTextFile, textSection("/LTX", "Location descriptions", ptrLocationText, (*Reader).NumLocations)},
-		{connectionsFile, writeConnections},
-		{objectsFile, writeObjects},
-		{processesFile, writeProcesses},
-	}
+	t.Print()
 
-	names := make([]string, 0, len(sections))
-
-	for _, s := range sections {
-		body, err := s.write(reader)
-		if err != nil {
-			return fmt.Errorf("%s: %w", s.name, err)
-		}
-
-		if err := os.WriteFile(filepath.Join(outputDir, s.name), []byte(body), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", s.name, err)
-		}
-
-		names = append(names, s.name)
-	}
-
-	main := writeMain(reader, db.source, names)
-	if err := os.WriteFile(filepath.Join(outputDir, mainFile), []byte(main), 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", mainFile, err)
-	}
-
-	if err := writeAssets(db.assets, outputDir, opts); err != nil {
-		return err
-	}
-
-	report(reader, startTime)
-
-	return nil
+	return err
 }
 
 // banner describes where the source came from, so a reader of the output knows
@@ -378,8 +406,12 @@ func writeMain(r *Reader, source string, includes []string) string {
 	sb.WriteString("\n\n")
 
 	for _, name := range includes {
-		fmt.Fprintf(&sb, "#INCLUDE %s\n", name)
+		fmt.Fprintf(&sb, "#include %s\n", name)
 	}
+
+	// The compiler wants /END, and wants it here rather than in an included
+	// file, which is why it goes after the includes and not with the sections.
+	sb.WriteString("\n/END\n")
 
 	return sb.String()
 }
@@ -455,10 +487,16 @@ func writeVocabulary(r *Reader) (string, error) {
 	sb.WriteString("; type are synonyms: they are grouped together below.\n")
 	sb.WriteString(";\n")
 	sb.WriteString("; Only the first five characters of a word count, and a value may be\n")
-	sb.WriteString("; reused across types -- the same number can be a verb and a noun.\n\n")
+	sb.WriteString("; reused across types -- the same number can be a verb and a noun.\n")
+	sb.WriteString(";\n")
+	sb.WriteString("; A word the database holds twice is written once and then commented,\n")
+	sb.WriteString("; because a name can be defined only once. The repeat says nothing: it\n")
+	sb.WriteString("; carries the same value and the same type as the entry above it.\n\n")
 	sb.WriteString("/VOC\n")
 
 	var previous *VocabularyEntry
+
+	defined := make(map[string]bool, len(sorted))
 
 	for i := range sorted {
 		e := sorted[i]
@@ -474,7 +512,14 @@ func writeVocabulary(r *Reader) (string, error) {
 			kind = wordKinds[e.Kind]
 		}
 
-		fmt.Fprintf(&sb, "%-8s %-4d %s\n", e.Word, e.Value, kind)
+		comment := ""
+		if defined[e.Word] {
+			comment = "; "
+		}
+
+		defined[e.Word] = true
+
+		fmt.Fprintf(&sb, "%s%-8s %-4d %s\n", comment, e.Word, e.Value, kind)
 
 		previous = &sorted[i]
 	}
@@ -615,17 +660,8 @@ func writeProcesses(r *Reader) (string, error) {
 }
 
 func writeEntry(sb *strings.Builder, r *Reader, e Entry, null string) error {
-	verb, err := r.entryWord(e.Verb, null)
-	if err != nil {
-		return err
-	}
-
-	noun, err := r.entryWord(e.Noun, null)
-	if err != nil {
-		return err
-	}
-
-	head := fmt.Sprintf("%-8s %-8s ", verb, noun)
+	head := fmt.Sprintf("> %-8s %-8s ",
+		r.entryVerb(e.Verb, null), r.entryNoun(e.Noun, null))
 
 	for _, c := range e.Condacts {
 		text, err := r.condactText(c)
@@ -637,7 +673,7 @@ func writeEntry(sb *strings.Builder, r *Reader, e Entry, null string) error {
 		sb.WriteString(text)
 		sb.WriteString("\n")
 
-		head = strings.Repeat(" ", 18) // the condacts after the first line up
+		head = strings.Repeat(" ", 20) // the condacts after the first line up
 	}
 
 	sb.WriteString("\n")
@@ -647,17 +683,44 @@ func writeEntry(sb *strings.Builder, r *Reader, e Entry, null string) error {
 
 // entryWord names the verb or the noun of an entry. An entry matches on the
 // word value, so any synonym would do; the first one is used.
-func (r *Reader) entryWord(value byte, null string) (string, error) {
+// The kinds each slot of an entry accepts. The compiler holds the first to a
+// verb, or to a noun low enough to be used as one, and the second to a noun.
+const maxConvertibleNoun = 39
+
+func (r *Reader) entryVerb(value byte, null string) string {
+	if word, found := r.WordFor(value, kindVerb); found {
+		return word
+	}
+
+	if value <= maxConvertibleNoun {
+		if word, found := r.WordFor(value, kindNoun); found {
+			return word
+		}
+	}
+
+	return r.entryValue(value, null)
+}
+
+func (r *Reader) entryNoun(value byte, null string) string {
+	if word, found := r.WordFor(value, kindNoun); found {
+		return word
+	}
+
+	return r.entryValue(value, null)
+}
+
+// entryValue is the last resort: the number itself.
+//
+// An entry matches on the word value, and nothing guarantees the value has a
+// word of the kind the slot wants. Across the five adventures it always does,
+// so this never fires; it is here so that a database where it does not still
+// decompiles into something that says what the entry matches on.
+func (r *Reader) entryValue(value byte, null string) string {
 	if value == NoWord {
-		return null, nil
+		return null
 	}
 
-	word, found := r.WordFor(value, kindVerb, kindNoun)
-	if !found {
-		return "", fmt.Errorf("entry uses word value %d, which is in no vocabulary entry", value)
-	}
-
-	return word, nil
+	return strconv.Itoa(int(value))
 }
 
 // condactText writes one condact with its parameters.
@@ -739,16 +802,14 @@ func writeObjects(r *Reader) (string, error) {
 	sb.WriteString("; container or can be worn, and the words that name it.\n")
 	sb.WriteString(";\n")
 	sb.WriteString("; Object 0 is the light source, by convention of the interpreter.\n")
-
-	if r.HasObjectAttributes() {
-		sb.WriteString(";\n")
-		sb.WriteString("; WARNING: this database carries the extra attribute bits that version\n")
-		sb.WriteString("; 2 added, and the 1991 source syntax has no column for them. They are\n")
-		sb.WriteString("; NOT written below and would be lost on a recompile.\n")
-	}
+	sb.WriteString(";\n")
+	sb.WriteString("; The sixteen columns between the flags and the noun are the extra\n")
+	sb.WriteString("; attributes, written highest bit first. A version 1 database has no\n")
+	sb.WriteString("; table for them and they all come out unset.\n")
 
 	sb.WriteString("\n/OBJ\n")
-	sb.WriteString(";obj  starts.at    weight  cont  worn  noun      adjective\n")
+	sb.WriteString(";obj  starts.at    weight  cont  worn   15 14 13 12 11 10  9  8" +
+		"  7  6  5  4  3  2  1  0  noun      adjective\n")
 
 	null := string(rune(r.NullWord()))
 
@@ -771,9 +832,14 @@ func writeObjects(r *Reader) (string, error) {
 			return "", err
 		}
 
-		fmt.Fprintf(&sb, "/%-4d %-12s %-7d %-5s %-5s %-9s %s\n",
+		var attributes strings.Builder
+		for _, on := range o.Attributes {
+			fmt.Fprintf(&attributes, "%2s ", flag(on))
+		}
+
+		fmt.Fprintf(&sb, "/%-4d %-12s %-7d %-5s %-5s %s %-9s %s\n",
 			i, initialLocation(o.InitialLocation, null), o.Weight,
-			flag(o.Container), flag(o.Wearable), noun, adjective)
+			flag(o.Container), flag(o.Wearable), attributes.String(), noun, adjective)
 	}
 
 	return sb.String(), nil
@@ -844,81 +910,20 @@ func textSection(tag, title string, pointer int, count func(*Reader) int) func(*
 		var sb strings.Builder
 
 		fmt.Fprintf(&sb, "; %s. Numbering must stay consecutive from zero.\n", title)
-		sb.WriteString("; A line break inside a text is written as #n, so that no entry\n")
-		sb.WriteString("; can be mistaken for the start of the next one.\n\n")
+		sb.WriteString("; Each text goes whole on its line, between quotes, so nothing in it\n")
+		sb.WriteString("; can be mistaken for the start of the next one. A carriage return\n")
+		sb.WriteString("; inside a text is written \\n.\n\n")
 		sb.WriteString(tag)
 		sb.WriteString("\n")
 
 		for i, text := range texts {
-			fmt.Fprintf(&sb, "/%d\n", i)
-
-			for _, line := range sourceLines(text) {
-				// Emitting a line the compiler would read as anything but text
-				// gives a source that compiles into something else.
-				if readsAsMarkup(line) {
-					return "", fmt.Errorf("%s entry %d has a line reading %q, which the "+
-						"compiler would take for markup rather than text", tag, i, line)
-				}
-
-				sb.WriteString(line)
-				sb.WriteString("\n")
-			}
+			// The quotes need no escaping inside: the compiler reads from the
+			// first quote of the line to the last, so a text may hold them.
+			fmt.Fprintf(&sb, "/%d \"%s\"\n", i, sourceText(text))
 		}
 
 		return sb.String(), nil
 	}
-}
-
-// The section markers the compiler's tokenizer recognises, from the rules in
-// DSF.l. It matches the whole word, not the slash, which is why a line holding
-// only a slash is text and not markup: system message 17 of Cozumel is exactly
-// that, one slash and nothing else.
-var sectionMarkers = [...]string{
-	"/CON", "/CTL", "/END", "/LTX", "/MTX", "/OBJ", "/OTX", "/PRO", "/STX", "/VOC", "/TOK",
-}
-
-// readsAsMarkup says whether the compiler would take a line of text for
-// something other than text.
-//
-// Two things it would: a section marker, and the "/12" that numbers an entry
-// within a text section, lexed as \/[0-9]+.
-func readsAsMarkup(line string) bool {
-	if !strings.HasPrefix(line, "/") {
-		return false
-	}
-
-	if len(line) > 1 && line[1] >= '0' && line[1] <= '9' {
-		return true
-	}
-
-	for _, marker := range sectionMarkers {
-		if strings.HasPrefix(strings.ToUpper(line), marker) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func report(r *Reader, startTime time.Time) {
-	entries := r.Vocabulary()
-
-	fmt.Printf("  DAAD v%d, %s, %s\n",
-		r.Version(), nameOr(machineNames, r.Machine()), nameOr(languageNames, r.Language()))
-	fmt.Printf("  %s, %d-byte header (deduced)\n", endianName(r.BigEndian()), r.HeaderSize())
-	fmt.Printf("  %d tokens, %d vocabulary entries\n", len(r.Tokens()), len(entries))
-	fmt.Printf("  %d objects, %d locations\n", r.NumObjects(), r.NumLocations())
-	fmt.Printf("  %d user messages, %d system messages\n", r.NumMessages(), r.NumSysMessages())
-	fmt.Printf("  %d processes\n", r.NumProcesses())
-	if r.Base() == 0 {
-		fmt.Printf("  %d bytes total, %d bytes declared\n", len(r.data), r.DeclaredLength())
-	} else {
-		// One found inside something has no size of its own: what follows it
-		// belongs to whatever it was buried in.
-		fmt.Printf("  %d bytes declared, found at %#x, laid at address %#04x\n",
-			r.DeclaredLength(), r.Offset(), r.Base())
-	}
-	fmt.Printf("  Decompilation took %s\n", time.Since(startTime))
 }
 
 func nameOr(m map[byte]string, k byte) string {

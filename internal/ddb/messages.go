@@ -21,7 +21,7 @@ const (
 
 type Message struct {
 	ID      ID16
-	LabelID ID
+	LabelID ID16
 	Content string
 }
 
@@ -38,7 +38,7 @@ func NewMessageStore() Messages {
 // AddMessage appends a message to its table and numbers it. Each kind has its
 // own numbering, consecutive from 0, as the DDB indexes every text table by an
 // ordinal of its own.
-func (ms *Messages) AddMessage(kind MessageKind, labelID ID, content string) error {
+func (ms *Messages) AddMessage(kind MessageKind, labelID ID16, content string) error {
 	messages, exists := (*ms)[kind]
 	if !exists {
 		return qderror.ErrInvalidMessageKind
@@ -71,6 +71,39 @@ func (ms *Messages) AddMessage(kind MessageKind, labelID ID, content string) err
 	return nil
 }
 
+func (ms *Messages) NewLegacy(id ID16, kind MessageKind, content string) error {
+	messages, exists := (*ms)[kind]
+	if !exists {
+		return qderror.ErrInvalidMessageKind
+	}
+
+	switch kind {
+	case SystemMessage, UserMessage:
+		// The DDB has a limit of 255 messages per table, numbered 0 to 254
+		if len(messages) > MAX_MESSSAGE.Int() {
+			return qderror.ErrMessageStoreIsFull
+		}
+	case XMessage:
+		// The XMessage table has no limit (16bit) but the XMB file has a 64KiB limit
+		if len(messages) > MAX_MESSSAGE16.Int() {
+			return qderror.ErrMessageStoreIsFull
+		}
+
+		// Eeach message has a limit of 511 bytes
+		if len([]byte(content)) > 511 {
+			return qderror.ErrXMessageTooLong
+		}
+	}
+
+	(*ms)[kind] = append(messages, Message{
+		ID:      id,
+		LabelID: 0,
+		Content: content,
+	})
+
+	return nil
+}
+
 // GetMessage returns a copy: a message is immutable once defined, so there is
 // no way to reach into the store through it.
 func (ms Messages) GetMessage(kind MessageKind, id ID16) (string, bool) {
@@ -89,7 +122,7 @@ func (ms Messages) GetMessage(kind MessageKind, id ID16) (string, bool) {
 }
 
 // GetMessageByLabelID returns a copy: a message is immutable once defined, so there is no way to reach into the store through it.
-func (ms Messages) GetMessageByLabelID(kind MessageKind, labelID ID) (string, bool) {
+func (ms Messages) GetMessageByLabelID(kind MessageKind, labelID ID16) (string, bool) {
 	messages, ok := ms[kind]
 	if !ok {
 		return "", false

@@ -7,12 +7,14 @@
 /tmp
 /build
 /dist
+/decompiled
 
 # IA
 CLAUDE.md
 AGENTS.md
 .claude
 .rtk
+/docs/plan
 
 # OS
 .DS_Store

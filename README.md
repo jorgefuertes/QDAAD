@@ -27,10 +27,17 @@ tape**. An image is opened, walked, and every database inside it decompiled into
 a directory of its own.
 
 The output is UTF-8, readable and editable today, split one file per section and
-joined with `#INCLUDE` from `game.sce` — which is how the sources of the time
+joined with `#include` from `game.sce` — which is how the sources of the time
 were organised: the 1991 manual warns about the dangers of "including a TOK file
 which contains an extra `/TOK`", a warning that only makes sense if splitting
 was the normal practice.
+
+**It is source a compiler accepts**, not a listing. Held against the reference
+compiler — DAAD Reborn Compiler 0.40, built from its own Pascal — **52 of the 53
+databases compile**, once the encoding is put back to ISO-8859-1 and the `/TOK`
+section, which version 3 dropped, is left out. The one that does not is a
+database whose process tables cannot be read, and its source says so: it would
+be worse if it compiled.
 
 Two more directories go beside the source: `chr/` for the character sets and
 `gfx/` for the pictures. Each is kept **as the binary it came as and as a PNG**,
@@ -205,23 +212,3 @@ and Commodore `.T64` formats.
 
 Nothing is left of the pictures on the machines whose databases read. Every
 illustration of every edition that can be reached comes out.
-
-## Layout
-
-```
-cmd/qundaad/       the decompiler and its CLI
-cmd/qdaad/         the compiler, under construction
-internal/ddb/      the data model: vocabulary, objects, messages, processes
-internal/media/    reading the disks and tapes of each machine
-docs/              research on the format, and the manual
-work/              reference material, not part of the program
-```
-
-## Development
-
-```sh
-make test           # go vet and the full suite
-make lint           # gofumpt, staticcheck, golangci-lint, govulncheck
-make decomp-check   # decompiles the five adventures and compares them
-make dead           # unused code
-```

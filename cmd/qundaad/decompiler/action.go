@@ -3,6 +3,7 @@ package decompiler
 import (
 	"context"
 
+	"github.com/jorgefuertes/QDAAD/internal/console"
 	"github.com/urfave/cli/v3"
 )
 
@@ -14,6 +15,8 @@ import (
 func RunAction(_ context.Context, cmd *cli.Command) error {
 	inputFile := cmd.String("input")
 	outputDir := cmd.String("output")
+
+	console.Banner("QUNDAAD", console.TitleStyle)
 
 	return Decompile(inputFile, outputDir, Options{
 		Binaries: !cmd.Bool("no-binaries"),
