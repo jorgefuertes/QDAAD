@@ -21,7 +21,7 @@ func NewTable() *TableModel {
 	return &TableModel{
 		headers:     []string{},
 		rows:        [][]string{},
-		border:      lipgloss.DoubleBorder(),
+		border:      lipgloss.RoundedBorder(),
 		borderStyle: SubtitleStyle,
 		padding:     1,
 		indent:      2,
@@ -52,12 +52,10 @@ func (m *TableModel) Header(headers ...string) *TableModel {
 	return m
 }
 
+// Row adds a row. The cells go in as they come: what they end up looking like is
+// decided when the table is printed, so that nothing here has to know about
+// colour and a caller's strings are left alone.
 func (m *TableModel) Row(row ...string) *TableModel {
-	if m.horizontal && len(row) >= 2 {
-		row[0] = MutedStyle.Render(row[0])
-		row[1] = ValueStyle.Render(row[1])
-	}
-
 	m.rows = append(m.rows, row)
 
 	return m
@@ -78,8 +76,24 @@ func (m *TableModel) BorderStyle(style lipgloss.Style) *TableModel {
 func (m *TableModel) Print() {
 	t := table.New().
 		Border(m.border).BorderStyle(m.borderStyle).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			return lipgloss.NewStyle().Padding(0, m.padding)
+		StyleFunc(func(_, col int) lipgloss.Style {
+			cell := lipgloss.NewStyle().Padding(0, m.padding)
+
+			if !m.horizontal {
+				return cell
+			}
+
+			// A horizontal table is a list of label and value, so the first
+			// column names what the second one says. Inherit keeps the padding
+			// set above and takes the colour from the style named.
+			switch col {
+			case 0:
+				return cell.Inherit(MutedStyle)
+			case 1:
+				return cell.Inherit(ValueStyle)
+			}
+
+			return cell
 		}).
 		Headers(m.headers...).
 		Rows(m.rows...)

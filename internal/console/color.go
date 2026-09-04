@@ -71,14 +71,15 @@ func Hex(c Colour, isBright bool) string {
 //
 // A Spectrum was bright ink on black paper, so a dark terminal takes the bright
 // values and a light one the plain ones, which are dark enough to read on white.
-// Three of the eight cannot be had that way and are named here rather than
+// Four of the eight cannot be had that way and are named here rather than
 // hidden in a branch:
 //
-//   - Black would vanish on a dark background, so it becomes the brightest grey
-//     there. It is the colour a caller reaches for meaning "the plain one".
+//   - Black would vanish on a dark background, so it becomes the palette's own
+//     white there: asking for ink 0 gives something legible rather than nothing.
 //   - White would vanish on a light background, so it becomes near-black there,
 //     for the same reason read the other way round.
 //   - Yellow at #D7D700 is barely legible on white, and goes darker still.
+//   - Blue at #0000FF is barely legible on black, and goes lighter.
 //
 // The palette itself is untouched: Hex still returns what the hardware showed.
 func Adaptive(c Colour) lipgloss.AdaptiveColor {
@@ -93,6 +94,13 @@ func Adaptive(c Colour) lipgloss.AdaptiveColor {
 		return lipgloss.AdaptiveColor{Light: "#1C1C1C", Dark: bright[White]}
 	case Yellow:
 		return lipgloss.AdaptiveColor{Light: "#8A8A00", Dark: bright[Yellow]}
+	case Blue:
+		// #0000FF against black measures about 2.4 to 1, too dim to read
+		// comfortably. Lightening a pure blue means raising red and green
+		// together, which is what turns it mauve, so the red is left at zero —
+		// as it is in the palette — and only the green comes up. The result is
+		// xterm's colour 33, about 5.8 to 1, and still plainly blue.
+		return lipgloss.AdaptiveColor{Light: normal[Blue], Dark: "#0087FF"}
 	}
 
 	return lipgloss.AdaptiveColor{Light: normal[c], Dark: bright[c]}
@@ -102,6 +110,24 @@ func Adaptive(c Colour) lipgloss.AdaptiveColor {
 func Style(c Colour) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(Adaptive(c))
 }
+
+// Colours the tools need and the palette does not have. A Spectrum offers eight
+// inks and no more, so anything outside them is named here rather than smuggled
+// into the arrays above, which promise what the hardware showed.
+//
+// Both pairs are exact xterm entries, so a terminal of 256 colours lands on them
+// instead of approximating.
+var (
+	// Orange, for a warning: near enough red to read as one, far enough not to
+	// be mistaken for an error. Light is xterm 130 and dark is xterm 208; a
+	// bright orange on white measures about 2.4 to 1, hence the darker one.
+	Orange = lipgloss.AdaptiveColor{Light: "#AF5F00", Dark: "#FF8700"}
+
+	// Grey, for what should be there but not read first. The palette goes black,
+	// then #c6c6c6, then white, with no middle to borrow. Light is xterm 242 and
+	// dark is xterm 244.
+	Grey = lipgloss.AdaptiveColor{Light: "#6C6C6C", Dark: "#808080"}
+)
 
 // The styles the tools write with. They are built on the palette so that the
 // output of a program about these adventures looks like the machines they ran
@@ -113,16 +139,18 @@ var (
 	SubtitleStyle = Style(Cyan)
 	// Ok reports something that worked.
 	OkStyle = Style(Green)
-	// Warn reports something worth knowing that did not stop the work.
-	WarnStyle = Style(Yellow)
+	// Warn reports something worth knowing that did not stop the work. Orange
+	// rather than the palette's yellow, which Path already takes.
+	WarnStyle = lipgloss.NewStyle().Foreground(Orange)
 	// Err reports something that stopped it.
-	ErrStyle = Style(Red).Bold(true)
+	DebugStyle = Style(Magenta)
+	ErrStyle   = Style(Red).Bold(true)
 	// Path names a file, a directory or a section of a source.
-	PathStyle = Style(Magenta)
+	PathStyle = Style(Yellow).Underline(true)
 	// Value names a number or a piece of data taken from a database.
 	ValueStyle = Style(Blue)
 	// Muted is for what should be there but not read first: units, counts,
 	// anything that explains the line beside it.
-	MutedStyle = Style(Black)
+	MutedStyle = lipgloss.NewStyle().Foreground(Grey)
 	BoldStyle  = lipgloss.NewStyle().Bold(true)
 )

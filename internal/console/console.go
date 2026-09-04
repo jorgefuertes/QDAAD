@@ -57,7 +57,7 @@ func (l Level) style() lipgloss.Style {
 	case LevelInfo:
 		return ValueStyle
 	case LevelDebug:
-		return PathStyle
+		return DebugStyle
 	default:
 		return MutedStyle
 	}
@@ -111,7 +111,9 @@ func Make(desc string, fn func() error) error {
 
 		return err
 	}
-	defer null.Close()
+	// Nothing written to the null device can fail in a way worth reporting, and
+	// the error that matters is the one fn returns.
+	defer func() { _ = null.Close() }()
 
 	stdout, stderr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = null, null

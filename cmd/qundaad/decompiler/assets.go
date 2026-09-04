@@ -116,7 +116,14 @@ var (
 // was made from. The names of the original files are not carried over: the
 // directory already says which part of the adventure this is, and PART1.SCR.png
 // inside part1/gfx says it twice and adds an extension that means nothing.
-func writeAssets(assets []asset, outputDir string, opts Options) error {
+// drawn counts what came out as a picture, for the report. It counts what was
+// drawn and not what shipped: an asset nothing can be made of adds nothing.
+type drawn struct {
+	fonts    int
+	pictures int
+}
+
+func writeAssets(assets []asset, outputDir string, opts Options) (drawn, error) {
 	var fonts, graphics []asset
 
 	for _, a := range assets {
@@ -127,40 +134,50 @@ func writeAssets(assets []asset, outputDir string, opts Options) error {
 		}
 	}
 
-	if err := writeFonts(fonts, filepath.Join(outputDir, fontsDir), opts); err != nil {
-		return err
+	var count drawn
+
+	var err error
+
+	if count.fonts, err = writeFonts(fonts, filepath.Join(outputDir, fontsDir), opts); err != nil {
+		return count, err
 	}
 
-	return writeGraphics(graphics, filepath.Join(outputDir, graphicsDir), opts)
+	count.pictures, err = writeGraphics(graphics, filepath.Join(outputDir, graphicsDir), opts)
+
+	return count, err
 }
 
 // writeFonts draws each character set as a sheet of its glyphs. A part carries
 // one or two of them, and they are numbered in the order the disk holds them.
-func writeFonts(fonts []asset, into string, opts Options) error {
+func writeFonts(fonts []asset, into string, opts Options) (int, error) {
 	if len(fonts) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	if err := os.MkdirAll(into, 0o755); err != nil {
-		return fmt.Errorf("creating %s: %w", into, err)
+		return 0, fmt.Errorf("creating %s: %w", into, err)
 	}
+
+	count := 0
 
 	for i, a := range fonts {
 		if err := keepOriginal(a, into, opts); err != nil {
-			return err
+			return count, err
 		}
 
-		img, drawn := draw(a)
-		if !drawn {
+		img, ok := draw(a)
+		if !ok {
 			continue
 		}
 
 		if err := writePNG(filepath.Join(into, numbered(i+1, ".png")), img); err != nil {
-			return err
+			return count, err
 		}
+
+		count++
 	}
 
-	return nil
+	return count, nil
 }
 
 // writeGraphics draws everything else into one directory: the loading screen as
@@ -169,32 +186,32 @@ func writeFonts(fonts []asset, into string, opts Options) error {
 // The archives are numbered through, not restarted for each, because a part has
 // only ever one of them and numbering per archive would invite a collision that
 // never shows up in what we have.
-func writeGraphics(graphics []asset, into string, opts Options) error {
+func writeGraphics(graphics []asset, into string, opts Options) (int, error) {
 	if len(graphics) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	if err := os.MkdirAll(into, 0o755); err != nil {
-		return fmt.Errorf("creating %s: %w", into, err)
+		return 0, fmt.Errorf("creating %s: %w", into, err)
 	}
 
 	drawings, screens := 0, 0
 
 	for _, a := range graphics {
 		if err := keepOriginal(a, into, opts); err != nil {
-			return err
+			return drawings + screens, err
 		}
 
 		if pieces, index, isArchive := splitArchive(a); isArchive {
 			if err := writePieces(pieces, index, into, &drawings, opts); err != nil {
-				return err
+				return drawings + screens, err
 			}
 
 			continue
 		}
 
-		img, drawn := draw(a)
-		if !drawn {
+		img, ok := draw(a)
+		if !ok {
 			continue
 		}
 
@@ -206,11 +223,11 @@ func writeGraphics(graphics []asset, into string, opts Options) error {
 		}
 
 		if err := writePNG(filepath.Join(into, name), img); err != nil {
-			return err
+			return drawings + screens, err
 		}
 	}
 
-	return nil
+	return drawings + screens, nil
 }
 
 // keepOriginal writes a file as it came, under the name it came with, unless

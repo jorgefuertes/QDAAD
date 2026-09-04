@@ -276,6 +276,9 @@ func databasesIn(path string) ([]database, error) {
 func decompileOne(db database, outputDir string, opts Options) error {
 	r := db.reader
 
+	// Filled in by the closure below, and reported once it has run.
+	var pictures drawn
+
 	err := console.Make(
 		fmt.Sprintf("Decompiling %s", console.PathStyle.Render(db.source)),
 		func() error {
@@ -319,7 +322,8 @@ func decompileOne(db database, outputDir string, opts Options) error {
 				return fmt.Errorf("writing %s: %w", mainFile, err)
 			}
 
-			if err := writeAssets(db.assets, outputDir, opts); err != nil {
+			var err error
+			if pictures, err = writeAssets(db.assets, outputDir, opts); err != nil {
 				return err
 			}
 
@@ -343,6 +347,8 @@ func decompileOne(db database, outputDir string, opts Options) error {
 	t.Row("User messages", strconv.Itoa(r.NumMessages()))
 	t.Row("System messages", strconv.Itoa(r.NumSysMessages()))
 	t.Row("Processes", strconv.Itoa(r.NumProcesses()))
+	t.Row("Character sets", strconv.Itoa(pictures.fonts))
+	t.Row("Pictures", strconv.Itoa(pictures.pictures))
 	if r.Base() == 0 {
 		t.Row("Total size", strconv.Itoa(len(r.data))+" bytes")
 		t.Row("Declared length", strconv.Itoa(r.DeclaredLength())+" bytes")
