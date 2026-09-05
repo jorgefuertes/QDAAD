@@ -1,5 +1,10 @@
 .PHONY: dist build test doc decomp-check decomp-ao
 
+VERSION=$$(git describe --tags --abbrev=0)
+
+version:
+	@echo $(VERSION)
+
 build:
 	@rm -rf build
 	@mkdir -p build
