@@ -39,11 +39,14 @@ section, which version 3 dropped, is left out. The one that does not is a
 database whose process tables cannot be read, and its source says so: it would
 be worse if it compiled.
 
-Two more directories go beside the source: `chr/` for the character sets and
-`gfx/` for the pictures. Each is kept **as the binary it came as and as a PNG**,
-and the archives of illustrations are cut into their separate drawings as well,
-with an index naming which locations use each and in what palette.
-`--no-binaries` keeps only the conversions, which halves the space.
+Everything that travelled with the database goes beside the source in `gfx/`,
+sorted one directory to the kind of file: `png/` for the pictures, `plot/` for
+the drawing listings of the eight-bit editions, `chr/` for the character sets,
+and `raw/` for the bytes as they shipped. So each thing is kept **as the binary
+it came as and as a PNG**, and the archives of illustrations are cut into their
+separate drawings as well, with an index naming which locations use each and in
+what palette. `--no-binaries` drops `raw/` and keeps only the conversions, which
+halves the space.
 
 ### What it works out instead of assuming
 

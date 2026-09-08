@@ -278,9 +278,15 @@ dibujo no es una imagen, es **un programa** — una tira de órdenes que el int�
 trazarlo en pantalla. Es otro sistema, contemporáneo del DDB v1, y no tiene nada que ver con
 `SCRMAKER` ni con los `.GRA` del +3.
 
-El juego de instrucciones, el modelo de coordenadas y **dónde viven los dibujos en el disco** están
-resueltos (§9.1, §9.2 y §9.5). El bloque del Spectrum de La Aventura Original está localizado y sus
-157 dibujos —49 en la parte 1 y 108 en la parte 2— descodifican enteros.
+**El sistema está resuelto.** El juego de instrucciones (§9.1), el modelo de coordenadas (§9.2),
+dónde viven los dibujos (§9.5), qué hay en la cola del bloque y con qué estado se entra a un dibujo
+(§9.6) y cómo rellena el motor (§9.7). Los 708 dibujos de las cinco aventuras del Spectrum
+descodifican enteros, y **15 de las 20 pantallas contrastadas con capturas del juego salen
+indistinguibles del original** (§9.8).
+
+Léase con una advertencia: casi todo lo que sigue se dedujo de un módulo y se corrigió al leer
+otro. Donde §9.1 y §9.2 y las secciones de la 9.5 en adelante se contradicen, mandan las segundas,
+que salen de los discos de los juegos y están contrastadas contra la pantalla.
 
 Fuente de §9.1 a §9.3: desensamblado del intérprete `Interpreters/Spectrum/DS48IS.P3F` del DAAD de
 1991, 8142 bytes, origen `0x6000` — deducido exigiendo que los saltos caigan dentro del módulo, cosa
@@ -345,8 +351,31 @@ sea, x en el primer byte del operando e y en el segundo, tal cual.
 
 **`DRAW` es relativo.** Llama a `DRAW-LINE` de la ROM (`0x24BA`), que traza desde `COORDS`
 (`0x5C7D`) con un incremento. **Cada línea arranca donde acabó la anterior**: un dibujo es una
-polilínea, no una lista de segmentos sueltos. `FILL` hace lo mismo — también mueve el cursor
-(`0x7ACB`).
+polilínea, no una lista de segmentos sueltos.
+
+Y traza como traza la ROM, que no es como traza un Bresenham cualquiera: un DDA sobre el eje largo,
+un punto por paso de ese eje y el corto metido en el mismo movimiento cuando el error se pasa. Las
+diagonales salen diagonales. Quien reimplemente esto tiene que hacerlo igual, porque de ello depende
+dónde se paran los rellenos —véase §9.8—.
+
+> **`FILL` no mueve el lápiz.** Aquí decía que sí, y es falso — al menos en los discos de 1989,
+> donde los dos manejadores se distinguen por una sola instrucción:
+>
+> ```asm
+> ; MOVE, en 0x7C72
+> cd fe 7d      call 0x7DFE        ; calcula las coordenadas nuevas en BC
+> ed 43 7d 5c   ld (0x5C7D),bc     ; y las GUARDA en COORDS
+>
+> ; FILL, en 0x7CC5
+> cd fe 7d      call 0x7DFE        ; las calcula igual...
+> dd cb 00 6e   bit 5,(ix+0)       ; ...y se va a rellenar sin guardarlas
+> ```
+>
+> O sea: el desplazamiento de un `FILL` dice **dónde rellenar**, medido desde donde esté el lápiz,
+> y el lápiz **se queda donde estaba**. Una tirada de rellenos seguidos se mide toda desde el mismo
+> punto en vez de ir caminando. Encadenarlos es el error que más caro ha salido de todo esto: en el
+> dibujo 4 son trece seguidos, y a partir del quinto los puntos de relleno aterrizaban fuera de la
+> ventana de dibujo y teñían lo que pillaran. Ver §9.8.
 
 **Hay un `MOVE`.** Si los bits 3 y 4 están **los dos** puestos, `0x7A63` lo detecta con
 `and 0x18; cp 0x18` y la orden escribe `COORDS` directamente **sin trazar** (`0x7A6F`). Así se
@@ -435,6 +464,36 @@ Es decir: **el dibujo N está en `[(0xFFF1) + N×2]`**, una tabla plana de punte
 orden `CALL` usa **esa misma tabla**, así que cualquier dibujo puede invocar a otro por número —
 que es lo que hace que quepan tantos: los elementos repetidos se trazan una vez y se llaman desde
 donde hagan falta.
+
+#### Hasta el extremo de que una entrada sea solo un alias
+
+Con esa mecánica, una localidad que comparte ilustración con otra no repite nada: su entrada de la
+tabla apunta a tres bytes.
+
+```text
+IMAGE 014        IMAGE 015        IMAGE 017        IMAGE 018        IMAGE 019
+CALL 61,0,0      CALL 61,0,0      CALL 61,0,0      CALL 61,0,0      CALL 61,0,0
+RET              RET              RET              RET              RET
+```
+
+En la parte 2 de La Aventura Original **13 de las 108 entradas son un `CALL n; RET`** y nada más:
+seis apuntan al dibujo 63, cinco al 61. Con 40 KB para el juego entero, repetir un dibujo de mil
+bytes seis veces no era una opción.
+
+La reutilización también es más fina cuando conviene. En la parte 1, las localidades 13, 14 y 15
+comparten el mismo bosque y cada una le añade su detalle:
+
+```text
+013: CALL 42                             ; el bosque, a secas
+014: CALL 42 / FILL -136,-53,132
+015: CALL 42 / PLOT 66,94 / FILL -56,-28,132
+```
+
+Ahí el 14 rellena en (9,67) y el 15 en (10,66) — a un píxel, dentro de la misma región cerrada. Las
+dos pantallas salen idénticas aunque su código no lo sea, y así se ven también en el Spectrum.
+
+De las 41 imágenes que la parte 1 llega a dibujar, 40 son distintas; de las 69 de la parte 2, 55. Un
+extractor que encuentre imágenes repetidas no tiene por qué estar fallando.
 
 ### 9.4. El motor está también en los discos del juego
 
@@ -569,7 +628,24 @@ Las dos que importan:
 - **`FILL` tiene tres tamaños.** Son 3 bytes normalmente; 4 si lleva el bit 5, porque entonces el
   patrón se toma de la tabla de UDG con el byte 3 como índice (`0x7CE4`); y 5 en el caso especial
   del byte de orden `0x12` exacto, que no es un relleno de trama sino un **rectángulo de
-  atributos** —calcula una dirección en `0x5800` con la fila y la columna de los bytes 3 y 4—.
+  atributos**: calcula una dirección en `0x5800` y pinta desde ahí.
+
+Los cuatro operandos del `0x12` son, en el orden en que están, **filas** (`0x7D17`), **columnas**
+(`0x7D1A`), **columna inicial** (`0x7D0A`) y **fila inicial** (`0x7D06`); los dos contadores valen
+uno menos de lo que se pinta. Lo confirma un grupo de siete dibujos de la parte 2 que no son
+dibujos sino **rutinas de limpieza**, idénticas salvo el color:
+
+```text
+MOVE 0,64
+INK 0
+PAPER n            ; una por cada color: 1, 2, 3, 4, 5, 6 y 7
+ATTR 13,31,0,0     ; 14 filas x 32 columnas desde el origen
+RET
+```
+
+Y de paso dan la medida a la que trabajan casi todas las escenas: 14 filas de caracteres, o sea
+**112 píxeles**, que es justo lo que queda por encima de la línea `y = 64` con la que abren. Es una
+costumbre de los dibujos, no un límite que nadie imponga —véase §9.6—.
 
 Las tres longitudes de `FILL` aparecen en los datos reales (308, 148 y 63 veces en la parte 1), así
 que ninguna es especulativa: si una fuera falsa, la tira se desincronizaría y el dibujo no
@@ -614,6 +690,27 @@ LINE 77,65
 ...                      ; 256 órdenes en total
 ```
 
+#### Y se ha comprobado mirándolos
+
+Lo anterior demuestra que las tiras se leen sin desincronizarse, que es otra cosa que dibujar bien.
+Así que se han trazado los 708 dibujos de las cinco aventuras sobre un lienzo de Spectrum,
+emulando los atributos por celda de 8 × 8 —imprescindible, porque muchas escenas trazan con
+`INK 0` sobre un `PAPER` de color y sin papel no se ve nada—. Ninguno da error y ninguno sale
+ilegible.
+
+Salen **ilustraciones**: una casa con su puerta y su tejado bajo un cielo cian, bosques, cuevas con
+un portón, el logotipo «AD» de Aventuras AD, y un interior en perspectiva con el suelo entablado
+cuyas líneas de fuga convergen como es debido — que es la prueba más dura de todas, porque un solo
+byte mal leído la destrozaría.
+
+De los 49 de la parte 1, los **únicos** que salen en negro son los 8 que solo contienen `RET`. El
+resto se reparte entre 26 escenas completas y 15 piezas que existen para ser invocadas con `CALL`
+desde ellas y que, trazadas sueltas, no tienen por qué componer nada.
+
+Aquello se trazó sin rellenar y sin estampar los `UDG`, que era todo lo que se sabía hacer
+entonces. Las dos cosas están ahora resueltas —§9.7 para el relleno, §9.6 para los caracteres— y
+las ilustraciones salen completas.
+
 #### El candidato anterior era ruido
 
 Conviene dejar constancia de por qué, porque el error estaba en el criterio de búsqueda, no en los
@@ -643,14 +740,502 @@ punteros no vale. Lo que decide es exigir que **las entradas sean distintas**, q
 **termine en `RET` justo donde empieza el siguiente**, y que las coordenadas caigan en el lienzo.
 Y antes de nada, mirar si hay una versión en cinta que declare la dirección de carga.
 
-#### Queda pendiente el Amstrad
+#### Cada juego trae su propio motor
+
+Al llevar esto al descompilador salió lo que un solo juego no podía enseñar: **las longitudes de
+orden no son una propiedad del año, sino de cada compilación**. El motor está en direcciones
+distintas en cada juego, y con él cambian las longitudes:
+
+| Juego | Tabla de saltos | Manejadores | `CALL` | `DRAW` | `FILL` | Dibujos |
+|---|---|---|---|---|---|---|
+| La Aventura Original | `0x7C48` | `0x7C58`… | 2 | 3 | 3, 4 o 5 | 49 + 108 |
+| El Jabato | `0x7C5E` | `0x7C6E`… | 2 | 3 | 3, 4 o 5 | 59 + 62 |
+| Cozumel | `0x7BA0` | `0x7BB0`… | 2 | **3, o 2 con el bit 5** | 3, 4 o 5 | 30 + 33 |
+
+**Cozumel sí tiene la forma corta de `DRAW`** —un nibble por eje— que La Aventura Original y El
+Jabato no usan nunca. Es posterior, y en eso se acerca al módulo de 1991.
+
+Por eso el descompilador **no fija las longitudes: las deduce**. Prueba los dialectos posibles y se
+queda con el que consigue que *todos* los dibujos de la tabla terminen en `RET` justo donde empieza
+el siguiente. Una longitud equivocada por un byte desincroniza la tira y se delata ahí mismo, así
+que el criterio que validó el bloque sirve también para elegir cómo leerlo. Donde varios dialectos
+valen, es que el juego no usa los bits en que difieren, y el resultado es el mismo.
+
+Quedaba una duda con la orden `0x12`. En La Aventura Original su manejador calcula una dirección en
+`0x5800` con la fila y la columna de los bytes 3 y 4 —un rectángulo de atributos—, y aquí se dijo
+que Cozumel ponía ahí valores que no podían significar eso. **Se leen igual, y está comprobado
+contra el juego.** Las escenas de Cozumel abren con
+
+```asm
+ATTR 12,31,0,1     ; 13 filas x 32 columnas, desde la columna 0 y la fila 1
+```
+
+que son exactamente las filas de píxel 8 a 111, y es justo donde la captura pone el marco: Cozumel
+reserva la fila 0 para su rótulo —«Plaza», «Náufrago», y el contador de turnos a la derecha— y baja
+el dibujo una fila de caracteres, cosa que La Aventura Original no hace. Lo que parecía un operando
+imposible era una ventana colocada de otra manera.
+
+#### Buscar el motor era el método equivocado
+
+Anclar en la firma del despachador funcionaba con los tres juegos de arriba porque en ellos el
+motor y los dibujos viajan en el mismo bloque. **Los Templos Sagrados y Chichén Itzá no lo hacen**:
+su cargador es propio y mete el intérprete y los gráficos en bloques distintos y sin cabecera, así
+que junto a los dibujos no hay ningún despachador del que sacar la dirección de carga.
+
+La salida está en lo que ya decía §9.5 y no se estaba aprovechando: **el bloque de gráficos siempre
+acaba en `0x10000`**. Eso basta para localizarlo sin saber nada del cargador, porque fija la
+dirección de todos sus bytes. Se prueba cada offset como si fuera ese final, y la propia
+disposición acepta o rechaza: la tabla tiene que ser creciente, acabar apuntándose a sí misma y
+cerrar con `0xFFFF`, y luego **todos** sus dibujos tienen que terminar en `RET` justo donde empieza
+el siguiente.
+
+Suena indiscriminado y no lo es. Sobre las 6 ediciones de Spectrum el barrido deja **uno o dos
+candidatos por medio, y todos son reales**: ni un falso positivo. Es el contraste exacto con el
+criterio viejo, que sobre el mismo disco dejaba cientos. Y sale gratis: 27 ms para los 195 KB del
+disco de La Aventura Original.
+
+Con eso el descompilador saca los dibujos de los 5 juegos, tanto de disco como de cinta:
+
+| Juego | Dibujos | De dónde |
+|---|---|---|
+| La Aventura Original | 49 + 108 | `.dsk` y `.tzx` |
+| El Jabato | 59 + 62 | `.dsk` |
+| Cozumel | 30 + 33 | `.dsk` |
+| Los Templos Sagrados | 60 + 58 | `.tzx` |
+| Chichén Itzá | 21 + 38 | `.tzx` |
+
+Los dos últimos **solo salen de la cinta**. En el caso de Los Templos Sagrados no es por los
+gráficos: su `.dsk` falla antes, al leer `PART1.DDB`, y eso es otro asunto.
+
+Una nota sobre el intérprete: en el disco de Los Templos Sagrados la firma del despachador aparece
+con su tabla de saltos en `0x7A3A`, que es la del módulo de 1991 (`DS48IS.P3F`, despachador en
+`0x7A23`), y uno de los bloques de su cinta mide 8142 bytes, exactamente lo que ese módulo. Pero
+sus dibujos **no** se leen con las longitudes que §9.1 atribuye a 1991: el dialecto que los
+descodifica enteros es el de Cozumel, con `CALL` de 2 bytes. O el desensamblado de §9.1 se equivoca
+en ese punto, o el motor de dibujo no es el mismo que el intérprete. Queda abierto.
+
+### 9.6. La cola del bloque: cuatro punteros, cuatro tablas
+
+En la cola del bloque hay cuatro punteros seguidos, y durante un tiempo solo se supo para qué
+servían dos. Están los cuatro resueltos, y **cada uno es la base de una tabla que acaba justo donde
+empieza la siguiente**:
+
+| Puntero | Apunta a | Qué hay | Acaba en |
+|---|---|---|---|
+| `(0xFFF1)` | tabla de dibujos | punteros de 16 bits, uno por dibujo | `(0xFFF3)` |
+| `(0xFFF3)` | tabla de propiedades | **5 bytes por dibujo** | `(0xFFF5)` |
+| `(0xFFF5)` | — | cierra la anterior | — |
+| `(0xFFF7)` | juego de caracteres | 8 bytes por carácter | la cola de punteros |
+
+Que las dos primeras encajen al byte —`5 × número de dibujos` cabe exactamente entre `(0xFFF3)` y
+`(0xFFF5)` en **los siete bloques** de las cinco aventuras— es a la vez la confirmación de la
+lectura y un filtro excelente para localizar el bloque.
+
+En La Aventura Original, parte 1: `0xF688` la de dibujos, `0xF6EE` la de propiedades (49 × 5 = 245
+bytes hasta `0xF7E3`), y `0xF7E4` el juego de caracteres.
+
+#### Con qué estado se entra a un dibujo
+
+No hay que adivinarlo: **está tabulado**. El intérprete localiza el registro del dibujo en `0x7C18`
+—cinco bytes indexados por su número— y lo aplica en `0x7BBC`:
+
+```asm
+7C18: 2a f3 ff     ld hl,(0xFFF3)   ; base de la tabla de propiedades
+7C1B: 16 00        ld d,0
+7C1D: 19 19 19 19 19   add hl,de x5 ; + 5 x numero de dibujo
+
+7BD9: e6 3f        and 0x3f         ; byte 0, sin bright ni flash
+7BE4: 22 8d 5c     ld (0x5C8D),hl   ; -> ATTR-P
+7BE7: 22 8f 5c     ld (0x5C8F),hl   ; -> ATTR-T
+7BEA: 6c           ld l,h
+7BEB: 22 7d 5c     ld (0x5C7D),hl   ; -> COORDS = 0,0
+```
+
+| Byte | Destino | Qué es |
+|---|---|---|
+| 0 | `ATTR-P` y `ATTR-T` | atributo: tinta en los bits 0-2, papel en los 3-5 |
+| 1 | `0x8163` | fila de la ventana |
+| 2 | `0x8164` | columna de la ventana |
+| 3 (menos 1) | `0x8162` | filas de alto |
+| 4 | `0x8161` | columnas de ancho |
+
+Así que un dibujo empieza con **el lápiz en el origen** y con la tinta y el papel que le tocan. En
+La Aventura Original solo hay dos combinaciones: blanco sobre negro en 40 dibujos y blanco sobre
+azul en 9. El `and 0x3f` es lo que deja fuera el brillo.
+
+Y cada dibujo declara su propia ventana. No todos la misma: en La Aventura Original salen tres
+alturas.
+
+| Ventana | Píxeles | Dibujos |
+|---|---|---|
+| 12 filas | 96 | 46 |
+| 14 filas | 112 | 61 |
+| 22 filas | 176 | 3 |
+
+**Pero la ventana no recorta el dibujo.** Es una tentación creerlo —las localidades caben justas en
+sus 14 filas y por debajo va el texto de la aventura— y estuvo un tiempo escrito aquí como si lo
+fuera. Lo desmiente el dibujo 44 de la parte 1, la pantalla de créditos: su registro declara 14
+filas y el dibujo pinta las 22. Su marco va de la fila 24 a la 151 de pantalla, que es exactamente
+lo que dice su propia orden `ATTR 15,25,3,3` —filas 3 a 18, columnas 3 a 28—, y la captura del juego
+lo confirma: hay tinta desde la fila 0 hasta la 175.
+
+La razón es que el motor no recorta nada. Cada coordenada acaba en `PLOT-SUB` de la ROM, que solo
+limita a la pantalla; el recorte de 24 filas y 42 columnas de `0x76F7` está en la rutina de
+impresión, no en la de dibujo. Lo que la ventana gobierna es **dónde escribe el intérprete después**,
+y un dibujo es muy libre de pintar fuera. Por eso el descompilador la anota en la cabecera del
+`.plot` y traza el lienzo entero.
+
+Los tres de 22 filas ocupan la pantalla entera y el juego les escribe el texto encima: el dibujo 43
+de la parte 2 —el enano lanzando el hacha— tiene bajo el texto medio hacha que en pantalla no llega
+a verse.
+
+#### Y el fondo es ese mismo atributo
+
+Una celda que el dibujo no llega a tocar no se queda en blanco ni en negro: muestra el atributo del
+registro, porque el intérprete ya lo ha escrito en `ATTR-P` y `ATTR-T` antes de empezar y **el motor
+no limpia la pantalla**.
+
+Parece un detalle y no lo es. Tomar por fondo, digamos, el primer `PAPER` que emite el dibujo
+—tentador cuando aún no se sabe leer el registro— sale bien en las escenas que cubren todo el
+lienzo y falla justo en las que dejan margen: el dibujo 43 de la parte 2 pierde así su marco entero,
+1942 píxeles de los 27 940 que se comparan.
+
+#### La pantalla tiene 42 columnas, no 32
+
+El recorte de la ventana (`0x76F7`) da los límites, y el segundo sorprende:
+
+```asm
+76FD: fe 18        cp 0x18          ; 24 filas
+770F: fe 2b        cp 0x2b          ; 43 -> o sea 42 columnas
+```
+
+42 columnas en 256 píxeles son **6 píxeles por carácter**, y no es deducción: la conversión de
+columna a byte de pantalla está en `0x7B1A`.
+
+```asm
+7B1A: 5f           ld e,a           ; e = columna
+7B1B: cb 3b cb 3b  srl e / srl e    ; e = columna / 4
+7B21: 19 19 19     add hl,de x3     ; 3 bytes por cada 4 columnas
+```
+
+Cuatro caracteres ocupan tres bytes, o sea 24 píxeles. Por eso la rutina de impresión escribe **dos
+bytes de pantalla por fila** con máscaras (`0x798F`): un carácter de 6 píxeles casi nunca cae
+alineado.
+
+Y confirma por otra vía algo que ya estaba anotado en el descompilador: los juegos de caracteres de
+estas aventuras dibujan **6 píxeles dentro de los 8** de la celda, cosa que allí se dedujo del
+nombre de uno de ellos, `AO6X8.BIN` (ver `cmd/qundaad/decompiler/assets.go`). Dos caminos
+independientes, la misma anchura.
+
+> **Y aun así, el `UDG` va a 8 píxeles.** Parece que debería usar esta rutina —su manejador emite
+> `chr$(22)` y el carácter por `RST 0x10`— y de ahí se dedujo un tiempo que se estampaba cada 6.
+> Es falso, y lo zanjó una captura: el dibujo 40 de la parte 2 pone una letra en la columna 8 y
+> aparece en `x = 64`, no en `x = 48`. `RST 0x10` va a la impresión ordinaria de 32 columnas; la
+> de 42 es la del intérprete de texto, y el motor de dibujo no pasa por ella.
+>
+> Así que la anchura de 6 píxeles vale para el texto de la aventura y no para lo que dibuja el
+> motor. Conviene recordarlo antes de volver a caer.
+
+#### La tabla de `(0xFFF7)` no es «de UDG»: es el juego de caracteres
+
+`0x797A` hace `ld de,(0xFFF7)` para imprimir **cualquier** carácter. Dibujada como atlas, la tabla
+se lee sola:
+
+| Rango | Qué hay |
+|---|---|
+| 16-31 | acentos y signos españoles: `ª ¡ ¿ « » á é í ó ú ñ Ñ ç Ç ü Ü` |
+| 32-127 | ASCII |
+| **128-159** | **las tramas de relleno** — dameros, rayados, diagonales |
+| 160-256 | un segundo juego, en negrita, con iconos |
+
+Encaja con el uso: los `FILL` con patrón tiran de 128-153 y las órdenes `UDG` de 196-218.
+
+### 9.7. El relleno, orden por orden
+
+La rutina está en `0x7E6B` y no se parece a un relleno moderno en nada. Tres cosas la definen:
+
+**Son dos pasadas, no una.** Baja desde la semilla hasta agotarse y luego repite la pasada entera
+hacia arriba, empezando una línea más allá:
+
+```asm
+7F9E: ed 4b ee 7f  ld bc,(0x7FEE)   ; las coordenadas de partida
+7FA2: cb 7a        bit 7,d
+7FA4: 20 09        jr nz,0x7FAF     ; la segunda ya se hizo -> salir
+7FA6: cb fa        set 7,d
+7FA8: 04           inc b            ; y+1
+7FAC: da bb 7e     jp c,0x7EBB      ; y otra vez, ahora hacia arriba
+```
+
+Cada pasada avanza en un solo sentido: `bit 7,d` elige entre `inc b` y `dec b`, y `d` nace a cero,
+así que la primera baja. El array de 176 bytes —uno por scanline, reservado en `0x7EA5` con 88
+`push`— **no se reinicia entre las dos**, y es lo que impide que la segunda rehaga el trabajo de la
+primera.
+
+**Se rinde.** `0x7EC3` carga 30 en `A'`, y cada rama que se apila lo decrementa:
+
+```asm
+7F55: 3d           dec a
+7F56: 28 46        jr z,0x7F9E      ; agotadas -> abandona la pasada a medias
+7F59: c5           push bc          ; solo entonces se apila
+```
+
+No es un error: el relleno **deja la región a medio pintar** y sigue. Es lo que produce los
+sombreados que se quedan cortos en los originales.
+
+**Colorea aunque no pinte.** `0x7F29` llama a la rutina de atributos en cada píxel que recorre,
+encienda o no el patrón; y `or (hl)` en `0x7F27` solo enciende, nunca apaga. La fila del patrón
+sale de `y & 7` con la `y` del motor, por código automodificable:
+
+```asm
+7EE8: e6 07        and 7            ; y mod 8
+7EEA: 32 ef 7e     ld (0x7EEF),a    ; escribe el desplazamiento de...
+7EED: dd 56 00     ld d,(ix+NN)     ; ...esta misma instruccion
+```
+
+#### El modo del lápiz, en `0x7CA8`
+
+Los bits 3 y 4 de un `PLOT` o un `DRAW` eligen cómo se pone el píxel. La rutina los dobla en
+`P-FLAG` con una cuenta que no se adivina mirando:
+
+```asm
+7CA8: 0f 0f 0f     rrca x3          ; los bits 3-4 al fondo
+7CAB: e6 03        and 3
+7CAE: c6 02        add a,2          ; (modo + 2) and 5
+7CB0: e6 05        and 5            ; bit 0 = OVER, bit 2 = INVERSE
+7CB3: 3a 91 5c     ld a,(0x5C91)    ; P-FLAG
+7CB6: e6 fa        and 0xfa         ; conservando el resto
+```
+
+| Modo | P-FLAG | Qué hace |
+|---|---|---|
+| 0 | 0 | pone el píxel |
+| 1 | 1 | `OVER`: lo invierte |
+| 2 | 4 | `INVERSE`: lo borra |
+| 3 | 5 | ambos; la `PLOT-SUB` de la ROM mira `OVER` primero, así que invierte |
+
+En un `DRAW` el modo 3 no llega aquí: se intercepta antes como `MOVE`.
+
+El relleno no pasa por esta rutina —su manejador no la llama— y escribe con `or (hl)`, así que
+siempre pone píxeles.
+
+> Se usa poco y se nota menos: 15 órdenes en toda la parte 1, casi todas un `PLOT` suelto sobre
+> pantalla en blanco, donde invertir y poner el píxel dan lo mismo. Implementarlo no cambió un solo
+> píxel de las 38 pantallas contrastadas. Está aquí porque el motor lo hace, no porque se vea.
+
+#### El `0x12` es un rectángulo de atributos
+
+De los tres tamaños de `FILL`, el byte de orden `0x12` exacto no rellena: pinta directamente en
+`0x5800`. Sus cuatro operandos son, en el orden en que están, **filas** (`0x7D17`), **columnas**
+(`0x7D1A`), **columna inicial** (`0x7D0A`) y **fila inicial** (`0x7D06`), y los dos contadores
+valen uno menos de lo que se pinta.
+
+Lo confirma un grupo de siete dibujos de la parte 2 que no son dibujos sino **rutinas de limpieza**,
+idénticas salvo el color:
+
+```text
+MOVE 0,64
+INK 0
+PAPER n            ; una por cada color: 1, 2, 3, 4, 5, 6 y 7
+ATTR 13,31,0,0     ; 14 filas x 32 columnas desde el origen
+RET
+```
+
+### 9.8. Contrastado con capturas del juego
+
+Todo lo anterior se ha comprobado contra **capturas reales de 38 pantallas** del Spectrum, 20 de la
+parte 1 y 18 de la parte 2, y es lo que ha permitido cerrar el asunto. Antes de tenerlas se
+trabajaba a ciegas: un dibujo puede parecer razonable y estar mal.
+
+Lo que destaparon, por orden de daño:
+
+- **El `FILL` no mueve el lápiz** (§9.2). Es el fallo que lo torcía todo, y solo se ve marcando el
+  punto de partida de cada relleno sobre el trazado: caía en cielo abierto en vez de dentro de la
+  nube que tocaba rellenar. En el dibujo 4 hay trece rellenos seguidos, y a partir del quinto los
+  puntos aterrizaban fuera de la ventana.
+- **Un relleno con la semilla en la fila de arriba se perdía entero.** La segunda pasada empieza en
+  `y + 1`, que ahí se sale del lienzo; el motor la salta y conserva lo que la primera ya pintó,
+  porque pinta sobre la marcha. Un emulador que acumule la región para pintarla al final tiene que
+  salir de ese bucle con cuidado de no tirarla.
+- **El `UDG` se estampa cada 8 píxeles**, no cada 6, por más que el intérprete tenga una rutina de
+  texto de 42 columnas (§9.6).
+- **Ningún relleno se desborda.** Con el lápiz quieto, todas las regiones cierran. Cualquier
+  «salvaguarda» contra rellenos que se escapan estaba tapando aquel fallo, y de paso descartaba
+  regiones buenas: la montaña del dibujo 3 ocupa 15 022 píxeles.
+- **Una celda que el dibujo no toca muestra el atributo de su registro**, no el primer `PAPER` que
+  el dibujo emita (§9.6). Solo se nota en las escenas que dejan margen, y ahí se nota entero.
+- **El tope de 30 ramas no llega a alcanzarse** en ninguna de estas pantallas. Está en el motor y se
+  respeta, pero no es lo que recorta un relleno aquí.
+- **El modo del lápiz no explica nada aquí.** Implementarlo (§9.7) no movió un píxel: se usa poco y
+  casi siempre sobre pantalla en blanco, donde no se distingue de pintar.
+
+#### La trama va del revés, y la línea no era un Bresenham
+
+Con todo lo anterior la diferencia media se quedó en el 0,14 % —1533 píxeles de 1 118 208, sobre 39
+capturas—, y ahí se atascó. Parecía el suelo: tramas corridas un píxel de las que no se puede decir
+si son nuestras o del recorte de la captura. No lo era. Quedaban dos fallos, y ninguno estaba donde
+se buscaba.
+
+**La trama se guarda del revés.** El motor monta las 8 filas del patrón en la pila:
+
+```asm
+7E90: dd 21 f8 ff  ld ix,0xfff8
+7E94: dd 39        add ix,sp        ; ix = sp - 8, antes de escribir nada
+7E96: 06 08        ld b,0x08
+7E98: 1a           ld a,(de)        ; fila del UDG
+7E99: b6           or (hl)
+7E9A: a9           xor c            ; c = 0xFF si la orden pedía invertirla
+7E9D: f5           push af
+7E9E: 33           inc sp           ; un byte por vuelta, pila abajo
+7E9F: 10 f7        djnz 0x7e98
+```
+
+`push af / inc sp` escribe un byte por vuelta hacia direcciones descendentes, e `ix` se fijó al
+fondo de los ocho **antes** de empezar. Así que `(ix+0)` es la última fila del gráfico e `(ix+7)` la
+primera. Y el desplazamiento que se le aplica es `y and 7` (0x7EE8, escrito sobre su propio
+`ld d,(ix+NN)`), con la `y` de la ROM contando desde abajo. Resultado: la fila del patrón es
+`7 - (y and 7)`, que con la `y` al revés sale **derecha en pantalla**. Indexar el patrón con
+`y and 7` a secas lo deja volteado en vertical.
+
+Volteado no se ve como un desplazamiento —es otra cosa— y bajó el total de 1533 a 744 píxeles. Los
+dibujos 46 y 47 de la parte 1 pasaron de 57 píxeles cada uno a **cero exacto**, que es la
+confirmación que hacía falta.
+
+**Y la línea no es un Bresenham.** Aquí había una afirmación equivocada, escrita al ver que el
+contorno coincidía con la captura: lo hacía, pero la medida tolera desplazamientos de un píxel y no
+distingue una escalera de una diagonal. El `DRAW` llama a `DRAW-LINE` de la ROM (`0x24BA`, desde
+`0x7C9B`), que es un DDA sobre el eje largo: **un punto por cada paso de ese eje**, con un paso del
+corto metido en el mismo movimiento cuando el error se pasa, y el error abierto a la mitad del eje
+largo (`ld a,b / rra`). Una diagonal sale diagonal, un píxel por fila.
+
+Un Bresenham que mueva un eje por paso saca una escalera con un píxel de más en cada esquina. Y la
+diferencia no es cosmética: **una escalera es estanca y una diagonal no**, así que los rellenos —de
+los que están hechos estos dibujos— se paran en sitios distintos. Eso era exactamente lo que se veía
+como «el relleno se queda corto» en unas pantallas y «el relleno se desborda» en otras, y por eso
+fallaba en los dos sentidos: el fallo no estaba en el relleno.
+
+| | Píxeles distintos, 39 capturas |
+|---|---|
+| Trama volteada + línea de 4 conexiones | 1533 |
+| Trama corregida, línea de 4 conexiones | 744 |
+| Trama corregida, línea de la ROM | **33** |
+
+La diferencia media queda en **0,003 %**. Las 18 capturas de la parte 2 salen **exactas**, píxel a
+píxel, y de las 21 de la parte 1 hay 14 exactas. Lo que queda son 20 píxeles en la fila 0 de cuatro
+pantallas —la fila de arriba del todo, donde algo se recorta— y 13 sueltos más.
+
+#### Y sirve para otros dos juegos
+
+Las dos correcciones se dedujeron del desensamblado y se midieron contra La Aventura Original, que
+es una sola aventura y un solo dialecto. Cozumel es la prueba de que no estaban ajustadas a ella:
+otro dialecto —con la forma corta de `DRAW`—, otra distribución de pantalla y otro dibujante.
+
+Cinco capturas, cinco escenas —Náufrago, Plaza, Playa oeste, Taberna y Despacho, que son los dibujos
+4, 5, 7, 11 y 21 de la parte 1—, y **las cinco salen exactas**: cero píxeles distintos con la medida
+de vecindad, y entre 2 y 19 sueltos con la comparación cruda, todos en bordes de trama. Ninguna de
+ellas es un dibujo simple: la Taberna encadena 491 órdenes y llama a otro de 279.
+
+Y luego **El Jabato, nueve capturas de la primera parte**, emparejadas a ciegas contra los 55
+dibujos —cada captura contra todos, y se queda el que menos difiere—. Las nueve aciertan, y por
+márgenes que no dejan lugar a duda: la celda da 0 píxeles contra el dibujo 3 y 17 063 contra el
+siguiente candidato.
+
+| Captura | Dibujo | Vecindad | Cruda |
+|---|---|---|---|
+| Vestíbulo | 4 | 0 | **0** |
+| Corredor | 6 | 0 | **0** |
+| Celda vacía | 15 | 0 | **0** |
+| Comienzo (la cara) | 56 | 0 | **0** |
+| Logotipo AD | 32 | 0 | 1 |
+| Celda del fiambre | 3 | 0 | 2 |
+| Puerta de la cárcel | 9 | 0 | 2 |
+| Otra celda | 14 | 0 | 2 |
+| Sala de guardia | 25 | 0 | 6 |
+
+Cuatro son idénticas **píxel a píxel sin tolerancia ninguna**, y las otras cinco suman 13 píxeles
+sueltos entre todas, de 229 376.
+
+Tres de ellas dicen algo más que «coincide»:
+
+- **El comienzo confirma el asunto de la ventana** (§9.6). El dibujo 56 es solo la cara, y sale
+  exacta hasta la fila 55; los 624 píxeles de debajo son los créditos, que los escribe el juego. Es
+  el mismo caso que la pantalla 44 de La Aventura Original, y ahora sale bien por la razón correcta.
+- **El corredor distingue entre tres dibujos casi iguales**: 0 píxeles crudos contra el 6, 3 contra
+  el 7 y 6 contra el 8. El 6 es la sala base y los otros dos la llaman y le añaden un detalle, así
+  que lo que se está validando ahí es la herencia entre dibujos.
+- **El logotipo cae en el 32, al que llaman el 39, el 42, el 46 y el 58**: el mismo patrón de alias
+  —entradas que solo contienen `CALL 32 / RET`— que ya se vio en la segunda parte de La Aventura
+  Original.
+
+Con esto van tres aventuras contrastadas contra el juego, 53 capturas en total, y las tres eligen
+el mismo dialecto de longitudes. Lo que confirma, de paso, cosas que estaban deducidas y sin
+contrastar: la elección automática de dialecto, el orden de los operandos de `ATTR` en Cozumel, y
+que los dibujos llamados se estampan donde deben.
+
+#### Tres trampas al medir esto
+
+Las tres me costaron tiempo, y ninguna es un fallo del trazado:
+
+1. **La paleta es del emulador.** El que hizo estas capturas pinta el amarillo normal como
+   `(182,182,0)`; nosotros usábamos `(205,205,0)`. Cualquier comparación de RGB directo da entonces
+   casi todo distinto. Hay que normalizar a los ocho colores y el brillo antes de comparar nada.
+2. **Las tramas arruinan el píxel a píxel.** Un damero corrido un píxel no coincide en ninguna
+   parte aunque las dos imágenes se vean iguales: una pantalla que marcaba un 19 % era idéntica. La
+   medida que sirve es contar los píxeles que no coinciden con **ninguno de los nueve vecinos** del
+   otro; así una trama desplazada deja de contar y lo que salta es lo que de verdad está mal.
+3. **El texto del juego está en la captura.** Los dibujos que ocupan las 22 filas aparecen con el
+   texto de la aventura encima, así que por debajo de la fila 112 no hay nada que comparar.
+
+#### Qué escribe el descompilador
+
+En el `gfx/` de cada parte, junto al resto de recursos y repartido en un subdirectorio por tipo de
+fichero:
+
+| Fichero | Qué es |
+|---|---|
+| `plot/NNN.plot` | el listado de órdenes, numerado como lo numera la tabla |
+| `png/NNN.png` | el mismo dibujo trazado, en el lienzo entero de 256×176 |
+| `png/NNNxE.png` | ampliado E veces, con `--scale E` |
+| `chr/udg.bin` | la tabla de `(0xFFF7)` tal cual |
+| `chr/udg.png` | esa tabla como atlas |
+
+Las entradas que solo contienen un `RET` no dan fichero: son entradas reales y la tabla las cuenta,
+pero un listado de una orden no sirve de nada y el hueco en la numeración ya lo dice.
+
+Dos líneas del listado no son órdenes del motor. `IMAGE` nombra el dibujo, que es lo que referencia
+un `CALL`. Y `INHERIT` recoge el estado con el que se entra —padre, tinta, papel, brillo y
+posición— para los dibujos que alguien invoca, porque una pieza pensada para estamparse en una
+escena no significa nada leída suelta: sus coordenadas y sus colores son los que le dejó quien la
+llamó. Se usa al dibujar el fichero por su cuenta y se ignora al dibujarlo dentro de su escena,
+donde el padre fija ese estado al correr.
+
+#### Lo que queda
+
+- Quedan **33 píxeles** en total. Veinte de ellos son la misma cosa: la fila 0 —la de más arriba del
+  lienzo— de los dibujos 3, 20, 23 y 27 de la parte 1, donde a una cuña le falta la fila superior
+  que la captura sí tiene. Huele a cómo se ajusta la `y` al pasarse por arriba: para `MOVE` y `FILL`
+  el motor la envuelve en `0x7E12`, restando 176 al pasar y 80 al bajar de cero, mientras que un
+  `DRAW` no pasa por ahí y camina con los incrementos crudos desde `COORDS`. Los otros 13 son
+  sueltos, uno de ellos el píxel que deja un `LINE 0,0` en el origen.
+- Contrastadas con capturas están **La Aventura Original** —39 pantallas de las dos partes—,
+  **Cozumel** —5, todas exactas— y **El Jabato** —9, todas exactas—. De Los Templos Sagrados y
+  Chichén Itzá solo se sabe que descodifican y que se ven bien, que no es lo mismo; pero después de
+  Cozumel, que era el candidato a dar sorpresas por usar otro dialecto, ya no hay motivo concreto
+  para esperarlas.
+
+Y una lección de método, que costó dos días: **la medida que tolera el desplazamiento de un píxel
+tolera también que una línea sea una escalera en vez de una diagonal**. Es lo que hacía falta para
+no contar las tramas corridas, y es lo que dejó pasar un fallo de trazado durante todo ese tiempo,
+disfrazado de fallo de relleno. Cuando una medida se estanca en un suelo que se explica solo como
+«ruido de la captura», conviene desconfiar del suelo.
+
+### 9.9. Queda pendiente el Amstrad
 
 Todo esto es del Spectrum. En la carga útil del Amstrad la firma del despachador no aparece (§9.4),
 así que su motor está ensamblado de otra forma o llega comprimido, y no se le ha aplicado este
 método. El mismo orden de trabajo debería servir: mirar primero si hay cintas que declaren las
 direcciones de carga, y validar cualquier candidato descodificándolo entero.
 
-#### No hay herramienta que consultar
+### 9.10. No hay herramienta que consultar
 
 El editor que creó estos vectores no está en la distribución de 1991, que es ya el sistema
 posterior de mapa de bits. `Deprecated/TOOLS` solo tiene compiladores (`DSC`, `DSA`, `DCA`, `DCS`,

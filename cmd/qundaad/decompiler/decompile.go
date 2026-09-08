@@ -50,6 +50,10 @@ type database struct {
 	source string
 	reader *Reader
 	assets []asset // the character set and the graphics that shipped with it
+	// vectors holds the drawings of the eight-bit editions, which shipped none
+	// of the above: their illustrations travel in the same block as the
+	// interpreter, as strips of drawing orders rather than as pictures.
+	vectors *vectors
 }
 
 // The kinds of file that travelled alongside a database. A database found by
@@ -128,6 +132,10 @@ type Options struct {
 	// archive. It is worth turning off — the archives of illustrations run to
 	// hundreds of kilobytes apiece and are already on the disk they came from.
 	Binaries bool
+	// Scale enlarges the vector drawings by a whole number, writing the larger
+	// copy beside the one at the size the machine had it rather than instead of
+	// it. Anything below two writes only the original.
+	Scale int
 }
 
 // Decompile writes the source of a database into outputDir.
@@ -247,12 +255,20 @@ func databasesIn(path string) ([]database, error) {
 	}
 
 	for _, b := range blobs {
+		first := len(found)
+
 		for _, r := range FindDatabases(b.data) {
 			found = append(found, database{
 				source: fmt.Sprintf("%s at %#x (from %s)", b.where, r.Offset(), image),
 				reader: r,
 			})
 		}
+
+		// The drawings of these editions are not files either, so they are found
+		// the same way the databases were and in the same blob. It has to be the
+		// same blob: an offset only means anything within the one it was read
+		// from, and a disk that gives up its files gives up one blob apiece.
+		attachVectors(found[first:], findVectors(b.data))
 	}
 
 	if len(found) == 0 {
@@ -327,6 +343,13 @@ func decompileOne(db database, outputDir string, opts Options) error {
 				return err
 			}
 
+			if db.vectors != nil {
+				dir := filepath.Join(outputDir, graphicsDir)
+				if pictures.drawings, err = writeVectors(*db.vectors, dir, opts); err != nil {
+					return err
+				}
+			}
+
 			return nil
 		},
 	)
@@ -349,6 +372,12 @@ func decompileOne(db database, outputDir string, opts Options) error {
 	t.Row("Processes", strconv.Itoa(r.NumProcesses()))
 	t.Row("Character sets", strconv.Itoa(pictures.fonts))
 	t.Row("Pictures", strconv.Itoa(pictures.pictures))
+
+	// Only the eight-bit editions have these, and a row of zeroes everywhere
+	// else would say nothing.
+	if db.vectors != nil {
+		t.Row("Vector drawings", strconv.Itoa(pictures.drawings))
+	}
 	if r.Base() == 0 {
 		t.Row("Total size", strconv.Itoa(len(r.data))+" bytes")
 		t.Row("Declared length", strconv.Itoa(r.DeclaredLength())+" bytes")

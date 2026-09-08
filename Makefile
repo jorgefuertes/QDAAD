@@ -1,4 +1,4 @@
-.PHONY: dist build test doc decomp-check decomp-ao
+.PHONY: dist build test doc decomp-all decomp-ao
 
 VERSION=$$(git describe --tags --abbrev=0)
 
@@ -68,9 +68,9 @@ doc:
 go-upgrade-deps:
 	@go get -u ./...
 
-# Decompiles every edition and holds them against one another. The lists of
-# editions and of the pairs they have to match live in the script.
-decomp-check:
+# Decompiles every edition we can read and holds them against one another. The
+# lists of editions and of the pairs they have to match live in the script.
+decomp-all:
 	@script/decomp-all.sh
 
 AO_PC := work/aventuras/La_Aventura_Original/PC

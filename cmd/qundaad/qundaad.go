@@ -37,6 +37,13 @@ func main() {
 						Usage: "Write only what can be read, leaving out the character sets, " +
 							"screens and image archives as they came",
 					},
+					&cli.IntFlag{
+						Name:    "scale",
+						Aliases: []string{"s"},
+						Value:   1,
+						Usage: "Also write the vector drawings enlarged by this many times, " +
+							"beside the ones at their original size",
+					},
 				},
 				Action: decompiler.RunAction,
 			},
