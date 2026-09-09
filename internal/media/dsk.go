@@ -157,9 +157,14 @@ func (d *DSK) trackBytes() int {
 // The numbering matters. The Spectrum disk starts each track at a different
 // sector so the drive need not wait for the disk to come round, and reading the
 // sectors in the order the track lists them would interleave the result.
+//
+// A track that was read badly is made up to the width of the last good one. See
+// damaged for why that is worth doing and how such a track is told apart from a
+// short one that is perfectly in order.
 func (d *DSK) Payload() []byte {
 	out := make([]byte, 0, len(d.data))
 	offset := dskHeaderSize
+	width := 0
 
 	for i := range d.tracks * d.sides {
 		size := d.trackSize(i)
@@ -172,11 +177,63 @@ func (d *DSK) Payload() []byte {
 			break
 		}
 
-		out = append(out, d.trackPayload(d.data[offset:min(offset+size, len(d.data))])...)
+		track := d.data[offset:min(offset+size, len(d.data))]
+		sectors := d.trackPayload(track)
+
+		if damaged(track) {
+			for len(sectors) < width {
+				sectors = append(sectors, 0)
+			}
+		} else {
+			width = len(sectors)
+		}
+
+		out = append(out, sectors...)
 		offset += size
 	}
 
 	return out
+}
+
+// damaged says whether a track repeats a sector number.
+//
+// No format does that: the numbers are what the drive matches on, so two
+// sectors of a track answering to the same one could not both be read. It is
+// the mark of an image made from a disk that had gone bad, and where it happens
+// the track comes out short — the copy of Los Templos Sagrados for the PCW has
+// a track with four sectors in place of nine, all of them numbered 199.
+//
+// It matters beyond the track itself. Every block of the filesystem past it is
+// counted from the start of the disk, so a track that comes up short drags all
+// of them back by the difference and the rest of the disk reads as nonsense.
+// Filling the hole loses only what was already lost, and leaves everything
+// after it where the directory says it is.
+//
+// A track that is short but sound is left alone, because that happens for good
+// reasons: the Spectrum disk of La Aventura Original has eighteen tracks of
+// nine sectors and twenty-two of ten, and neither is a fault.
+func damaged(track []byte) bool {
+	if !bytes.HasPrefix(track, []byte(trackSignature)) {
+		return false
+	}
+
+	seen := map[byte]bool{}
+
+	for i := range int(track[trackNumSectors]) {
+		entry := trackSectorList + i*trackSectorEntry
+		if entry+trackSectorEntry > dskTrackHeader {
+			return false
+		}
+
+		id := track[entry+sectorID]
+		if seen[id] {
+			return true
+		}
+
+		seen[id] = true
+	}
+
+	return false
 }
 
 // trackSize gives the room a track takes in the image, which is where the two

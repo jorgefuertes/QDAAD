@@ -1228,12 +1228,125 @@ no contar las tramas corridas, y es lo que dejó pasar un fallo de trazado duran
 disfrazado de fallo de relleno. Cuando una medida se estanca en un suelo que se explica solo como
 «ruido de la captura», conviene desconfiar del suelo.
 
-### 9.9. Queda pendiente el Amstrad
+### 9.9. El Amstrad CPC: localizado, sin descodificar
 
-Todo esto es del Spectrum. En la carga útil del Amstrad la firma del despachador no aparece (§9.4),
-así que su motor está ensamblado de otra forma o llega comprimido, y no se le ha aplicado este
-método. El mismo orden de trabajo debería servir: mirar primero si hay cintas que declaren las
-direcciones de carga, y validar cualquier candidato descodificándolo entero.
+Todo lo anterior es del Spectrum. Aquí se decía que en la carga útil del Amstrad la firma del
+despachador no aparecía, y de ahí se concluía que su motor estaría ensamblado de otra forma o
+llegaría comprimido. Lo primero es cierto y lo segundo no hacía falta: **el motor está ahí, sin
+comprimir, y es el mismo diseño**. Lo que hacía falta eran dos correcciones.
+
+#### Por qué la firma no aparecía
+
+El despachador del Spectrum aísla el opcode con `and 7` y lo duplica con `sla a` para indexar la
+tabla de saltos. El del CPC se ahorra el desplazamiento:
+
+```asm
+1EBE: dd 7e 00     ld a,(ix+0)
+1EC1: e6 0e        and 0x0e         ; el opcode va en los bits 1-3, ya duplicado
+1EC3: fe 08        cp 0x08
+1EC5: ca ca 1f     jp z,0x1fca      ; un opcode con manejador aparte
+1EC8: 21 de 1e     ld hl,0x1ede     ; tabla de 8 manejadores
+1ECB: 85 6f        add a,l / ld l,a
+1ECD: 5e 23 66 6b  ld e,(hl) / inc hl / ld h,(hl) / ld l,e
+1ED1: e9           jp (hl)
+```
+
+Mismo mecanismo, otra colocación de bits, así que **el opcode de una orden del CPC no está en los
+bits 0-2 sino en los 1-3**, y con él se corren los flags de escala, espejo y color. Los ocho
+manejadores de El Jabato caen en `0x1EEE`, `0x1F24`, `0x1F4E`, `0x1FA5`, `0x1FCA`, `0x1FE1`,
+`0x1FFF` y `0x2061`, contiguos y en orden.
+
+Y en vez de llamar a la ROM del Spectrum llama al firmware: `GRA PLOT ABSOLUTE` (`0xBBEA`),
+`GRA MOVE ABSOLUTE` (`0xBBC0`), `GRA LINE RELATIVE` (`0xBBF9`), `GRA MOVE RELATIVE` (`0xBBC3`),
+`GRA SET PEN` (`0xBBDE`) y `SCR SET INK` (`0xBC32`). Buscar esas llamadas es lo que localiza el
+motor en las cinco aventuras sin saber nada más.
+
+#### El bloque se ancla en 0x9E00, no en el techo de la memoria
+
+Esta es la corrección que abre la puerta. El manejador de `CALL` lee la tabla de dibujos así:
+
+```asm
+1F8B: ed 5b f1 9d  ld de,(0x9df1)
+```
+
+Y nadie escribe nunca esa dirección, exactamente igual que en el Spectrum: el puntero viaja con el
+bloque. Ahora bien, `0x9E00 − 0x9DF1 = 15`, **el mismo desplazamiento** que `0x10000 − 0xFFF1`. O
+sea que la cola es idéntica —tabla de dibujos, fin de tabla, fin de propiedades y UDG en −15, −13,
+−11 y −9— y lo único que cambia es dónde acaba el bloque. En el CPC no puede acabar en el techo
+porque de `0xC000` para arriba está la pantalla.
+
+Cambiando solo el ancla, la búsqueda de §9.5 encuentra los bloques:
+
+| Edición | Bloques | Dibujos |
+|---|---|---|
+| La Aventura Original | 2 | **49 y 108** |
+| Los Templos Sagrados | 2 | 60 y 57 |
+| Chichén Itzá | 2, por duplicado en el disco | 21 y 38 |
+| Cozumel | 2 | 31 y 34 |
+| El Jabato | ninguno | — |
+
+Los 49 y 108 de La Aventura Original son **exactamente los del Spectrum**, y las longitudes de los
+dibujos coinciden en 18 de los 49 de la primera parte y en 62 de los 108 de la segunda. Es el mismo
+arte recodificado, no los mismos bytes.
+
+#### Lo que falta para descompilarlos
+
+Nada de esto se ha llevado al descompilador, y no es un cambio de una línea. Falta:
+
+1. **La codificación de las órdenes**, que hay que sacar desensamblando los ocho manejadores: con el
+   opcode corrido un bit, las longitudes y el significado de los operandos están sin confirmar.
+2. **El color.** El CPC no tiene atributos por celda de 8×8: tiene plumas y una paleta. El modelo de
+   pantalla de §9.6 no le sirve.
+3. **El lienzo.** El firmware trabaja en coordenadas de usuario de 0-639 × 0-399 sea cual sea el
+   modo, mientras que el modo 1 son 320×200 píxeles reales. La escala no es la del Spectrum.
+4. **El relleno.** El CPC no tiene un `FILL` en la ROM, así que el motor trae el suyo y hay que
+   encontrarlo y portarlo. Después de lo que costó el del Spectrum (§9.8), esta es la parte que más
+   cuidado pide.
+5. **El Jabato no aparece**, y de camino salió otra cosa: la dirección de carga que leemos de la
+   cabecera AMSDOS de `JABATO.B01` está 12 bytes corrida. El desensamblado solo cuadra con `0x0811`
+   y la cabecera declara `0x0805`. Puede ser cosa nuestra al reconstruir el fichero, y si lo es
+   afecta a más que a los gráficos.
+
+En conjunto son prácticamente un segundo renderizador. Queda anotado y de momento nos quedamos con
+los vectoriales del Spectrum, que están cerrados.
+
+#### El PCW no lleva vectores: lleva mapas de bits
+
+El otro Amstrad es otra historia, y más corta. Sus discos llevan cinco cosas:
+
+| Fichero | Qué es |
+|---|---|
+| `PARTE00N.DDB` | la base de datos |
+| `PARTE00N.DAT` | 111–140 KB de ilustraciones |
+| `PARTE00N.CHR` | el juego de caracteres, 2176 bytes |
+| `PARTE000.PIC` | 16 000 bytes, la pantalla de presentación |
+| `AD.COM` | el intérprete, 8960 bytes de CP/M |
+
+Un bloque vectorial entero del Spectrum ronda los 30 KB para 49 dibujos. Aquí hay 111 KB para 51
+ilustraciones, con cabecera de tamaño en cada una. **Son mapas de bits**, y encima monocromos, que
+es lo que cabía esperar de una máquina de 720×256 sin color.
+
+**`PARTE000.PIC` ya se puede leer.** Son 16 000 bytes con la disposición de la máquina: ocho bytes
+por celda de carácter, que son sus ocho líneas de barrido, 80 celdas de ancho y 25 de alto. O sea
+640×200, y sale la ilustración de portada de Cozumel firmada por C. Marqués, la misma que en el
+Spectrum pero tramada en blanco y negro. Leída como un mapa lineal no sale más que ruido.
+
+**`PARTE00N.DAT` es un archivo de ilustraciones de los que ya sabemos leer**, o casi. Lleva la misma
+tabla de 256 ranuras indexada por localidad, con un desplazamiento de 4 bytes por ranura, pero el
+registro mide **10 bytes** en vez de los 44 o 48 de las otras máquinas: no hay paleta que guardar.
+La cabecera son 6 bytes, así que la primera ilustración cae en 6 + 256×10 = **2566**, que es
+exactamente donde empieza en los cuatro discos. Salen 51 y 54 ilustraciones en Cozumel, y 69 y 45 en
+Los Templos Sagrados.
+
+Y cada ilustración abre con las mismas tres palabras que en las demás plataformas: bandera y ancho,
+alto, y una tercera que aquí es **la longitud del cuerpo** —comprobada contra la distancia a la
+ilustración siguiente, y cuadra al byte en todas las que se han mirado—. Las de Cozumel miden
+512×104; las de Los Templos van de 16×8 a 128 de ancho.
+
+Lo que **no** está resuelto es cómo se empaquetan los píxeles. No es el esquema que ya
+implementamos: se probaron 1, 2 y 4 bits por píxel, con y sin la máscara de colores que dispara las
+repeticiones, y ninguna combinación consume la longitud declarada. Habrá que sacarlo de `AD.COM`,
+que con 8960 bytes es un blanco pequeño.
 
 ### 9.10. No hay herramienta que consultar
 

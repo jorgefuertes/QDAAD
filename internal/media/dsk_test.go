@@ -137,3 +137,49 @@ func TestDSKAcceptsAnotherWording(t *testing.T) {
 		"CPCEMU disk image, 40 tracks, 1 side(s)",
 		openDSK(t, pcwTemplosImage).Format())
 }
+
+// The other PCW disk of Los Templos Sagrados was made from a floppy that had
+// gone bad: one of its forty tracks came back with four sectors instead of
+// nine, all four answering to the same number. No format does that, so it is a
+// safe mark of a bad read.
+//
+// What makes it worth handling is that the damage does not stay put. CP/M
+// counts its blocks from the start of the disk, so a track that comes up short
+// drags every block after it back by the difference — here 2560 bytes, five
+// sectors — and the last block of the database lands on somebody else's data.
+// Read that way the database loses its process tables, which is the whole
+// program of the adventure; read with the hole filled it comes out entire.
+func TestDSKFillsInADamagedTrack(t *testing.T) {
+	const damaged = "../../work/aventuras/Los_templos_sagrados/AmstradPCW/templosb.dsk"
+
+	image := openDSK(t, damaged)
+
+	// Forty tracks of nine 512-byte sectors, the short one included.
+	require.Len(t, image.Payload(), 40*9*512)
+
+	files, err := image.Files()
+	require.NoError(t, err)
+
+	var database []byte
+
+	for _, f := range files {
+		if f.Name == "PARTE001.DDB" {
+			database = f.Data
+		}
+	}
+
+	require.NotNil(t, database, "the disk names a database")
+
+	// The process table sits in the last block, which is the one the shift
+	// used to lose. Its 39 pointers are the header's, and none of them is zero.
+	const (
+		processCount = 39
+		processTable = 0x7A52
+	)
+
+	for i := range processCount {
+		at := processTable + 2*i
+		require.NotZero(t, int(database[at])|int(database[at+1])<<8,
+			"process pointer %d", i)
+	}
+}
