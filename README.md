@@ -32,12 +32,15 @@ were organised: the 1991 manual warns about the dangers of "including a TOK file
 which contains an extra `/TOK`", a warning that only makes sense if splitting
 was the normal practice.
 
-**It is source a compiler accepts**, not a listing. Held against the reference
-compiler — DAAD Reborn Compiler 0.40, built from its own Pascal — **52 of the 53
-databases compile**, once the encoding is put back to ISO-8859-1 and the `/TOK`
-section, which version 3 dropped, is left out. The one that does not is a
-database whose process tables cannot be read, and its source says so: it would
-be worse if it compiled.
+**It is source a compiler accepts**, not a listing. `make recompile-all` hands
+every decompilation to the reference compiler — DAAD Reborn Compiler 0.40, by
+Uto, which had nothing to do with writing this one — and **all 66 are accepted**,
+once the encoding is put back to ISO-8859-1 and the `/TOK` section, which
+version 3 dropped, is left out.
+
+Three of them are accepted and should not be trusted: the process tables of
+Cozumel on the Spectrum still cannot be read, and their source says so at the
+top. Compiling would give a game, but not that one.
 
 Everything that travelled with the database goes beside the source in `gfx/`,
 sorted one directory to the kind of file: `png/` for the pictures, `plot/` for
@@ -77,7 +80,7 @@ hardly ever a contiguous run of bytes on the original medium:
 | Medium | |
 |---|---|
 | Amiga `.ADF` | OFS (with a header in every data block) and FFS |
-| Atari ST and MSX `.ST`, `.DSK` | FAT12 |
+| Atari ST and MSX `.ST`, `.DSK` | FAT12; the MSX files are BLOAD images |
 | Commodore `.d64` | CBM DOS, linked sectors |
 | Amstrad and Spectrum `.DSK` | CPCEMU, both the original and extended variants |
 | Amstrad CPC, PCW and Spectrum +3 | CP/M, where the disk carries a directory |
@@ -144,28 +147,47 @@ and illustrations, on every machine whose databases can be read.
 
 ## What it has been tested with
 
-The five Aventuras AD adventures, in every edition that could be found: **81
-media files, yielding 53 databases**.
+The five Aventuras AD adventures, in every edition that could be found: **50
+media files, yielding 66 databases**.
 
-| Adventure | PC | Amiga | Atari ST | Amstrad CPC | ZX Spectrum | C64 | MSX | PCW |
+| Adventure | PC | Amiga | Atari ST | Amstrad CPC | ZX Spectrum | PCW | MSX | C64 |
 |-----------|----|-------|----------|-------------|-------------|-----|-----|-----|
-| La Aventura Original | yes | yes | yes | yes | yes | no | — | — |
-| El Jabato | yes | yes | yes | no | yes | no | no | — |
-| Cozumel | yes | yes | yes | yes | yes | no | no | yes |
-| Chichén Itzá | yes | yes | yes | no | no | no | no | — |
-| Los templos sagrados | yes | yes | yes | no | no | no | no | yes |
+| La Aventura Original | yes | yes | yes | yes | yes | — | — | no |
+| El Jabato | yes | yes | yes | no | yes | — | no | no |
+| Cozumel | yes | yes | yes | yes | yes | yes | no | no |
+| Chichén Itzá | yes | yes | yes | yes | yes | — | **yes** | no |
+| Los templos sagrados | yes | yes | yes | yes | yes | yes | no | no |
 
 A cell says whether the adventure reads on that machine, both of its parts, not
-whether every file shipped for it does. Two are worth spelling out, both in El
-Jabato: its second Atari ST disk holds a single file, the picture archive of
-part two, so there is no database on it to read; and its Spectrum tapes do not
-read at all, though the disk for the same machine gives both parts.
+whether every file shipped for it does. An em dash means no edition for that
+machine was found, which is why the PCW column is mostly empty: only two of the
+five were ever sold for it.
+
+Three gaps are worth spelling out. Both of El Jabato's are on that row: its
+second Atari ST disk holds a single file, the picture archive of part two, so
+there is no database on it to read, and its Spectrum tapes do not read at all,
+though the disk for the same machine gives both parts. The third is the whole
+**Commodore 64** column, and it is one problem rather than five: every `.d64`
+holds a single self-starting program with its payload packed, at 6.96 to 7.86
+bits to the byte against the 6.71 of a database in the clear. Nothing can be
+found in them until the packer is identified and undone.
+
+The **MSX** column has one yes and it was the hardest earned. Those disks are
+ordinary MS-DOS ones, but no file on them holds a database: every piece loads
+into the same buffer and copies itself down into the RAM the game runs in, so
+what is read is the memory those copies build. See `msx.go`. Cozumel and El
+Jabato do not come out yet — Cozumel divides its memory another way, and the
+Jabato disk gives up no files at all — and the `.CAS` tapes of all five need a
+reader that does not exist.
 
 ### How the result is checked
 
-`make decomp-check` decompiles the five adventures and holds the editions
-against one another: **31 pairs**, twelve that have to give the same source
-whole and nineteen that have to agree on the text and the data.
+`make decomp-all` decompiles the five adventures and holds the editions against
+one another: **38 pairs**. Fifteen have to give the same source whole, nineteen
+have to agree on the text and the data, two have to trace the same drawings, and
+two have to describe the same world in other words — the MSX edition of Chichén
+Itzá against the PC one, whose prose was rewritten for a forty-column screen but
+whose objects, object text and connections did not change.
 
 It is a strong check because the binaries compared have nothing in common —
 different byte order, different size, different offsets throughout — and still

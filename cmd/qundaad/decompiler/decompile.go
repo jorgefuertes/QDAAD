@@ -238,6 +238,19 @@ func databasesIn(path string) ([]database, error) {
 		blobs = append(blobs, blob{where: f.Name, data: f.Data})
 	}
 
+	// The MSX editions keep nothing readable in any one file: every part loads
+	// into the same buffer and copies itself down into the RAM the game runs in.
+	// Putting those copies back is what makes the database findable, so the
+	// memory each load builds is searched alongside the files themselves.
+	for _, set := range msxSets(msxChunks(files)) {
+		if memory := msxImage(set); memory != nil {
+			blobs = append(blobs, blob{
+				where: fmt.Sprintf("the memory %s builds", set[0].name),
+				data:  memory,
+			})
+		}
+	}
+
 	// Only when the volume gave up nothing to look inside is the image itself
 	// worth searching. Doing both would find the same database twice, once in a
 	// file and once again in the sectors that hold it.

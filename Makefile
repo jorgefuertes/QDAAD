@@ -1,4 +1,4 @@
-.PHONY: dist build test doc decomp-all decomp-ao
+.PHONY: dist build test doc decomp-all decomp-ao recompile-all
 
 VERSION=$$(git describe --tags --abbrev=0)
 
@@ -72,6 +72,11 @@ go-upgrade-deps:
 # lists of editions and of the pairs they have to match live in the script.
 decomp-all:
 	@script/decomp-all.sh
+
+# Hands every decompilation back to the reference compiler.
+# Needs decomp-all to have run first.
+recompile-all:
+	@script/recompile-all.sh
 
 AO_PC := work/aventuras/La_Aventura_Original/PC
 AO_OUT := work/decomp/ao/pc

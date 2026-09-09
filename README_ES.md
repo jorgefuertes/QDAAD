@@ -21,7 +21,9 @@ La entrada puede ser la base de datos suelta o **la imagen del disco o la cinta 
 
 La salida es UTF-8, legible y modificable hoy, repartida en un fichero por sección y unida con `#include` desde `game.sce` — que es como se organizaban los fuentes de la época: el manual de 1991 avisa de los peligros de «incluir un fichero TOK que contenga otro `/TOK`», advertencia que solo tiene sentido si trocear era lo normal.
 
-**Es fuente que un compilador acepta**, no un listado. Contrastada con el compilador de referencia —DAAD Reborn Compiler 0.40, construido de su propio Pascal—, **compilan 52 de las 53 bases de datos**, devolviendo la codificación a ISO-8859-1 y dejando fuera la sección `/TOK`, que la versión 3 quitó. La que no compila es una base cuyas tablas de proceso no se pueden leer, y su fuente lo dice: sería peor que compilase.
+**Es fuente que un compilador acepta**, no un listado. `make recompile-all` le pasa cada descompilación al compilador de referencia —DAAD Reborn Compiler 0.40, de Uto, que no ha tenido nada que ver con escribir este— y **las 66 se aceptan**, devolviendo la codificación a ISO-8859-1 y dejando fuera la sección `/TOK`, que la versión 3 quitó.
+
+Tres de ellas se aceptan y no hay que fiarse: las tablas de proceso de Cozumel en Spectrum siguen sin poder leerse, y su fuente lo dice en la cabecera. Compilarlas daría un juego, pero no ese.
 
 Junto al fuente van dos directorios más: `chr/` con las tipografías y `gfx/` con las imágenes. De cada cosa se guarda **el binario tal como venía y su conversión a PNG**, y de los archivos de ilustraciones también cada dibujo por separado, con un índice que dice qué localidades usan cada uno y con qué paleta. Con `--no-binaries` se dejan solo las conversiones, que ahorra la mitad del espacio.
 
@@ -69,21 +71,25 @@ Ahora mismo se convierten **1798 imágenes**: tipografías, portadas e ilustraci
 
 ## Con qué se ha probado
 
-Las cinco aventuras de Aventuras AD, en todas las ediciones que se han conseguido: **81 ficheros de soporte, de los que salen 53 bases de datos**.
+Las cinco aventuras de Aventuras AD, en todas las ediciones que se han conseguido: **50 ficheros de soporte, de los que salen 66 bases de datos**.
 
-| Aventura | PC | Amiga | Atari ST | Amstrad CPC | ZX Spectrum | C64 | MSX | PCW |
+| Aventura | PC | Amiga | Atari ST | Amstrad CPC | ZX Spectrum | PCW | MSX | C64 |
 |----------|----|-------|----------|-------------|-------------|-----|-----|-----|
-| La Aventura Original | sí | sí | sí | sí | sí | no | — | — |
-| El Jabato | sí | sí | sí | no | sí | no | no | — |
-| Cozumel | sí | sí | sí | sí | sí | no | no | sí |
-| Chichén Itzá | sí | sí | sí | no | no | no | no | — |
-| Los templos sagrados | sí | sí | sí | no | no | no | no | sí |
+| La Aventura Original | sí | sí | sí | sí | sí | — | — | no |
+| El Jabato | sí | sí | sí | no | sí | — | no | no |
+| Cozumel | sí | sí | sí | sí | sí | sí | no | no |
+| Chichén Itzá | sí | sí | sí | sí | sí | — | **sí** | no |
+| Los templos sagrados | sí | sí | sí | sí | sí | sí | no | no |
 
-Cada casilla dice si la aventura se lee en esa máquina, sus dos partes, no si se lee cada fichero que se distribuyó para ella. Hay dos que conviene detallar, las dos de El Jabato: su segundo disco de Atari ST lleva un único fichero, el archivo de ilustraciones de la parte 2, así que ahí no hay base de datos que leer; y sus cintas de Spectrum no se leen, aunque el disco de esa misma máquina da las dos partes.
+Cada casilla dice si la aventura se lee en esa máquina, sus dos partes, no si se lee cada fichero que se distribuyó para ella. La raya significa que no se ha encontrado edición para esa máquina, y por eso la columna del PCW está casi vacía: solo dos de las cinco se vendieron para él.
+
+Conviene detallar tres huecos. Los dos de El Jabato están en su fila: su segundo disco de Atari ST lleva un único fichero, el archivo de ilustraciones de la parte 2, así que ahí no hay base de datos que leer, y sus cintas de Spectrum no se leen, aunque el disco de esa misma máquina da las dos partes. El tercero es la columna entera del **Commodore 64**, y es un solo problema y no cinco: cada `.d64` lleva un único programa autoarrancable con su carga empaquetada, a entre 6,96 y 7,86 bits por byte frente a los 6,71 de una base de datos en claro. Ahí no se encontrará nada hasta identificar y deshacer el empaquetador.
+
+La columna del **MSX** tiene un sí y ha sido el más costoso. Esos discos son de MS-DOS corrientes, pero ningún fichero suyo lleva una base de datos: cada pieza carga en el mismo búfer y se copia a sí misma abajo, a la RAM donde el juego corre de verdad, así que lo que se lee es la memoria que esas copias construyen. Está en `msx.go`. Cozumel y El Jabato todavía no salen —Cozumel reparte su memoria de otra manera y el disco de Jabato no da ni un fichero— y las cintas `.CAS` de las cinco necesitan un lector que no existe.
 
 ### Cómo se comprueba que el resultado es correcto
 
-`make decomp-check` descompila las cinco aventuras y contrasta las ediciones entre sí: **31 emparejamientos**, doce que tienen que dar el mismo fuente entero y diecinueve que tienen que coincidir en el texto y los datos.
+`make decomp-all` descompila las cinco aventuras y contrasta las ediciones entre sí: **38 emparejamientos**. Quince tienen que dar el mismo fuente entero, diecinueve tienen que coincidir en el texto y los datos, dos tienen que trazar los mismos dibujos, y dos tienen que describir el mismo mundo con otras palabras —la edición de MSX de Chichén Itzá contra la de PC, cuya prosa se reescribió para una pantalla de cuarenta columnas pero cuyos objetos, textos de objeto y conexiones no cambiaron—.
 
 Es una comprobación fuerte porque los binarios comparados no se parecen en nada —distinto orden de bytes, distinto tamaño, distintos desplazamientos— y aun así tienen que converger en el mismo texto. Si se rompe la deducción del orden de bytes, la tabla de tokens o la aritmética de punteros, alguno deja de cuadrar.
 

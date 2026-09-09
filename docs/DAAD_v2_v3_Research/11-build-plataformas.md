@@ -376,3 +376,100 @@ Herramientas presentes pero que ningún script invoca: `TOOLS/cut`, `TOOLS/ZIP`,
 Además, la tabla de scripts de `DOC/doc_en.html` está **desactualizada**: cita `CPLUS4.BAT`,
 `PCDOS.BAT`, `ZX48TAPE.BAT`, `ZX128TAPE.BAT`, `ZX128PLUS3.BAT` y `WINDOWS.BAT`, nombres que ya no
 existen.
+
+## 8. Cómo llega la base de datos a cada máquina de 8 bits
+
+Todo lo anterior es la cadena de construcción de 1991. Las cinco aventuras de
+1989-1990 se distribuyeron antes de ella, y cada máquina resolvió a su manera el
+problema de meter una base de datos de 30 KB en una memoria que no le sobraba.
+Esto es lo que hay que saber para encontrarla, que no es lo mismo que leerla.
+
+### 8.1 El MSX no guarda la base de datos en ningún fichero
+
+Sus discos son de MS-DOS corrientes, con FAT12 y directorio, y aun así **ninguno
+de sus ficheros contiene una base de datos**. Chichén Itzá lleva catorce, de
+`CIA1` a `CIA7` y de `CIB1` a `CIB7`, y buscar en cada uno por separado no
+encuentra nada.
+
+Son ficheros **BLOAD**: la cabecera que entiende el cargador de MSX BASIC, siete
+bytes con un marcador `0xFE` y tres direcciones —dónde van los bytes, dónde
+acaban y a qué llamar cuando estén—. Y las direcciones engañan, porque casi
+todos cargan en el mismo sitio:
+
+| Trozo | Carga | Ejecuta |
+|---|---|---|
+| `CIA2` | `0x8800`–`0xA401` | `0x8800` |
+| `CIA3` | `0x9000`–`0xCF20` | `0xCF00` |
+| `CIA4` | `0x9000`–`0xD020` | `0xD000` |
+
+`CIA3` y `CIA4` cargan los dos en `0x9000` y se pisarían. **`0x9000` es un búfer
+de paso**, y lo que la cabecera nombra al final de cada trozo es la rutina que lo
+baja a su sitio, paginando la RAM que BASIC no puede usar:
+
+```asm
+CF00: f3           di
+CF01: 3a 3f e0     ld a,(0xe03f)     ; la ranura donde vive el juego
+CF04: d3 a8        out (0xa8),a      ; se pagina
+CF06: 3a 3e e0     ld a,(0xe03e)
+CF09: 32 ff ff     ld (0xffff),a
+CF0C: 21 00 90     ld hl,0x9000      ; del búfer
+CF0F: 11 00 01     ld de,0x0100      ; a donde va de verdad
+CF12: 01 00 3f     ld bc,0x3f00
+CF15: ed b0        ldir
+CF17: 3a 40 e0     ld a,(0xe040)
+CF1A: d3 a8        out (0xa8),a      ; y se devuelve BASIC
+CF1C: fb           ei
+CF1D: c9           ret
+```
+
+Así que la base de datos **nunca está entera en el disco ni en la dirección a la
+que se carga**. Se reconstruye leyendo esas copias del propio código, que es el
+único sitio donde está escrito el destino: en Chichén Itzá `CIA3` va a `0x0100`
+y `CIA4` a `0x4000`, y entre los dos dejan los 32 KB en los que aparece.
+
+Dos detalles hacen falta para que salga:
+
+- **Los juegos de trozos se separan.** El disco lleva las dos partes de la
+  aventura, `CIA*` y `CIB*`, y las dos escriben en `0x0100`. Juntas se entierran.
+  Lo único que las distingue es el nombre.
+- **Se ordenan por su número, no por el directorio**, que los lista como se
+  escribieron: `CIA3` primero y `CIA1` casi al final. El número es el orden de
+  carga, y donde dos escriben en el mismo sitio decide cuál gana —`CIA2` copia
+  6912 bytes a `0x4000` y `CIA4` copia 16384 al mismo sitio después—.
+
+La prueba de que la reconstrucción es correcta no es que salga una base de
+datos, sino **que coincide con otra edición**: los objetos, los textos de objeto
+y las conexiones de la versión de MSX son idénticos a los de la de PC en las dos
+partes. El texto no, y es normal: se reescribió para una pantalla de 40 columnas
+y las descripciones están a la mitad.
+
+Cozumel y El Jabato en MSX siguen sin salir. Cozumel reparte su memoria de otra
+manera —`COZUM3` y `COZUM4` copian los dos 15 904 bytes a `0x0100`, y su rutina
+está cortada por el final del fichero: hereda las últimas instrucciones del
+trozo anterior, que cargó en la misma dirección— y el disco de El Jabato no da
+ni un fichero. Las cintas `.CAS` de las cinco necesitan un lector propio.
+
+### 8.2 Un sector repetido corre el disco entero
+
+El disco `templosb.dsk` del PCW dejaba la primera parte de Los Templos Sagrados
+sin **tabla de procesos**, que es el programa entero de la aventura. Todo lo
+demás se leía bien y coincidía con la edición de PC.
+
+La causa está en el propio disquete: una de sus cuarenta pistas volvió con
+**cuatro sectores en vez de nueve, los cuatro numerados 199**. Ningún formato
+hace eso —el número es con lo que la unidad busca el sector, y dos que
+respondieran al mismo no se podrían leer los dos—, así que es marca segura de
+lectura mala.
+
+Lo que importa es que **el daño no se queda en su pista**. CP/M cuenta sus
+bloques desde el principio del disco, así que una pista corta arrastra hacia
+atrás todos los siguientes —aquí 2560 bytes, cinco sectores— y el último bloque
+de la base de datos, el 170, aterrizaba sobre datos ajenos. Justo el bloque donde
+vive la tabla de procesos.
+
+Rellenar el hueco no recupera lo que se perdió, pero deja todo lo demás donde el
+directorio dice que está, y con eso la base de datos sale entera. El criterio
+para hacerlo tiene que ser la repetición de números y no el tamaño, porque **hay
+discos con pistas de anchos legítimamente distintos**: el de Spectrum de La
+Aventura Original tiene 18 pistas de nueve sectores y 22 de diez, y ninguna de
+las dos cosas es un fallo.

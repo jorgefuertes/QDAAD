@@ -41,13 +41,21 @@ readonly LISTINGS_DIR="plot"
 # The output is named after the database, not the disk, so the pairs further
 # down look crossed and are not.
 #
+# The MSX disks are here as well, and they are the odd ones out: their database
+# is nowhere on the disk in one piece. Every part of it loads into the same
+# buffer and copies itself down into the RAM the game runs in, so what is read
+# is the memory those copies build rather than any file — see msx.go.
+#
 # Left out because the loader keeps the database in pieces, so only its header
 # can be found where it lies:
 #   La Aventura Original  commodore64
 #   El Jabato             commodore64, amstradcpc, msx, and the Spectrum tapes
-#   Chichén Itzá          commodore64, msx, and the Amstrad tapes
+#   Chichén Itzá          commodore64, and the Amstrad tapes
 #   Cozumel               commodore64, msx
 #   Los Templos Sagrados  commodore64
+#
+# The MSX tapes of all five are left out too: a .CAS is a stream of blocks like
+# a Spectrum tape, and nothing reads them yet.
 #
 # And left out for a different reason: the two Spectrum disks of Los Templos
 # Sagrados carry a PART1.DDB that does not read as a database. Its tapes do, so
@@ -76,6 +84,7 @@ readonly EDITIONS=(
 	"chichen/amiga:work/aventuras/Chichén_Itzá/Amiga/CHICHEN.ADF"
 	"chichen/atarist:work/aventuras/Chichén_Itzá/AtariST/chicitza.st"
 	"chichen/cpc/dsk:work/aventuras/Chichén_Itzá/AmstradCPC/CHICHEN.DSK"
+	"chichen/msx:work/aventuras/Chichén_Itzá/MSX/chichen_itza.dsk"
 	"chichen/spectrum/tzx/part1:work/aventuras/Chichén_Itzá/ZXSpectrum/Chichen Itza - Side 1.tzx"
 	"chichen/spectrum/tzx/part2:work/aventuras/Chichén_Itzá/ZXSpectrum/Chichen Itza - Side 2.tzx"
 	"cozumel/pc/part1:work/aventuras/Cozumel/PC/PART1.DDB"
@@ -185,6 +194,25 @@ readonly SHARED_SECTIONS=(
 	object-text.sce location-text.sce connections.sce objects.sce
 )
 
+# Editions that describe the same world in different words.
+#
+# The MSX one of Chichén Itzá is the case this is for. Its prose was rewritten
+# for a forty-column screen — the title screen is narrower and the room
+# descriptions are cut to about half — so it cannot be held to the text of the
+# PC edition. What it can be held to is the world underneath, which is the same
+# game and did not change: the same objects, in the same places, with the same
+# ways between rooms.
+#
+# That is a real check and not a weak one. Nothing about how the MSX keeps its
+# database is declared anywhere; it is reconstructed from the copies its loader
+# performs, and if any of that were out by a byte these would not line up.
+readonly SAME_WORLD=(
+	"chichen/pc/part1:chichen/msx/part1"
+	"chichen/pc/part2:chichen/msx/part2"
+)
+
+readonly WORLD_SECTIONS=(objects.sce object-text.sce connections.sce)
+
 # build compiles the decompiler once, rather than once per edition.
 build() {
 	local out="$1"
@@ -254,6 +282,24 @@ check_same_drawings() {
 	return "$failed"
 }
 
+# check_same_world holds a pair to describing the same world, whatever words it
+# uses to describe it.
+check_same_world() {
+	local failed=0 pair a b section
+
+	for pair in "${SAME_WORLD[@]}"; do
+		a="${pair%%:*}"
+		b="${pair#*:}"
+
+		for section in "${WORLD_SECTIONS[@]}"; do
+			diff -q "$DECOMP_DIR/$a/$section" "$DECOMP_DIR/$b/$section" > /dev/null ||
+				{ echo "  FAIL $a and $b disagree on $section"; failed=1; }
+		done
+	done
+
+	return "$failed"
+}
+
 # check_same_text holds a pair to agreeing on the sections they share.
 check_same_text() {
 	local failed=0 pair a b section
@@ -288,12 +334,14 @@ main() {
 
 	check_same_source || failed=1
 	check_same_text || failed=1
+	check_same_world || failed=1
 	check_same_drawings || failed=1
 
 	test "$failed" -eq 0 || return 1
 
 	echo "  ${#SAME_SOURCE[@]} pairs give the same source whole"
 	echo "  ${#SAME_TEXT[@]} pairs give the same text and data"
+	echo "  ${#SAME_WORLD[@]} pairs describe the same world in other words"
 	echo "  ${#SAME_DRAWINGS[@]} pairs trace the same drawings"
 }
 
