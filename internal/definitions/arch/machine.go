@@ -2,6 +2,7 @@ package arch
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -74,6 +75,34 @@ var machines = map[Machine]MachineData{
 	// MSX2 is absent from the non-zero base list in drb.php, so it falls
 	// through to the default of 0. Only MSX uses 0x0100.
 	MSX2: {name: "MSX2", baseAddress: 0x0000},
+}
+
+func MachineNames() []string {
+	names := make([]string, 0, len(machines))
+	for _, d := range machines {
+		names = append(names, d.name)
+	}
+
+	return names
+}
+
+func MachineHumanList() string {
+	names := MachineNames()
+	slices.Sort(names)
+
+	for i, n := range names {
+		names[i] = strings.ToLower(n)
+	}
+
+	if len(names) == 0 {
+		return ""
+	}
+
+	if len(names) == 1 {
+		return names[0]
+	}
+
+	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
 }
 
 // ID returns the machine identifier stored in the high nibble of byte 0x01 of

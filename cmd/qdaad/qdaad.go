@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jorgefuertes/QDAAD/internal/cmd/compile"
 	"github.com/jorgefuertes/QDAAD/internal/cmd/run"
 	"github.com/urfave/cli/v3"
 )
@@ -20,6 +21,7 @@ func main() {
 		Version: QDAADVersion,
 		Commands: []*cli.Command{
 			run.Command(),
+			compile.Command(),
 		},
 	}
 

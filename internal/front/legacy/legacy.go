@@ -18,6 +18,7 @@ package legacy
 import (
 	"errors"
 
+	"github.com/jorgefuertes/QDAAD/internal/console"
 	"github.com/jorgefuertes/QDAAD/internal/ddb"
 )
 
@@ -31,7 +32,20 @@ func Analyze(filename string) (*ddb.DDB, error) {
 		return nil, err
 	}
 
-	_ = tokens
+	lastFile := ""
+	lastLine := -1
+
+	for _, token := range tokens {
+		if token.File != lastFile {
+			lastFile = token.File
+			console.Sayf(console.LevelInfo, "FILE %s:", token.File)
+		}
+
+		if token.Line != lastLine {
+			lastLine = token.Line
+			console.Sayf(console.LevelInfo, "LINE %d:", token.Line)
+		}
+	}
 
 	return nil, ErrNotImplemented
 }

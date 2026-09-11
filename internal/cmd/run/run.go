@@ -21,11 +21,11 @@ func Command() *cli.Command {
 				Usage:   "Display headers of the .DDB file",
 			},
 		},
-		Action: action,
+		Action: runAction,
 	}
 }
 
-func action(ctx context.Context, cmd *cli.Command) error {
+func runAction(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
 		return qderror.ErrMissingDDBFile
 	}
