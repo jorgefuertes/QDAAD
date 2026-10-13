@@ -310,3 +310,51 @@ anteponer el condacto `INDIR`.
 Nótese que **el JSON ya trae el `Opcode` numérico resuelto**, además del nombre. El backend puede
 ignorar el nombre salvo para los pseudo-condactos, que llegan con códigos 128–143 y se traducen
 allí.
+
+## 10. Contraste con nuestro frontal
+
+`script/compare-drf.sh` lee cada fuente con los dos frontales y compara lo que cada uno entendió:
+vocabulario, los cuatro cuadros de texto, `object_data`, conexiones, externos y todos los procesos
+con sus condactos. **Coinciden las 67 fuentes** —la plantilla `BLANK_ES.DSF` y las 66 ediciones que
+descompilamos—, condacto a condacto.
+
+Para llegar ahí hay que puentear tres diferencias que no son faltas de ninguno de los dos:
+
+### 10.1. El juego de caracteres se resuelve en distinto sitio
+
+`drf` lo resuelve en el frontal: cuando escribe el JSON, `á` ya es el código 0x15 y `#n` ya es un
+retorno de carro (`UJSONExport.pas:157-265`). Nosotros guardamos el texto en UTF-8 tal como lo
+escribió el autor y dejamos el mapeo al emisor, por el mismo argumento que hace `ddb.NormalizeWord`
+con los acentos: el juego bajo es una propiedad de la máquina para la que se construye, no de la
+aventura. El comparador pasa el nuestro por la misma conversión antes de comparar.
+
+### 10.2. Las mayúsculas acentuadas del vocabulario
+
+`AddVocabulary` pliega `Á` a `á` antes de guardar la palabra (`UVocabularyTree.pas:75-79`). No es
+quitar el acento: en el juego bajo de DAAD no existe una `Á` mayúscula, así que ese código es donde
+vive la `a` acentuada sea cual sea su caja. Nosotros conservamos la letra y el comparador pone los
+dos lados en mayúsculas, que es donde se encuentran.
+
+Ojo, porque esto **sí** afecta a un símbolo: `_VOC_CAMIóN` se escribe así en DRC, con la `ó`
+minúscula, y nuestro `vocSymbol` reproduce el pliegue para que un fuente que lo nombre compile.
+
+### 10.3. `drf` no escapa las barras invertidas
+
+Solo escapa las comillas dobles (`FixDoubleQuotes`), así que un texto que lleve `\k` sale al JSON
+tal cual y el fichero **no es JSON válido**. Peor todavía: un `\b` del texto sí es un escape que un
+lector acepta, y se decodifica como un retroceso que la aventura nunca tuvo. En su salida solo `\u`
+y `\"` son deliberados; cualquier otra barra es un carácter del texto.
+
+### 10.4. Lo que el contraste todavía no cubre
+
+- **`xmessages` y `other_strings`** se omiten mientras ninguno de los dos lados los llene. Comparar
+  dos listas vacías no prueba nada.
+- **Los símbolos** no se comparan: son entrada, no salida. Los dos se siembran del mismo target y
+  eso lo cubren las pruebas de `predefined`.
+- **El orden de resolución de un operando** difiere sobre el papel —DRC consulta la tabla de
+  símbolos entre dos pasadas por el vocabulario (`USintactic.pas:698-706`) y nosotros no—, pero en
+  67 fuentes y unos 150.000 condactos no ha producido ni una diferencia. Queda sin verificar el
+  caso que las separaría: una palabra del vocabulario que se llame igual que un símbolo.
+- El contraste corre con `-no-semantic`. No es esquivar fallos: `drf` rechaza un `MESSAGE 40`
+  cuando hay treinta y nueve mensajes, y las aventuras publicadas están llenas de cosas así. Lo que
+  se compara es qué entendió cada frontal, no si el fuente es de buena conducta.

@@ -1,5 +1,7 @@
 package ddb
 
+import "strings"
+
 // The condact catalogue, transcribed from the canonical table of the reference
 // compiler (work/DRC/src/UCondacts.pas:25-172) with the DAAD v3 changes already
 // applied (ApplyV3Changes, UCondacts.pas:277-290).
@@ -261,6 +263,33 @@ func LookupCondact(op Opcode) (CondactDef, bool) {
 	}
 
 	return def, true
+}
+
+// byName is the table read the other way round, built once. A source names a
+// condact and the parser needs its opcode, which is the lookup the table above
+// cannot do.
+var byName = func() map[string]Opcode {
+	m := make(map[string]Opcode, len(condacts))
+
+	for op, def := range condacts {
+		if def.Name != "" {
+			m[def.Name] = Opcode(op)
+		}
+	}
+
+	return m
+}()
+
+// LookupCondactByName finds a condact by the name a source writes, which is
+// matched without regard to case: the compiler of reference upper-cases before
+// comparing and sources are written both ways.
+func LookupCondactByName(name string) (Opcode, CondactDef, bool) {
+	op, known := byName[strings.ToUpper(name)]
+	if !known {
+		return 0, CondactDef{}, false
+	}
+
+	return op, condacts[op], true
 }
 
 // Int is a convenience for indexing and comparing.

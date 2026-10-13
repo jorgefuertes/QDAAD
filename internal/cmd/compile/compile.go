@@ -2,9 +2,11 @@ package compile
 
 import (
 	"context"
+	"fmt"
 	"path"
 
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
+	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
 	"github.com/jorgefuertes/QDAAD/internal/front/legacy"
 	"github.com/urfave/cli/v3"
 )
@@ -29,6 +31,34 @@ func Command() *cli.Command {
 				Usage:    "Main source file to compile.",
 			},
 			&cli.StringFlag{
+				Name:     "subtarget",
+				Category: "compiler flags",
+				Aliases:  []string{"s"},
+				Usage: "Variant of the target machine, where it has one: " +
+					"48k, 128k, plus3, next, uno or esxdos on a Spectrum, " +
+					"text, cga, ega, vga or vga256 on a PC.",
+			},
+			&cli.StringFlag{
+				Name:     "language",
+				Category: "compiler flags",
+				Aliases:  []string{"l"},
+				Value:    "spanish",
+				Usage:    "Language the interpreter speaks: english or spanish.",
+			},
+			&cli.StringSliceFlag{
+				Name:     "define",
+				Category: "compiler flags",
+				Aliases:  []string{"D"},
+				Usage:    "Extra symbol to define before reading the source. Repeatable.",
+			},
+			&cli.UintFlag{
+				Name:     "version",
+				Category: "compiler flags",
+				Aliases:  []string{"v"},
+				Value:    3,
+				Usage:    "Database format to emit, 2 or 3.",
+			},
+			&cli.StringFlag{
 				Name:     "output",
 				Category: "files",
 				Aliases:  []string{"o"},
@@ -41,7 +71,12 @@ func Command() *cli.Command {
 
 func compileAction(ctx context.Context, cmd *cli.Command) error {
 	if path.Ext(cmd.String("input")) == ".sce" {
-		db, err := legacy.Analyze(cmd.String("input"))
+		opts, err := options(cmd)
+		if err != nil {
+			return err
+		}
+
+		db, err := legacy.Analyze(cmd.String("input"), opts)
 		if err != nil {
 			return err
 		}
@@ -49,4 +84,31 @@ func compileAction(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	return ErrNotImplemented
+}
+
+// options turns the flags into what the front end needs to know.
+//
+// The machine is not optional and has no default: a source branches on what it
+// is being built for, so guessing one would quietly compile the wrong thing.
+func options(cmd *cli.Command) (legacy.Options, error) {
+	machine, err := arch.Parse(cmd.String("machine"))
+	if err != nil {
+		return legacy.Options{}, err
+	}
+
+	lang := language.LanguageUndefined.Parse(cmd.String("language"))
+	if !lang.IsValid() {
+		return legacy.Options{}, fmt.Errorf("%q is not a language, it is english or spanish",
+			cmd.String("language"))
+	}
+
+	opts := legacy.Options{
+		Machine:   machine,
+		Subtarget: cmd.String("subtarget"),
+		Language:  lang,
+		Version:   uint8(cmd.Uint("version")),
+		Extra:     cmd.StringSlice("define"),
+	}
+
+	return opts, opts.Validate()
 }

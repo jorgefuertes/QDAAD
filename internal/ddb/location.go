@@ -22,6 +22,10 @@ func NewLocationStore() Locations {
 	return Locations{}
 }
 
+// Len is how many locations there are, which is what tells a caller whether a
+// table indexed by location number is complete.
+func (ls Locations) Len() int { return len(ls) }
+
 func (ls Locations) Get(id ID) (*Location, error) {
 	for i, l := range ls {
 		if l.ID == id {

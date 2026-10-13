@@ -54,27 +54,39 @@ type MachineData struct {
 	// wordAligned reports that sections and messages are padded to an even
 	// address with a zero byte.
 	wordAligned bool
+
+	// bits is the width of the machine, 8 or 16, and zero where the question
+	// does not apply. A source asks about it through the BIT8 and BIT16
+	// symbols, and picks a different branch for each.
+	//
+	// HTML is the zero: it runs wherever the browser runs, so the compiler of
+	// reference gives it neither symbol, and a source that only handles the two
+	// it knows will fail to compile for it. That is deliberate there and it is
+	// kept here.
+	bits int
 }
 
 var machines = map[Machine]MachineData{
-	PC:    {name: "PC", baseAddress: 0x0000, wordAligned: true},
-	ZX:    {name: "ZX", baseAddress: 0x8400},
-	C64:   {name: "C64", baseAddress: 0x3880},
-	CPC:   {name: "CPC", baseAddress: 0x2880},
-	MSX:   {name: "MSX", baseAddress: 0x0100},
-	ST:    {name: "ST", baseAddress: 0x0000, bigEndian: true, wordAligned: true},
-	AMIGA: {name: "AMIGA", baseAddress: 0x0000, bigEndian: true, wordAligned: true},
-	PCW:   {name: "PCW", baseAddress: 0x0100},
+	PC:    {name: "PC", baseAddress: 0x0000, wordAligned: true, bits: 16},
+	ZX:    {name: "ZX", baseAddress: 0x8400, bits: 8},
+	C64:   {name: "C64", baseAddress: 0x3880, bits: 8},
+	CPC:   {name: "CPC", baseAddress: 0x2880, bits: 8},
+	MSX:   {name: "MSX", baseAddress: 0x0100, bits: 8},
+	ST:    {name: "ST", baseAddress: 0x0000, bigEndian: true, wordAligned: true, bits: 16},
+	AMIGA: {name: "AMIGA", baseAddress: 0x0000, bigEndian: true, wordAligned: true, bits: 16},
+	PCW:   {name: "PCW", baseAddress: 0x0100, bits: 8},
 	// The real base depends on the subtarget; see the BaseAddress method.
-	ZX81: {name: "ZX81", baseAddress: 0x0000},
-	CPM:  {name: "CPM", baseAddress: 0x2000},
-	// NEXTDAAD only exists on the origin/nextdaad branch of the DRC fork.
-	NEXT: {name: "NEXTDAAD", baseAddress: 0x0000},
+	ZX81: {name: "ZX81", baseAddress: 0x0000, bits: 8},
+	CPM:  {name: "CPM", baseAddress: 0x2000, bits: 8},
+	// NEXTDAAD only exists on the origin/nextdaad branch of the DRC fork, and
+	// the mainline compiler has no target of this name — a Next is reached
+	// there as the ZX target with the NEXT subtarget. The width is the Z80N's.
+	NEXT: {name: "NEXTDAAD", baseAddress: 0x0000, bits: 8},
 	HTML: {name: "HTML", baseAddress: 0x0000, wordAligned: true},
-	CP4:  {name: "CP4", baseAddress: 0x7080},
+	CP4:  {name: "CP4", baseAddress: 0x7080, bits: 8},
 	// MSX2 is absent from the non-zero base list in drb.php, so it falls
 	// through to the default of 0. Only MSX uses 0x0100.
-	MSX2: {name: "MSX2", baseAddress: 0x0000},
+	MSX2: {name: "MSX2", baseAddress: 0x0000, bits: 8},
 }
 
 func MachineNames() []string {
@@ -179,4 +191,10 @@ func (m Machine) IsBigEndian() bool {
 
 func (m Machine) IsWordAligned() bool {
 	return machines[m].wordAligned
+}
+
+// Bits is the width of the machine, 8 or 16, and zero for the one where the
+// question does not apply. See the bits field.
+func (m Machine) Bits() int {
+	return machines[m].bits
 }

@@ -1,4 +1,4 @@
-.PHONY: dist build test doc decomp-all decomp-ao recompile-all
+.PHONY: dist build test doc decomp-all decomp-ao recompile-all compare-drf
 
 VERSION=$$(git describe --tags --abbrev=0)
 
@@ -77,6 +77,11 @@ decomp-all:
 # Needs decomp-all to have run first.
 recompile-all:
 	@script/recompile-all.sh
+
+# Reads every source with both front ends and compares what each understood.
+# Needs fpc and iconv; says so and stops if either is missing.
+compare-drf:
+	@script/compare-drf.sh
 
 AO_PC := work/aventuras/La_Aventura_Original/PC
 AO_OUT := work/decomp/ao/pc

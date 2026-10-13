@@ -16,56 +16,62 @@
 package legacy
 
 import (
-	"errors"
-
-	"github.com/jorgefuertes/QDAAD/internal/console"
 	"github.com/jorgefuertes/QDAAD/internal/ddb"
 )
 
-// ErrNotImplemented marks the passes that are not written yet.
-var ErrNotImplemented = errors.New("not implemented yet")
-
 // Analyze reads a source and returns the database it describes.
-func Analyze(filename string) (*ddb.DDB, error) {
-	tokens, _, err := Read(filename)
+//
+// The options are not a convenience. A source asks what it is being built for
+// and branches on the answer, so the same file compiled for a Spectrum and for
+// an Amiga is meant to give two different databases.
+func Analyze(filename string, opts Options) (*ddb.DDB, error) {
+	db, _, err := Compile(filename, opts)
+
+	return db, err
+}
+
+// Compile is Analyze with what the directives left behind kept as well.
+//
+// Three of the things a build needs are not in a database and never will be:
+// the symbols, the externals to link and the flags the source set. A caller
+// that only wants the world can use Analyze and ignore them; one that has to
+// write the intermediate form, or hand the whole thing to a back end, needs
+// both halves.
+func Compile(filename string, opts Options) (*ddb.DDB, *Result, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, nil, err
+	}
+
+	res, err := Read(filename, opts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	lastFile := ""
-	lastLine := -1
-
-	for _, token := range tokens {
-		if token.File != lastFile {
-			lastFile = token.File
-			console.Sayf(console.LevelInfo, "FILE %s:", token.File)
-		}
-
-		if token.Line != lastLine {
-			lastLine = token.Line
-			console.Sayf(console.LevelInfo, "LINE %d:", token.Line)
-		}
+	db, err := Parse(res, opts)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return nil, ErrNotImplemented
+	return db, res, nil
 }
 
 // Read runs the passes that come before the parser: it resolves the includes,
 // scans, and preprocesses. What comes back is the token stream the parser is
-// meant to walk, and the symbols #define left behind.
+// meant to walk, along with the symbols, the externals and the flags the
+// directives left behind.
 //
 // It is exported because those three passes are worth using — and testing — on
 // their own, without a database to fill in.
-func Read(filename string) ([]Token, Symbols, error) {
+func Read(filename string, opts Options) (*Result, error) {
 	lines, err := Resolve(filename)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	tokens, err := Scan(lines)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return Preprocess(tokens)
+	return Preprocess(tokens, opts)
 }

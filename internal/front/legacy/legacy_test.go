@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"github.com/jorgefuertes/QDAAD/internal/front/legacy"
 	"github.com/stretchr/testify/require"
 )
@@ -32,14 +33,16 @@ func TestReadsTheDAADReadyTemplate(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(utf8, out, 0o600))
 
-	tokens, symbols, err := legacy.Read(utf8)
+	res, err := legacy.Read(utf8, legacy.Options{
+		Machine: arch.ZX, Subtarget: "128K", Version: 3,
+	})
 	require.NoError(t, err)
 
-	require.NotEmpty(t, tokens)
-	require.Equal(t, legacy.EOF, tokens[len(tokens)-1].Kind)
+	require.NotEmpty(t, res.Tokens)
+	require.Equal(t, legacy.EOF, res.Tokens[len(res.Tokens)-1].Kind)
 
 	// The flags the standard library defines, as the template writes them.
-	require.Equal(t, 28, symbols["fDarkF"])
-	require.Equal(t, 38, symbols["fPlayer"])
-	require.Equal(t, 87, symbols["TIMEOUT"])
+	require.Equal(t, 28, res.Symbols["fDarkF"])
+	require.Equal(t, 38, res.Symbols["fPlayer"])
+	require.Equal(t, 87, res.Symbols["TIMEOUT"])
 }

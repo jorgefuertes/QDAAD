@@ -6,9 +6,17 @@ import (
 	qderror "github.com/jorgefuertes/QDAAD/internal/ddb/dberrors"
 )
 
+// MAX_WEIGHT is the most an object can weigh: the weight shares its byte with
+// the container and wearable flags, so only six bits are left.
+const MAX_WEIGHT ID = 63
+
 type Object struct {
-	ID           ID
-	LabelID      ID16
+	ID      ID
+	LabelID ID16
+	// Description is the text /OTX gives for this object, kept here rather than
+	// in the message store for the same reason a location keeps its own: the
+	// text belongs to the thing it describes.
+	Description  string
 	Name         ID
 	Adjective    ID
 	Weight       uint8 `valid:"required,min=0,max=63"`
@@ -23,6 +31,9 @@ type Objects []Object
 func NewObjectStore() Objects {
 	return Objects{}
 }
+
+// Len is how many objects there are.
+func (ost Objects) Len() int { return len(ost) }
 
 func (ost Objects) Get(id ID) (*Object, error) {
 	for i, obj := range ost {
@@ -72,6 +83,24 @@ func (ost Objects) getNextID() (ID, error) {
 	}
 
 	return 0, qderror.ErrObjectStoreIsFull
+}
+
+// NewLegacy adds an object with the number the source gives it.
+//
+// A legacy source numbers everything itself and names nothing, so neither the
+// duplicate-label check nor the duplicate noun-adjective one that Add makes
+// applies: every object carries label zero, and a real adventure may well give
+// two objects the same pair of words.
+// There is no range to check: an object number is a byte and the type already
+// caps it at 255, which is the most a database can hold.
+func (ost *Objects) NewLegacy(obj Object) error {
+	if _, err := ost.Get(obj.ID); err == nil {
+		return qderror.ErrObjectAlreadyExists
+	}
+
+	*ost = append(*ost, obj)
+
+	return nil
 }
 
 func (ost *Objects) Add(obj Object) error {

@@ -2,7 +2,12 @@ package ddb
 
 type Conn struct {
 	From ID
-	Word ID `valid:"required,min=0,max=13"`
+	// Word is the vocabulary value that leads out of From. The classic
+	// directions are the values under 14, but nothing caps it there: the
+	// compiler of reference only asks that the word be a verb or a noun and
+	// takes its value as it comes, so a stricter check here would refuse
+	// sources it accepts.
+	Word ID
 	To   ID
 }
 

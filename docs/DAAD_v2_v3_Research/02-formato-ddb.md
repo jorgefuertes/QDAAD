@@ -214,9 +214,35 @@ cabecera (60 B)
 Los textos de objeto van deliberadamente los primeros para que queden en RAM cuando se usa el
 flag `-x`, que desplaza el resto de textos a un fichero externo (`drb.php:1935`).
 
-Un implementador de intérprete **no debe asumir este orden**: debe navegar siempre por los
-punteros de la cabecera. Un implementador de compilador sí puede elegir otro orden, siempre que
-los punteros sean coherentes.
+### 3.1 El orden no es libre
+
+**Hay que emitir en este orden.** Lo dice el autor de `drb`: existen intérpretes que lo esperan
+así. Aunque los punteros de la cabecera describan el fichero entero y en teoría bastaría con que
+fueran coherentes, en la práctica no todos los intérpretes navegan solo por ellos.
+
+O sea que quien escriba un compilador **no puede elegir**: tiene que reproducir la secuencia de
+arriba. Quien escriba un intérprete sí debería navegar por los punteros, que es lo robusto.
+
+### 3.2 No es el orden que usaba el compilador de 1991
+
+Y esto es lo que hace la regla contraintuitiva. Las bases originales usan **otra** disposición:
+
+```text
+vocabulario → tokens → STX → MTX → OTX → LTX
+  → conexiones → nombres de objeto → pesos → atributos extra → "inicialmente en" → procesos
+```
+
+Medido sobre las bases de PC de La Aventura Original, Cozumel y Chichén Itzá: **las tres coinciden
+byte a byte en la disposición**, con órdenes de bytes distintos entre ellas, así que es el orden
+fijo del compilador de la época y no una casualidad de una compilación.
+
+Las dos diferencias de fondo frente a `drb` son que el vocabulario iba primero y no en medio, y
+que las tablas de objeto iban al final y no al principio.
+
+La consecuencia es que **el intérprete que depende del orden no puede ser uno de 1991**: aquellos
+leían otra cosa. Son intérpretes modernos, escritos contra la salida de `drb`, los que se
+acostumbraron a ella. Conviene tenerlo claro para no confundir «el orden de DAAD» con «el orden de
+`drb`», que no son lo mismo.
 
 ---
 

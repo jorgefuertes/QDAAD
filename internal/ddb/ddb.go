@@ -26,7 +26,11 @@ type DDB struct {
 	Language      language.Language `valid:"required"`
 	VideoMode     byte              // MSX2
 	ExternVectors []uint32          // 16b in 8bit machines, 32b in >=16bit machines
-	data          Data              `valid:"required"`
+	// NullWord is the character /CTL declares, which ends up in byte 2 of the
+	// binary. It is a relic, but it is the source's to say and the back end's
+	// to write, so it travels here rather than being worked out again.
+	NullWord byte
+	data     Data `valid:"required"`
 }
 
 type Data struct {
@@ -52,6 +56,20 @@ func New() *DDB {
 		},
 	}
 }
+
+// The stores, reachable so that something outside the package can fill a
+// database in. They come back as pointers because building means appending, and
+// appending to a copy would not reach the database.
+//
+// New is what creates them, so a DDB made any other way has none: these are not
+// lazily built on purpose, to keep a half-made database from looking whole.
+func (d *DDB) Words() *Words         { return &d.data.words }
+func (d *DDB) Locations() *Locations { return &d.data.locations }
+func (d *DDB) Conns() *Conns         { return &d.data.conns }
+func (d *DDB) Objects() *Objects     { return &d.data.objects }
+func (d *DDB) Processes() *Processes { return &d.data.processes }
+func (d *DDB) Messages() *Messages   { return &d.data.messages }
+func (d *DDB) Labels() *Labels       { return &d.data.labels }
 
 func Open(filePath string) (*DDB, error) {
 	f, err := os.Open(filePath)

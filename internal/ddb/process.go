@@ -51,6 +51,44 @@ func NewProcessStore() Processes {
 // Add opens a new process and returns its number. Numbering is sequential and
 // dense because the process table of a DDB is an array indexed by that number:
 // a gap would have to be materialized as an empty process anyway.
+// NewLegacy files a process the source numbered itself.
+//
+// It takes the whole thing rather than building it up, because a legacy source
+// gives the number — /PRO 7 — and may give them out of order, which the "add to
+// the last one" pair cannot do. A number seen twice concatenates, as the
+// compiler of reference does: it warns and carries on.
+func (ps *Processes) NewLegacy(p Process) error {
+	if p.ID > MAX_PROCESS_ID {
+		return qderror.ErrProcessIDOutOfRange
+	}
+
+	for i := range *ps {
+		if (*ps)[i].ID == p.ID {
+			(*ps)[i].Entries = append((*ps)[i].Entries, p.Entries...)
+
+			return nil
+		}
+	}
+
+	*ps = append(*ps, p)
+
+	return nil
+}
+
+// Get finds a process by its number.
+func (ps Processes) Get(id ID) (*Process, bool) {
+	for i := range ps {
+		if ps[i].ID == id {
+			return &ps[i], true
+		}
+	}
+
+	return nil, false
+}
+
+// Len is how many processes there are.
+func (ps Processes) Len() int { return len(ps) }
+
 func (ps *Processes) Add(labelID ID16) (ID, error) {
 	if len(*ps) > MAX_PROCESS_ID.Int() {
 		return 0, qderror.ErrProcessStoreIsFull

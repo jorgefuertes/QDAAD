@@ -3,9 +3,26 @@ package legacy
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
+	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
 	"github.com/stretchr/testify/require"
 )
+
+// testOptions is what a test compiles for when the target is beside the point.
+//
+// The date is fixed rather than left to the clock, so that a test can look at
+// YEARLOW and get the same answer tomorrow.
+func testOptions() Options {
+	return Options{
+		Machine:   arch.ZX,
+		Subtarget: "128K",
+		Language:  language.LanguageSpanish,
+		Version:   3,
+		Date:      time.Date(2026, time.September, 26, 0, 0, 0, 0, time.UTC),
+	}
+}
 
 // preprocess scans a snippet and runs it through the preprocessor.
 func preprocess(t *testing.T, source string) ([]Token, Symbols, error) {
@@ -19,7 +36,12 @@ func preprocess(t *testing.T, source string) ([]Token, Symbols, error) {
 	tokens, err := Scan(lines)
 	require.NoError(t, err)
 
-	return Preprocess(tokens)
+	res, err := Preprocess(tokens, testOptions())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return res.Tokens, res.Symbols, nil
 }
 
 // texts names what survived, so that a test can say what it expects to be left.
@@ -43,7 +65,11 @@ func TestPreprocessorResolvesDefines(t *testing.T) {
 `)
 	require.NoError(t, err)
 
-	require.Equal(t, Symbols{"fDark": 0, "fScore": 30, "fNext": 31}, symbols)
+	// The table is not compared whole: it arrives seeded with the symbols the
+	// language predefines, and what this is about is the ones the source added.
+	require.Equal(t, 0, symbols["fDark"])
+	require.Equal(t, 30, symbols["fScore"])
+	require.Equal(t, 31, symbols["fNext"], "a define may be worked out from an earlier one")
 }
 
 func TestPreprocessorRefusesADoubleDefine(t *testing.T) {

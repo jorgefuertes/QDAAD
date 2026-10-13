@@ -8,13 +8,13 @@ import (
 // Symbols is the table #define fills in.
 type Symbols map[string]int
 
-// externals records what the source asked to be linked in. The front end only
+// Externals records what the source asked to be linked in. The front end only
 // takes note: which file a name resolves to depends on the target machine, and
 // that is the back end's business.
-type externals struct {
-	extern []string
-	interp []string
-	sfx    []string
+type Externals struct {
+	Extern []string
+	Interp []string
+	Sfx    []string
 }
 
 // Preprocess consumes the raw token stream and returns the live one.
@@ -28,29 +28,64 @@ type externals struct {
 // The pass has to be sequential rather than two runs over the stream: the value
 // of a #define can name an earlier one, and a conditional depends on what is
 // defined by the time it is reached.
-func Preprocess(tokens []Token) ([]Token, Symbols, error) {
+//
+// It takes the options because the conditionals are answered out of the symbol
+// table, and half of that table is what is being compiled for.
+func Preprocess(tokens []Token, opts Options) (*Result, error) {
 	p := &preprocessor{
 		in:      tokens,
-		symbols: Symbols{},
+		symbols: predefined(opts),
 	}
 
 	if err := p.run(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if p.open > 0 {
-		return nil, nil, fmt.Errorf("%d #endif missing at the end of the source", p.open)
+		return nil, fmt.Errorf("%d #endif missing at the end of the source", p.open)
 	}
 
-	return p.out, p.symbols, nil
+	return &Result{
+		Tokens:   p.out,
+		Symbols:  p.symbols,
+		Linked:   p.linked,
+		Settings: p.settings,
+	}, nil
+}
+
+// Result is what the three passes before the parser leave behind.
+//
+// It is a struct rather than a row of return values because it grew one: the
+// externals and the flags used to be read and thrown away, and they are part of
+// what a database is built from.
+type Result struct {
+	// Tokens is the live stream, with the dead branches already gone.
+	Tokens []Token
+	// Symbols is the table as it stands when the last directive has been read.
+	// The parser adds to it as it goes.
+	Symbols Symbols
+	// Linked is what the source asked to be linked in.
+	Linked Externals
+	// Settings are the flags the source set for the back end.
+	Settings Settings
+}
+
+// Settings are the switches a source throws that change how it is built rather
+// than what is in it.
+type Settings struct {
+	// Classic asks for the 1991 dialect.
+	Classic bool
+	// Debug asks for an interpreter that can be stepped.
+	Debug bool
 }
 
 type preprocessor struct {
-	in      []Token
-	at      int
-	out     []Token
-	symbols Symbols
-	linked  externals
+	in       []Token
+	at       int
+	out      []Token
+	symbols  Symbols
+	linked   Externals
+	settings Settings
 	// open counts the conditionals whose branch is being kept, so that a
 	// missing #endif can be reported at the end.
 	open int
@@ -116,8 +151,14 @@ func (p *preprocessor) directive(t Token) error {
 	case DirExtern, DirInt, DirSfx:
 		return p.external(t)
 
-	case DirDebug, DirClassic:
-		// Flags for the back end. Nothing to resolve here.
+	case DirDebug:
+		p.settings.Debug = true
+
+		return nil
+
+	case DirClassic:
+		p.settings.Classic = true
+
 		return nil
 	}
 
@@ -218,11 +259,11 @@ func (p *preprocessor) external(t Token) error {
 
 	switch t.Directive {
 	case DirExtern:
-		p.linked.extern = append(p.linked.extern, name)
+		p.linked.Extern = append(p.linked.Extern, name)
 	case DirInt:
-		p.linked.interp = append(p.linked.interp, name)
+		p.linked.Interp = append(p.linked.Interp, name)
 	case DirSfx:
-		p.linked.sfx = append(p.linked.sfx, name)
+		p.linked.Sfx = append(p.linked.Sfx, name)
 	}
 
 	return nil
