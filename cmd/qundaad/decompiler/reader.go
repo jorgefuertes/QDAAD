@@ -52,9 +52,6 @@ type Reader struct {
 	placeholder       string   // the leading token every interpreter skips
 	tokens            []string // the 128 a text can refer to, indexed from zero
 	vocabulary        []VocabularyEntry
-	// dialect is the condact table this database was built for, which only a
-	// version 1 one has a choice about. See chooseDialect.
-	dialect condactDialect
 }
 
 // FindDatabases looks for databases lying inside something that is not one.
@@ -233,11 +230,6 @@ func readerAt(data []byte, off int) (*Reader, bool) {
 					if err := r.readVocabulary(); err != nil {
 						continue
 					}
-
-					// Which condact table this build was written with is the
-					// last thing deduced, because it is the only one that needs
-					// the processes to be reachable first.
-					r.chooseDialect()
 
 					return r, true
 				}

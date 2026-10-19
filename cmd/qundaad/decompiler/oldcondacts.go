@@ -2,9 +2,7 @@ package decompiler
 
 import (
 	"fmt"
-	"maps"
 	"sort"
-	"strings"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddb"
 )
@@ -46,6 +44,47 @@ var oldCondacts = map[byte]ddb.CondactDef{
 	// is why the note below could not settle it from this evidence alone. What
 	// settles it is the layout: see arity_test.go. Issue #2.
 	86: {Name: "MOUSE", Params: []ddb.ParamKind{ddb.ParamValue}},
+
+	// LOAD and PARSE take nothing in the old format. The version 2 table gives
+	// each of them one operand, and that operand was the next condact.
+	//
+	// This is what the interpreter does. AD.EXE, shipped in the same directory
+	// as the two databases of La Aventura Original, has its condact loop at
+	// 0x233 of the code segment and a table of 109 handlers at DS:0x5cd:
+	//
+	//	0233  mov al, [bx]        the opcode byte
+	//	0235  cmp al, 0xff        the end of the block
+	//	0239  mov [0x4c], al      kept whole, bit 7 and all
+	//	023d  and al, 0x7f        and masked off to index the table
+	//	023f  cmp al, 0x6d        109 condacts, and no more
+	//	025a  inc bx              past the opcode
+	//	025b  mov al, [bx]        the byte after it, whatever it turns out to be
+	//	025d  test [0x4c], 0x80   was the opcode marked?
+	//	0264  mov di, 0x12a       then that byte is a flag number
+	//	0269  mov al, [di]        and the flag's content is the operand
+	//
+	// So bit 7 is the indirection and nothing else, and every handler is
+	// entered with the next byte already read and bx still sitting on it.
+	// Whether that byte was an operand is the handler's to say, and it says so
+	// by where it leaves: 0x690 does an inc bx and takes one, 0x691 takes none.
+	// The handlers for these two leave at 0x691.
+	//
+	// LOAD is also where issue #8 was hiding. The two blocks of La Aventura
+	// Original that ran over their neighbour did so because of this one
+	// operand; without it the fourteen bytes read NOTEQ 34 99 / GT 29 127 /
+	// LOAD / LT 29 128 / PLUS 29 128 and end exactly on the terminator, with a
+	// PLUS matching the MINUS in the block laid beside it. The two readings
+	// that issue weighed are both refused by the loop above: one needed bit 7
+	// not to be the indirection, the other needed CLS to take an operand.
+	//
+	// Walking the other 107 handlers suggests eight more differences, and the
+	// layout says they are wrong: with them El Jabato stops reading at all.
+	// They are not here. The walk over a handler is a guess about where control
+	// goes and these two are the ones the databases confirm — in both
+	// adventures, across five databases, every block ends where the next
+	// begins. See arity_test.go.
+	26: {Name: "LOAD", Params: nil},
+	73: {Name: "PARSE", Params: nil},
 
 	56: {Name: "COPYOF", Params: []ddb.ParamKind{ddb.ParamObject, ddb.ParamFlag}},
 	57: {Name: "COPYOO", Params: []ddb.ParamKind{ddb.ParamObject, ddb.ParamObject}},
@@ -110,193 +149,54 @@ func (r *Reader) oldCondactText(c Condact) (string, bool) {
 		return "", false
 	}
 
-	def, found := r.Condact(c.Opcode)
+	old, found := r.Condact(c.Opcode)
 	if !found {
 		return "", false
 	}
 
+	// Only a condact that takes fewer operands than version 3 gives it needs
+	// anything doing. One that takes more, or the same, writes itself.
 	modern, known := ddb.LookupCondact(ddb.Opcode(c.Opcode))
-	if !known || len(def.Params) >= len(modern.Params) {
+	if !known || len(old.Params) >= len(modern.Params) {
 		return "", false
 	}
 
-	// DESC is the one with something to say rather than something to fill.
+	// DESC is the one with something to say rather than a hole to fill.
 	if c.Opcode == opDesc && len(c.Params) == 0 {
 		return fmt.Sprintf("DESC @%d   ; was a bare DESC: the old one means here", fPlayer), true
 	}
 
-	var out strings.Builder
-
-	out.WriteString(def.Name)
+	out := old.Name
 
 	for _, p := range c.Params {
-		fmt.Fprintf(&out, " %d", p)
+		out += fmt.Sprintf(" %d", p)
 	}
 
-	short := len(modern.Params) - len(def.Params)
+	short := len(modern.Params) - len(old.Params)
 	for range short {
-		out.WriteString(" 0")
+		out += " 0"
 	}
 
-	fmt.Fprintf(&out, "   ; the old %s takes %d, so the last %d is padding and not in the database",
-		def.Name, len(def.Params), short)
-
-	return out.String(), true
+	return fmt.Sprintf("%s   ; the old %s takes %d, so the last %d is padding and not in the database",
+		out, old.Name, len(old.Params), short), true
 }
 
-// aoCondacts is oldCondacts as the interpreter of La Aventura Original has it.
-//
-// AD.EXE, shipped in the same directory as the two databases it reads, is not
-// evidence about the format: it is the format. Its condact loop is at 0x233 of
-// the code segment and reads like this.
-//
-//	0233  mov al, [bx]        the opcode byte
-//	0235  cmp al, 0xff        the end of the block
-//	0239  mov [0x4c], al      kept whole, bit 7 and all
-//	023d  and al, 0x7f        and masked off to index the table
-//	023f  cmp al, 0x6d        109 condacts, and no more
-//	024f  mov si, 0x5cd       the table of handlers, a word each
-//	025a  inc bx              past the opcode
-//	025b  mov al, [bx]        the byte after it, whatever it turns out to be
-//	025d  test [0x4c], 0x80   was the opcode marked?
-//	0264  mov di, 0x12a       then that byte is a flag number
-//	0269  mov al, [di]        and the flag's content is the operand
-//	0275  ret                 into the handler
-//
-// So bit 7 is the indirection and nothing else, and every handler is entered
-// with the next byte already read and bx still sitting on it. Whether that byte
-// was an operand is the handler's to say, and it says it by where it leaves:
-//
-//	0690  inc bx              one operand taken
-//	0691  pop si              none
-//	0697  jmp 0x233           and on to the next condact
-//
-// Walking all 109 handlers to the one or the other is where these come from.
-// The names are not: the interpreter has addresses and no names, so they stay
-// the ones of version 2, which is what undaad calls them too.
-//
-// This is what closed issue #8. The two blocks of La Aventura Original that
-// ran over their neighbour did so because LOAD was read with an operand, and
-// without one the fourteen bytes come out as NOTEQ 34 99 / GT 29 127 / LOAD /
-// LT 29 128 / PLUS 29 128 and end exactly on the terminator — with a PLUS to
-// match the MINUS in the block laid next to it.
-//
-// It is a dialect and not a correction. These arities make every block of that
-// adventure line up and make El Jabato, which shipped a different interpreter,
-// stop reading at all.
-var aoCondacts = merged(oldCondacts, map[byte]ddb.CondactDef{
-	18: {Name: "SFX", Params: []ddb.ParamKind{ddb.ParamValue}},
-	25: {Name: "SAVE", Params: nil},
-	26: {Name: "LOAD", Params: nil},
-	27: {Name: "DPRINT", Params: nil},
-	28: {Name: "DISPLAY", Params: nil},
-	61: {Name: "EXTERN", Params: []ddb.ParamKind{ddb.ParamValue}},
-	71: {Name: "ADD", Params: []ddb.ParamKind{ddb.ParamFlag}},
-	72: {Name: "SUB", Params: []ddb.ParamKind{ddb.ParamFlag}},
-	73: {Name: "PARSE", Params: nil},
-	89: {Name: "WEIGH", Params: []ddb.ParamKind{ddb.ParamObject}},
-})
-
-func merged(base, over map[byte]ddb.CondactDef) map[byte]ddb.CondactDef {
-	out := make(map[byte]ddb.CondactDef, len(base)+len(over))
-	maps.Copy(out, base)
-	maps.Copy(out, over)
-
-	return out
-}
-
-// dialect is the condact table one interpreter was built with.
-//
-// "Version 1" turns out not to be one thing. The two adventures that use it
-// shipped interpreters of their own, and where those disagree about how many
-// operands a condact takes there is no table that reads both.
-type condactDialect struct {
-	name     string
-	condacts map[byte]ddb.CondactDef
-}
-
-// v1Dialects are tried in order and the first is the one to fall back on: it is
-// the reading that was here before any interpreter was opened, and the one El
-// Jabato still needs.
-var v1Dialects = []condactDialect{
-	{name: "classic", condacts: oldCondacts},
-	{name: "La Aventura Original", condacts: aoCondacts},
-}
-
-// chooseDialect picks the condact table that makes the database lie flat.
-//
-// Every entry reaches its block through a pointer of its own and the blocks are
-// laid one after another, so a block that runs over the start of the next one
-// was read with the wrong number of operands somewhere. Counting those is a
-// measure of how wrong a table is, and the lowest count wins.
-//
-// It is the same kind of deduction as the byte order and the header size above
-// it: nothing in the file says which it is, and only one reading holds together.
-// A tie keeps the first, which is the conservative one.
-func (r *Reader) chooseDialect() {
-	if !r.OldFormat() {
-		return
-	}
-
-	best := 0
-
-	r.dialect = v1Dialects[0]
-	broken, over := r.blockFaults()
-
-	for i := 1; i < len(v1Dialects) && broken+over > 0; i++ {
-		r.dialect = v1Dialects[i]
-
-		// Fewest breaks first and only then fewest overruns: a table that
-		// cannot read a block is not in the running against one that can,
-		// however many of its blocks run long.
-		b, o := r.blockFaults()
-		if b < broken || (b == broken && o < over) {
-			best, broken, over = i, b, o
-		}
-	}
-
-	r.dialect = v1Dialects[best]
-}
-
-// OldFormat reports whether this is a pre-version-2 database.
-//
-// Nothing in the file says so outright: the version byte is unreliable across
-// the intermediate builds of the era. What does say so is the shape of the
-// header, since version 2 inserted the pointer to the extra object attributes.
-// The undaad decompiler decides the same way, by checking whether the word at
-// offset 30 is the length of the file.
-func (r *Reader) OldFormat() bool {
-	return r.headerSize == headerSizeV1
-}
-
-// Condact resolves an opcode against the table this database belongs to.
-func (r *Reader) Condact(opcode byte) (ddb.CondactDef, bool) {
-	if r.OldFormat() {
-		table := r.dialect.condacts
-		if table == nil {
-			table = oldCondacts
-		}
-
-		if def, found := table[opcode]; found {
-			return def, true
-		}
-	}
-
-	return ddb.LookupCondact(ddb.Opcode(opcode))
-}
-
-// blockFaults counts what a condact table gets wrong about the layout.
+// blockFaults counts what the condact table gets wrong about the layout.
 //
 // broken is the blocks that will not decode at all — an opcode outside the
 // table, or operands running off the end — and over is the blocks that decode
-// but then run past the start of the block laid after them. A block that does
-// cannot have been read right: both addresses come from the binary and the walk
-// between them comes from the table, so the table is what is wrong.
+// but then run past the start of the block laid after them.
+//
+// A block that runs long cannot have been read right. Every entry reaches its
+// block through a pointer of its own and the blocks lie one after another, so
+// both addresses come from the binary while the walk between them comes from
+// the table: when they disagree it is the table that is wrong. That is what
+// settled the arity of DESC, of MOUSE, and of the two above, and it is the only
+// measure here that the databases themselves can give.
 //
 // The two are counted apart because they are not the same kind of wrong. A
-// database with a broken block cannot be decompiled at all, while one with an
-// overrun comes out with a few entries carrying their neighbour's condacts. No
-// number of overruns is worth one break.
+// database with a broken block cannot be decompiled at all; one with an overrun
+// comes out with a few entries carrying their neighbour's condacts.
 func (r *Reader) blockFaults() (broken, over int) {
 	const (
 		entrySize    = 4
@@ -367,4 +267,26 @@ func (r *Reader) blockBytes(condacts []Condact) int {
 	}
 
 	return n + 1
+}
+
+// OldFormat reports whether this is a pre-version-2 database.
+//
+// Nothing in the file says so outright: the version byte is unreliable across
+// the intermediate builds of the era. What does say so is the shape of the
+// header, since version 2 inserted the pointer to the extra object attributes.
+// The undaad decompiler decides the same way, by checking whether the word at
+// offset 30 is the length of the file.
+func (r *Reader) OldFormat() bool {
+	return r.headerSize == headerSizeV1
+}
+
+// Condact resolves an opcode against the table this database belongs to.
+func (r *Reader) Condact(opcode byte) (ddb.CondactDef, bool) {
+	if r.OldFormat() {
+		if def, found := oldCondacts[opcode]; found {
+			return def, true
+		}
+	}
+
+	return ddb.LookupCondact(ddb.Opcode(opcode))
 }
