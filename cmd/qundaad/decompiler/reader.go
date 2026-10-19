@@ -808,14 +808,70 @@ func (r *Reader) Connections() ([][]Movement, error) {
 // is also the one the reference decompiler picks.
 func (r *Reader) WordFor(value byte, kinds ...byte) (string, bool) {
 	for _, kind := range kinds {
+		chosen, found := "", false
+
 		for _, e := range r.vocabulary {
-			if e.Value == value && e.Kind == kind {
+			if e.Value != value || e.Kind != kind {
+				continue
+			}
+
+			if !found {
+				chosen, found = e.Word, true
+
+				continue
+			}
+
+			if isPlainTwin(chosen, e.Word) {
 				return e.Word, true
 			}
+		}
+
+		if found {
+			return chosen, true
 		}
 	}
 
 	return "", false
+}
+
+// The letters the DAAD character set keeps below "A", and what each is without
+// its accent.
+//
+// The ñ is deliberately not here. Its plain twin is a different letter and
+// often a different word — araña and arana, cuña and cuna — and those entries
+// exist so that a player with no ñ key can still be understood, not because the
+// author spelled it that way. Folding it would turn a spider into nothing.
+var plainForm = map[rune]rune{
+	'á': 'A', 'é': 'E', 'í': 'I', 'ó': 'O', 'ú': 'U', 'ü': 'U', 'ç': 'C',
+	'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Ü': 'U', 'Ç': 'C',
+}
+
+// isPlainTwin says whether other is the same word as chosen, written without
+// the accents.
+//
+// It is what decides between two spellings of one word, and it only ever
+// chooses between spellings: a synonym that is a different word — casa beside
+// cabaña — is not a twin and is left alone.
+func isPlainTwin(chosen, other string) bool {
+	if !strings.ContainsFunc(chosen, func(r rune) bool { _, is := plainForm[r]; return is }) {
+		return false
+	}
+
+	if strings.ContainsFunc(other, func(r rune) bool { _, is := plainForm[r]; return is }) {
+		return false
+	}
+
+	return flatten(chosen) == strings.ToUpper(other)
+}
+
+func flatten(word string) string {
+	return strings.ToUpper(strings.Map(func(r rune) rune {
+		if plain, accented := plainForm[r]; accented {
+			return plain
+		}
+
+		return r
+	}, word))
 }
 
 // VocabularyEntry is one word of the vocabulary as the database stores it.
