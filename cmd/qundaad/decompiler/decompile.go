@@ -779,6 +779,10 @@ func (r *Reader) condactText(c Condact) (string, error) {
 		return "", fmt.Errorf("opcode %d is not a condact", c.Opcode)
 	}
 
+	if text, translated := r.oldCondactText(c); translated {
+		return text, nil
+	}
+
 	out := def.Name
 
 	for i, value := range c.Params {
