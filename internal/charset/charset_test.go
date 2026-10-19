@@ -16,15 +16,19 @@ func TestEncode(t *testing.T) {
 	}{
 		{"plain text is left alone", "Hello there.", "Hello there."},
 		{"a Spanish letter takes its low code", "años", "a\x1Aos"},
-		{"every accent of the low charset", "ªáéíóúñÑçÇüÜ¡¿«»",
-			"\x10\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x11\x12\x13\x14"},
+		{
+			"every accent of the low charset", "ªáéíóúñÑçÇüÜ¡¿«»",
+			"\x10\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x11\x12\x13\x14",
+		},
 		{"a letter outside it travels as a graphic", "Á", "\x0E\x7B\x0F"},
 		{"the modern escapes", "#n#b#k#g#t#f", "\x0D\x0B\x0C\x0E\x0F\x7F"},
 		{"#r is the carriage return as well", "#r", "\x0D"},
 		{"#s is a space, which an editor cannot eat", "a#sb", "a b"},
 		{"the sixteen written as letters", "#A#P", "\x10\x1F"},
-		{"the escapes of 1991 are read too", `\n\b\k\g\t\f`,
-			"\x0D\x0B\x0C\x0E\x0F\x7F"},
+		{
+			"the escapes of 1991 are read too", `\n\b\k\g\t\f`,
+			"\x0D\x0B\x0C\x0E\x0F\x7F",
+		},
 		{"a backslash on its own is a character", `C:\dir`, `C:\dir`},
 		{"ß shares its code with the forced space", "ß", "\x7F"},
 	} {
@@ -42,8 +46,11 @@ func TestDecode(t *testing.T) {
 	}{
 		{"plain text", []byte("Hello there."), "Hello there."},
 		{"a low code comes back as its letter", []byte("a\x1Aos"), "años"},
-		{"the control codes come back with a hash",
-			[]byte{0x0D, 0x0B, 0x0C, 0x0E, 0x0F, 0x7F}, "#n#b#k#g#t#f"},
+		{
+			"the control codes come back with a hash",
+			[]byte{0x0D, 0x0B, 0x0C, 0x0E, 0x0F, 0x7F},
+			"#n#b#k#g#t#f",
+		},
 		{"a graphic is not recomposed", []byte{0x0E, 0x7B, 0x0F}, "#g{#t"},
 		{"a backslash needs nothing done to it", []byte(`C:\dir`), `C:\dir`},
 	} {
