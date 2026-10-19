@@ -384,7 +384,7 @@ func (r *Reader) HeaderSize() int     { return r.headerSize }
 func (r *Reader) Version() byte       { return r.data[0] }
 func (r *Reader) Machine() byte       { return r.data[1] >> 4 }
 func (r *Reader) Language() byte      { return r.data[1] & 0x0F }
-func (r *Reader) NullWord() byte      { return r.data[2] }
+func (r *Reader) NullWord() byte      { return r.nullWord() }
 func (r *Reader) NumObjects() int     { return int(r.data[3]) }
 func (r *Reader) NumLocations() int   { return int(r.data[4]) }
 func (r *Reader) NumMessages() int    { return int(r.data[5]) }
@@ -872,6 +872,61 @@ func flatten(word string) string {
 
 		return r
 	}, word))
+}
+
+// Byte 2 of the header, and the one place a newer target put something else
+// there.
+//
+// It held the null word the /CTL section declares, which is why every classic
+// database has 95 in it: an underscore. The MSX2 interpreter needs to know
+// which screen mode it was built for and had no room anywhere else, so for
+// that machine the byte is the subtarget instead. See drb.php:1844.
+const (
+	machineMSX2     = 0x0F
+	classicNullWord = '_'
+	// What the subtarget byte holds: the screen mode as a number from zero,
+	// and bit 7 for the narrower character.
+	msx2ModeMask  = 0x7F
+	msx2FirstMode = 5 // the value zero means SCREEN 5
+	msx2EightWide = 0x80
+)
+
+// nullWord is the character the source writes for "no word".
+//
+// On MSX2 the byte it used to live in is the subtarget, so there is nothing to
+// read and the classic underscore is what the source gets. Reading it anyway
+// put an unprintable character in every entry of those databases, which is
+// what issue #6 was about.
+//
+// NOT VERIFIED AGAINST A REAL DATABASE. There is no MSX2 DDB in the corpus —
+// the only MSX edition we have is machine 4 — so what this rests on is drb.php
+// and nothing else. videoMode below has the same caveat.
+func (r *Reader) nullWord() byte {
+	if r.Machine() == machineMSX2 {
+		return classicNullWord
+	}
+
+	return r.data[2]
+}
+
+// VideoMode says which MSX2 screen the database was built for, and is empty on
+// every other machine because the byte means something else there.
+//
+// The mode is stored counting from SCREEN 5, and bit 7 asks for the narrower
+// character: see getSubMachineIDByTarget at drb.php:1248-1261.
+func (r *Reader) VideoMode() string {
+	if r.Machine() != machineMSX2 {
+		return ""
+	}
+
+	b := r.data[2]
+	width := 6
+
+	if b&msx2EightWide != 0 {
+		width = 8
+	}
+
+	return fmt.Sprintf("SCREEN %d, %d-pixel characters", int(b&msx2ModeMask)+msx2FirstMode, width)
 }
 
 // VocabularyEntry is one word of the vocabulary as the database stores it.

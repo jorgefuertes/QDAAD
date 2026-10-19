@@ -36,9 +36,19 @@ var wordKinds = [...]string{
 	"VERB", "ADVERB", "NOUN", "ADJECTIVE", "PREPOSITION", "CONJUGATION", "PRONOUN",
 }
 
+// The machines, by the number in the high nibble of header byte 1. The first
+// eight are the ones of 1991; MSX2 is here because it is the one machine that
+// changed what another header byte means, and knowing it is what keeps the
+// null word right. See Reader.nullWord.
+//
+// The other numbers drb.php hands out — 8 for the ZX81, 11 for CP/M, 13 for
+// the VGA256 interpreter and jDAAD, 14 for the Plus/4 — are left out. Nothing
+// in the corpus is one of them and none of them changes how a database is
+// read, so naming them here would be copying a table rather than reading one.
 var machineNames = map[byte]string{
 	0: "IBM PC", 1: "ZX Spectrum", 2: "Commodore 64", 3: "Amstrad CPC",
 	4: "MSX", 5: "Atari ST", 6: "Commodore Amiga", 7: "Amstrad PCW",
+	machineMSX2: "MSX2",
 }
 
 var languageNames = map[byte]string{0: "English", 1: "Spanish"}
@@ -421,6 +431,12 @@ func banner(r *Reader, source string) string {
 	add("Machine        : %s (%d)", nameOr(machineNames, r.Machine()), r.Machine())
 	add("Language       : %s (%d)", nameOr(languageNames, r.Language()), r.Language())
 	add("Null word      : %c", r.NullWord())
+
+	// The byte the null word used to live in says something else on MSX2, and
+	// saying what is the whole reason for reading it rather than ignoring it.
+	if mode := r.VideoMode(); mode != "" {
+		add("Video mode     : %s   (where a classic database keeps the null word)", mode)
+	}
 	// The database holds DAAD codes and the sources of the time were Latin-1.
 	// This output is UTF-8 so it can be read and edited on a modern machine;
 	// converting back is the emitter's job.
