@@ -1,9 +1,7 @@
 package decompiler
 
 import (
-	"fmt"
 	"os"
-	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -22,8 +20,8 @@ import (
 // walk between them comes from the table.
 //
 // This is the check the note in oldcondacts.go describes having done by hand
-// over La Aventura Original. Here it is as a test, over every database we can
-// open, so that the next table change has to answer to it.
+// over La Aventura Original. Here it is as a test, so that the next table
+// change has to answer to it.
 
 // databases are the ones the check runs over: a plain .DDB file each, so that
 // nothing about disks or archives is in the way.
@@ -33,43 +31,49 @@ import (
 // The number is pinned so that the check is a ratchet — a table change that
 // closes one has to say so here, and one that opens a new one fails.
 //
-// The two in La Aventura Original are the fourteen bytes of issue #8. The
-// twenty-one in El Jabato are a separate matter and were found by widening
-// this list: its interpreter is not the one shipped with La Aventura Original
-// and its condacts do not all take what ours say they take.
+// La Aventura Original is at zero since its interpreter was read and the
+// dialect taken from it. El Jabato is not: it shipped an interpreter of its
+// own, nobody has opened it, and twenty-one of its blocks do not line up under
+// any table we have.
 var databases = []struct {
 	name, path string
 	version    int
+	dialect    string
 	unresolved int
 }{
 	{
 		name:       "AO part 1",
 		path:       "../../../work/aventuras/La_Aventura_Original/PC/PART1.DDB",
 		version:    1,
-		unresolved: 1,
+		dialect:    "La Aventura Original",
+		unresolved: 0,
 	},
 	{
 		name:       "AO part 2",
 		path:       "../../../work/aventuras/La_Aventura_Original/PC/PART2.DDB",
 		version:    1,
-		unresolved: 1,
+		dialect:    "La Aventura Original",
+		unresolved: 0,
 	},
 	{
 		name:       "Jabato part 1",
 		path:       "../../../work/aventuras/El_Jabato/PC/CGA/PART1.DDB",
 		version:    1,
+		dialect:    "classic",
 		unresolved: 6,
 	},
 	{
 		name:       "Jabato part 2",
 		path:       "../../../work/aventuras/El_Jabato/PC/CGA/PART2.DDB",
 		version:    1,
+		dialect:    "classic",
 		unresolved: 9,
 	},
 	{
 		name:       "Jabato part 1, EGA",
 		path:       "../../../work/aventuras/El_Jabato/PC/Ega/PART1.DDB",
 		version:    1,
+		dialect:    "classic",
 		unresolved: 6,
 	},
 }
@@ -82,23 +86,42 @@ func TestEveryBlockEndsWhereTheNextBegins(t *testing.T) {
 			require.Equal(t, db.version == 1, r.OldFormat(),
 				"the test says this is version %d", db.version)
 
-			found := overruns(t, r)
-
-			if len(found) == db.unresolved {
-				return
-			}
+			require.Equal(t, db.dialect, r.dialect.name,
+				"the condact table deduced for this database")
 
 			// Either way round is worth failing for. More means a table change
 			// broke something; fewer means one was settled and the number here
 			// has to come down to say so, or the ratchet slips.
-			t.Errorf("%d blocks run over the next one, and %d is what this "+
-				"database is recorded as having", len(found), db.unresolved)
-
-			for _, overrun := range found {
-				t.Logf("  %s", overrun)
-			}
+			broken, over := r.blockFaults()
+			require.Zero(t, broken, "blocks that will not decode at all")
+			require.Equal(t, db.unresolved, over,
+				"blocks running over the one laid after them")
 		})
 	}
+}
+
+// The dialect is deduced and not declared, so the deduction is worth a test of
+// its own: the table that makes a database lie flat is the one it was built
+// with, and the two adventures do not pick the same one.
+func TestTheDialectIsTheOneThatMakesTheBlocksLineUp(t *testing.T) {
+	ao := openDatabase(t, "../../../work/aventuras/La_Aventura_Original/PC/PART1.DDB")
+
+	require.Equal(t, "La Aventura Original", ao.dialect.name)
+	broken, over := ao.blockFaults()
+	require.Zero(t, broken)
+	require.Zero(t, over)
+
+	// And under the other table it does not lie flat, which is what makes the
+	// choice a choice rather than a preference.
+	ao.dialect = v1Dialects[0]
+	_, over = ao.blockFaults()
+	require.Positive(t, over,
+		"the classic table leaves blocks running over their neighbour")
+
+	jabato := openDatabase(t, "../../../work/aventuras/El_Jabato/PC/CGA/PART1.DDB")
+
+	require.Equal(t, "classic", jabato.dialect.name,
+		"its interpreter is not the one La Aventura Original shipped")
 }
 
 func openDatabase(t *testing.T, path string) *Reader {
@@ -113,100 +136,4 @@ func openDatabase(t *testing.T, path string) *Reader {
 	require.True(t, ok, "%s does not read as a database", path)
 
 	return r
-}
-
-// overruns walks every block and reports the ones that run past the start of
-// the block after them.
-//
-// The process table is walked here rather than through Processes, because what
-// is being checked is where each block sits and that is the one thing the
-// decoded entry does not carry.
-func overruns(t *testing.T, r *Reader) map[int]string {
-	t.Helper()
-
-	const (
-		entrySize    = 4
-		endOfProcess = 0x00
-	)
-
-	type span struct {
-		process, entry int
-		start, end     int
-	}
-
-	var spans []span
-
-	table := r.Pointer(ptrProcesses)
-
-	for i := range r.NumProcesses() {
-		p := r.address(table + 2*i)
-		if !r.inRange(p, entrySize) {
-			break
-		}
-
-		for entry := 0; r.inRange(p, entrySize) && r.data[p] != endOfProcess; entry++ {
-			at := r.address(p + 2)
-
-			condacts, err := r.condactsAt(at)
-			require.NoError(t, err, "process %d entry %d", i, entry)
-
-			spans = append(spans, span{
-				process: i,
-				entry:   entry,
-				start:   at,
-				end:     at + r.blockBytes(condacts),
-			})
-
-			p += entrySize
-		}
-	}
-
-	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
-
-	found := make(map[int]string)
-
-	for i := range spans {
-		// The next block that starts anywhere after this one. Two entries may
-		// share a block — the same pointer twice — and that is not an overrun.
-		next := -1
-
-		for j := i + 1; j < len(spans); j++ {
-			if spans[j].start > spans[i].start {
-				next = spans[j].start
-
-				break
-			}
-		}
-
-		if next < 0 || spans[i].end <= next {
-			continue
-		}
-
-		found[spans[i].start] = fmt.Sprintf(
-			"process %d entry %d: its block runs from %d to %d, over the block at %d, "+
-				"so something in it was read with the wrong number of operands",
-			spans[i].process, spans[i].entry, spans[i].start, spans[i].end, next)
-	}
-
-	return found
-}
-
-// blockBytes is how many bytes a decoded block took: an opcode and its operands
-// each, and the 0xFF after them unless the last condact ended the block itself.
-func (r *Reader) blockBytes(condacts []Condact) int {
-	if len(condacts) == 0 {
-		return 1
-	}
-
-	n := 0
-
-	for _, c := range condacts {
-		n += 1 + len(c.Params)
-	}
-
-	if def, found := r.Condact(condacts[len(condacts)-1].Opcode); found && def.Terminal {
-		return n
-	}
-
-	return n + 1
 }
