@@ -20,7 +20,7 @@ func (p *parser) processes() error {
 			return err
 		}
 
-		entries, err := p.entries()
+		entries, err := p.entries(number)
 		if err != nil {
 			return p.errorf("process %d: %w", number, err)
 		}
@@ -30,7 +30,13 @@ func (p *parser) processes() error {
 		}
 	}
 
-	return p.expectSection(SecEND)
+	if err := p.expectSection(SecEND); err != nil {
+		return err
+	}
+
+	// The labels come last because a SKIP may name one that is defined further
+	// down, and only here is there no further down left.
+	return p.resolvePending()
 }
 
 // entries reads the entries of one process, up to the next /PRO or /END.
@@ -38,10 +44,23 @@ func (p *parser) processes() error {
 // Several "> verb noun" lines in a row share the block that follows them. The
 // block is read once and given to each, which is how a source says "these two
 // sentences do the same thing" without writing it twice.
-func (p *parser) entries() ([]ddb.Entry, error) {
+func (p *parser) entries(process ddb.ID) ([]ddb.Entry, error) {
 	var out []ddb.Entry
 
 	for !p.atSection(SecPRO) && !p.atSection(SecEND) && p.peek().Kind != EOF {
+		// A label written before the entry sign names the entry about to be
+		// read. Several in a row are allowed, and so is one with nothing after
+		// it but the end of the process.
+		for p.peek().Kind == Label {
+			if err := p.defineLabel(p.next(), process, len(out)); err != nil {
+				return nil, err
+			}
+		}
+
+		if p.atSection(SecPRO) || p.atSection(SecEND) || p.peek().Kind == EOF {
+			break
+		}
+
 		var heads []ddb.Entry
 
 		for p.peek().Kind == Entry {
@@ -56,12 +75,27 @@ func (p *parser) entries() ([]ddb.Entry, error) {
 		}
 
 		if len(heads) == 0 {
-			return nil, p.errorf("an entry sign > expected, but %s is there", p.peek().Describe())
+			return nil, p.errorf("an entry sign > or a label expected, but %s is there",
+				p.peek().Describe())
 		}
 
-		block, err := p.condacts()
+		// Where the group starts is what a jump is measured from, and it is the
+		// first head even when several share the block: they share the operand
+		// too, so there is one answer to give and this is the one the compiler
+		// of reference gives.
+		first := len(out)
+
+		waiting := len(p.labels.pending)
+
+		block, err := p.condacts(process, first)
 		if err != nil {
 			return nil, err
+		}
+
+		// The block is finished, so it will not be reallocated under the
+		// references that have to patch it.
+		for i := waiting; i < len(p.labels.pending); i++ {
+			p.labels.pending[i].block = block
 		}
 
 		for i := range heads {
@@ -124,7 +158,10 @@ func (p *parser) entryWord(kind ddb.WordKind, convertible bool) (ddb.ID, error) 
 
 // condacts reads the block that follows an entry, up to whatever ends it: the
 // next entry, the next process, or the end of the source.
-func (p *parser) condacts() ([]ddb.Condact, error) {
+//
+// process and first say where the block is, which only the labels care about:
+// a jump is measured in entries and both ends of it have to be known.
+func (p *parser) condacts(process ddb.ID, first int) ([]ddb.Condact, error) {
 	var out []ddb.Condact
 
 	for {
@@ -133,8 +170,19 @@ func (p *parser) condacts() ([]ddb.Condact, error) {
 			return out, nil
 		}
 
+		// A label in the middle of a block names the entry after the one the
+		// block belongs to, and emits nothing itself.
+		//
+		// After the first head of the group and not after the last, which is
+		// what the compiler of reference does at USintactic.pas:740 and is
+		// worth knowing when several heads share a block: the label then lands
+		// on the second head rather than past them all.
 		if t.Kind == Label {
-			return nil, p.errorf("labels are not read yet")
+			if err := p.defineLabel(p.next(), process, first+1); err != nil {
+				return nil, err
+			}
+
+			continue
 		}
 
 		if t.Kind == Directive {
@@ -153,6 +201,11 @@ func (p *parser) condacts() ([]ddb.Condact, error) {
 		if !known {
 			return nil, p.errorf("%q is not a condact", name.Text)
 		}
+
+		// Where this condact is, for a label to be resolved against. It is set
+		// here rather than passed down because only one operand of one condact
+		// in the language has any use for it.
+		p.place = place{process: process, entry: first, condact: len(out)}
 
 		params, err := p.params(op, def)
 		if err != nil {
@@ -221,6 +274,12 @@ func (p *parser) operand(op ddb.Opcode, kind ddb.ParamKind) (ddb.ID, error) {
 		}
 	}
 
+	// A label names a place and not a number, so the only condact that can
+	// take one is the one that jumps.
+	if t.Kind == Label && !isSkip(op) {
+		return 0, p.errorf("$%s is a label, and SKIP is the only condact that takes one", t.Text)
+	}
+
 	if isSkip(op) {
 		return p.skipOffset()
 	}
@@ -238,8 +297,15 @@ func (p *parser) operand(op ddb.Opcode, kind ddb.ParamKind) (ddb.ID, error) {
 // A byte cannot hold a jump further back than 128, and the check is here
 // rather than left to the wrap: -200 would silently become 56 and jump the
 // wrong way.
+//
+// It is also the only operand that takes a label, which is the readable way of
+// writing the same thing: see labels.go.
 func (p *parser) skipOffset() (ddb.ID, error) {
 	t := p.next()
+
+	if t.Kind == Label {
+		return p.skipToLabel(t)
+	}
 
 	n, err := p.value(t)
 	if err != nil {

@@ -22,11 +22,21 @@ type parser struct {
 	symbols Symbols
 	opts    Options
 	db      *ddb.DDB
+	// labels are the names the processes jump to. They live on the parser and
+	// not on the database because a database has no labels: see labels.go.
+	labels labelTable
+	place  place
 }
 
 // Parse reads the token stream into a database.
 func Parse(res *Result, opts Options) (*ddb.DDB, error) {
-	p := &parser{toks: res.Tokens, symbols: res.Symbols, opts: opts, db: ddb.New()}
+	p := &parser{
+		toks:    res.Tokens,
+		symbols: res.Symbols,
+		opts:    opts,
+		db:      ddb.New(),
+		labels:  newLabelTable(),
+	}
 
 	p.db.Version = opts.Version
 	p.db.MachineID = opts.Machine

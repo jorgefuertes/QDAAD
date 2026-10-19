@@ -23,6 +23,7 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 readonly DRC_DIR="work/DRC"
+readonly TEMPLATES_DIR="work/daad-ready/ASSETS/TEMPLATES"
 readonly BUILD_DIR="tmp/compare-drf"
 readonly DRF="${BUILD_DIR}/drf"
 readonly QDAAD="${BUILD_DIR}/qdaad"
@@ -74,6 +75,16 @@ build_ours() {
 }
 
 # sources_to_check is what was asked for, or everything we have.
+#
+# The templates are worth having in here and not only our own decompilations.
+# Ours are written by one program and read by another, so a convention both
+# agree on and the format does not have would go unnoticed; the five DAAD READY
+# ships are the real thing, written by hand, and they are the only sources in
+# the corpus that use the escapes with a hash and the labels.
+#
+# The BLANK_ES.DSF under work/DRC is a different and smaller file — the copy
+# that repository carries, 11 KB against 19 — and it is kept because it is what
+# the comparison was built against.
 sources_to_check() {
 	if [[ $# -gt 0 ]]; then
 		printf '%s\n' "$@"
@@ -81,6 +92,7 @@ sources_to_check() {
 	fi
 
 	[[ -f ${DRC_DIR}/BLANK_ES.DSF ]] && echo "${DRC_DIR}/BLANK_ES.DSF"
+	find "${TEMPLATES_DIR}" -name 'BLANK_*.DSF' 2>/dev/null | sort
 	find work/decomp -name game.sce 2>/dev/null | sort
 }
 
@@ -93,7 +105,11 @@ compare_one() {
 	local source="$1"
 	local name work theirs ours from
 
-	name="$(echo "${source}" | sed -e 's|^work/decomp/||' -e 's|/game.sce$||' -e 's|^work/DRC/||')"
+	name="$(echo "${source}" | sed \
+		-e 's|^work/decomp/||' \
+		-e 's|/game.sce$||' \
+		-e 's|^work/DRC/|DRC/|' \
+		-e "s|^${TEMPLATES_DIR}/|template/|")"
 	work="${BUILD_DIR}/$(echo "${name}" | tr '/' '_')"
 	mkdir -p "${work}"
 
