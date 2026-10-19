@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/jorgefuertes/QDAAD/internal/charset"
 )
 
 // Obfuscation applied to every text byte and to every vocabulary word.
@@ -133,7 +135,7 @@ func (r *Reader) readsThrough() bool {
 
 		for _, text := range texts {
 			characters += len(text)
-			escapes += strings.Count(text, "\\")
+			escapes += strings.Count(text, "#")
 		}
 	}
 
@@ -164,6 +166,10 @@ func (r *Reader) readsThrough() bool {
 // read, the highest proportion is one escape in every ninety-six characters;
 // the nonsense above runs at one in thirteen. One in twenty-five sits clear of
 // both.
+//
+// The escape is counted by its hash, which is one per escape: internal/charset
+// writes "#n" and never doubles anything. A hash an adventure wrote itself is
+// counted too, and there is one in the sixty-six, which does not move a ratio.
 func readsLikeProse(characters, escapes int) bool {
 	const leastCharactersPerEscape = 25
 
@@ -435,7 +441,7 @@ func (r *Reader) readTokens() error {
 			raw = append(raw, b&0x7F)
 
 			if b&0x80 != 0 {
-				return tokenText(raw), nil
+				return charset.Decode(raw)
 			}
 		}
 	}
@@ -474,7 +480,7 @@ func (r *Reader) Text(addr int) (string, error) {
 		code := r.data[addr] ^ obfuscate
 		addr++
 
-		if code == codeEndOfText {
+		if code == charset.EndOfText {
 			return sb.String(), nil
 		}
 
@@ -489,7 +495,12 @@ func (r *Reader) Text(addr int) (string, error) {
 			continue
 		}
 
-		sb.WriteString(decodeChar(code))
+		decoded, err := charset.DecodeByte(code)
+		if err != nil {
+			return sb.String(), fmt.Errorf("text at %d: %w", addr-1, err)
+		}
+
+		sb.WriteString(decoded)
 	}
 
 	return sb.String(), errors.New("unterminated text: reached the end of the file")
@@ -885,7 +896,14 @@ func (r *Reader) readVocabulary() error {
 		var word strings.Builder
 
 		for _, b := range r.data[p : p+5] {
-			word.WriteString(decodeChar(b ^ obfuscate))
+			// looksLikeWord has already said these are letters, so a code with
+			// no source form here would mean that guard is wrong.
+			decoded, err := charset.DecodeByte(b ^ obfuscate)
+			if err != nil {
+				return fmt.Errorf("the vocabulary word at %d: %w", p, err)
+			}
+
+			word.WriteString(decoded)
 		}
 
 		entries = append(entries, VocabularyEntry{

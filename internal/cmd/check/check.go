@@ -25,6 +25,13 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// The two forms a text can come out in. Neither is a dialect of anybody
+// else's: they are our own output, read by a person or read by a program.
+const (
+	textSource  = "source"
+	textEncoded = "encoded"
+)
+
 func Command() *cli.Command {
 	return &cli.Command{
 		Name:      "check",
@@ -70,6 +77,13 @@ func Command() *cli.Command {
 				Usage: "Write the intermediate form instead of a summary.",
 			},
 			&cli.StringFlag{
+				Name:  "text",
+				Value: textSource,
+				Usage: "What form the texts come out in: " + textSource +
+					" keeps the spelling the author used, " + textEncoded +
+					" gives the codes a database holds them as.",
+			},
+			&cli.StringFlag{
 				Name:    "output",
 				Aliases: []string{"o"},
 				Usage:   "Where to write, standard output if left out.",
@@ -105,8 +119,18 @@ func checkAction(_ context.Context, cmd *cli.Command) error {
 		return summarize(db, res)
 	}
 
+	doc := legacy.NewDocument(db, res, opts)
+
+	switch form := cmd.String("text"); form {
+	case textSource:
+	case textEncoded:
+		doc.EncodeTexts()
+	default:
+		return fmt.Errorf("%q is not a text form: it is %s or %s", form, textSource, textEncoded)
+	}
+
 	var out bytes.Buffer
-	if err := legacy.NewDocument(db, res, opts).WriteJSON(&out); err != nil {
+	if err := doc.WriteJSON(&out); err != nil {
 		return err
 	}
 

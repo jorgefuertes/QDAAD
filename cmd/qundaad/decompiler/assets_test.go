@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const charset = "../../../work/aventuras/La_Aventura_Original/PC/PART1.CHR"
+const fontAsset = "../../../work/aventuras/La_Aventura_Original/PC/PART1.CHR"
 
 func readAsset(t *testing.T, path string) []byte {
 	t.Helper()
@@ -26,7 +26,7 @@ func readAsset(t *testing.T, path string) []byte {
 // The character sets carry the 128-byte header the Amstrad tooling put on its
 // binaries, and it is recognised by its own checksum rather than by its size.
 func TestAmsdosHeaderIsRecognised(t *testing.T) {
-	data := readAsset(t, charset)
+	data := readAsset(t, fontAsset)
 	require.Len(t, data, amsdosHeaderSize+fontSize)
 
 	body := withoutAmsdosHeader(data)
@@ -42,7 +42,7 @@ func TestAmsdosHeaderIsRecognised(t *testing.T) {
 // of other people's tools. Codes 16 to 31 are where DAAD keeps the letters
 // Spanish needs and ASCII has not.
 func TestGlyphsAreTheDaadCharset(t *testing.T) {
-	font := withoutAmsdosHeader(readAsset(t, charset))
+	font := withoutAmsdosHeader(readAsset(t, fontAsset))
 
 	glyph := func(code int) []byte { return font[code*glyphHeight : (code+1)*glyphHeight] }
 
@@ -89,7 +89,7 @@ func nrgba(c color.RGBA) color.NRGBA {
 }
 
 func TestFontAtlasSize(t *testing.T) {
-	img := fontAtlas(withoutAmsdosHeader(readAsset(t, charset)))
+	img := fontAtlas(withoutAmsdosHeader(readAsset(t, fontAsset)))
 
 	bounds := img.Bounds()
 	require.Equal(t, atlasAcross*glyphHeight, bounds.Dx())
@@ -133,7 +133,7 @@ func TestEgaScreenCombinesThePlanes(t *testing.T) {
 // A picture is only written for what can be drawn. The archives of
 // illustrations cannot be yet, and are saved as they came.
 func TestOnlyWhatCanBeDrawnIsDrawn(t *testing.T) {
-	_, drawn := draw(asset{name: "PART1.CHR", data: readAsset(t, charset)})
+	_, drawn := draw(asset{name: "PART1.CHR", data: readAsset(t, fontAsset)})
 	require.True(t, drawn)
 
 	_, drawn = draw(asset{name: "PART1.CGA", data: make([]byte, 78840)})

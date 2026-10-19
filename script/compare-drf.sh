@@ -105,6 +105,14 @@ compare_one() {
 	convert_tree "${from}" "${work}/utf8" "UTF-8"
 	drop_tok "${work}/latin1"
 
+	# There is nothing to compare against when the source itself cannot be put
+	# into the only encoding drf reads.
+	if [[ ! -f ${work}/latin1/$(basename "${source}") ]]; then
+		yellow "SKIP ${name}: it does not fit in ISO-8859-1, which is all drf reads"
+
+		return 2
+	fi
+
 	# drf wants to be run beside the source: #include paths are relative.
 	# Its arguments go target, subtarget, input, output — see drf.pas:325-337.
 	# Only four machines take a subtarget there, and passing one to any other
@@ -130,7 +138,13 @@ compare_one() {
 		return 2
 	fi
 
-	if ! "${QDAAD}" check --json -m "${TARGET}" -s "${SUBTARGET}" \
+	# --text=encoded is what makes the texts comparable. Their front end
+	# resolves the character set before it writes its JSON, so ours has to be
+	# asked for the same form; without it every accented letter and every
+	# escape reads as a difference. It is also the form that says whether an
+	# escape was understood at all, which is the one thing the comparison could
+	# not see while this tool did the conversion itself.
+	if ! "${QDAAD}" check --json --text=encoded -m "${TARGET}" -s "${SUBTARGET}" \
 		--date "${WHEN}" -o "${ours}" \
 		"${work}/utf8/$(basename "${source}")" >"${work}/qdaad.log" 2>&1; then
 		red "FAIL ${name}: we would not read it"
@@ -172,8 +186,18 @@ convert_tree() {
 
 		if [[ ${have} == "${want}" ]]; then
 			cp "${file}" "${to}/$(basename "${file}")"
-		else
-			iconv -f "${have}" -t "${want}" "${file}" >"${to}/$(basename "${file}")"
+
+			continue
+		fi
+
+		# A file that will not convert is left out rather than written half.
+		# It happens one way only: the German and English templates hold
+		# characters ISO-8859-1 has no room for, so there is no copy of them
+		# drf could read, and a truncated one would be reported as a missing
+		# /END instead of as what it is.
+		if ! iconv -f "${have}" -t "${want}" "${file}" >"${to}/$(basename "${file}")" 2>/dev/null; then
+			rm -f "${to}/$(basename "${file}")"
+			yellow "  ${file} does not fit in ${want}, leaving it out"
 		fi
 	done < <(find "${from}" -maxdepth 1 -type f \( -name '*.sce' -o -name '*.DSF' -o -name '*.dsf' \))
 }

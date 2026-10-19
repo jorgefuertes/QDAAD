@@ -961,14 +961,16 @@ func textSection(tag, title string, pointer int, count func(*Reader) int) func(*
 		fmt.Fprintf(&sb, "; %s. Numbering must stay consecutive from zero.\n", title)
 		sb.WriteString("; Each text goes whole on its line, between quotes, so nothing in it\n")
 		sb.WriteString("; can be mistaken for the start of the next one. A carriage return\n")
-		sb.WriteString("; inside a text is written \\n.\n\n")
+		sb.WriteString("; inside a text is written #n.\n\n")
 		sb.WriteString(tag)
 		sb.WriteString("\n")
 
 		for i, text := range texts {
-			// The quotes need no escaping inside: the compiler reads from the
+			// The text is already in source form: internal/charset wrote the
+			// escapes when it decoded it, so there is nothing left to do to it.
+			// The quotes need no escaping either — the compiler reads from the
 			// first quote of the line to the last, so a text may hold them.
-			fmt.Fprintf(&sb, "/%d \"%s\"\n", i, sourceText(text))
+			fmt.Fprintf(&sb, "/%d \"%s\"\n", i, text)
 		}
 
 		return sb.String(), nil

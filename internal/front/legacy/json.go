@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/jorgefuertes/QDAAD/internal/charset"
 	"github.com/jorgefuertes/QDAAD/internal/ddb"
 )
 
@@ -200,6 +201,26 @@ func NewDocument(db *ddb.DDB, res *Result, opts Options) *Document {
 		XMessages:    []DocText{},
 		OtherStrings: []DocText{},
 		Processes:    docProcesses(db),
+	}
+}
+
+// EncodeTexts puts every text through the character set, so that what the
+// document carries is the codes a database holds rather than the spelling the
+// author used.
+//
+// It is a separate step and not part of NewDocument because both forms are
+// worth having. The source form is the one to read: "#n" says what it is where
+// a carriage return would be invisible. The encoded form is the one to compare
+// and the one a database emitter needs, and it is the only one that says
+// whether an escape was understood — two front ends that both leave "#n" alone
+// agree without either having read it.
+func (d *Document) EncodeTexts() {
+	for _, table := range [][]DocText{
+		d.Messages, d.Sysmess, d.Locations, d.Objects, d.XMessages, d.OtherStrings,
+	} {
+		for i := range table {
+			table[i].Text = charset.Encode(table[i].Text)
+		}
 	}
 }
 

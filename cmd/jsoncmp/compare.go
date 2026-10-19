@@ -111,25 +111,25 @@ func compareVocabulary(theirs, ours []vocWord) []string {
 // The number is the key here and not the text, because a text table is indexed
 // by position in the binary: message 7 has to be message 7 on both sides or
 // every condact that shows it shows the wrong thing.
-// Their side arrives with the character set already resolved and ours does
-// not, so ours is put through the same conversion first. See charset.go.
+//
+// Both sides arrive with the character set already resolved — theirs because
+// its front end does it, ours because qdaad check was asked for the encoded
+// form — so there is nothing to convert here. This tool used to do the
+// conversion itself, which was the one thing that kept it from being a
+// comparison: two texts it had encoded the same way agreed whether or not
+// either front end had understood the escapes in them.
 func compareTexts(theirs, ours []text) []string {
-	index := func(texts []text, encode bool) map[string]string {
+	index := func(texts []text) map[string]string {
 		out := make(map[string]string, len(texts))
 
 		for _, t := range texts {
-			body := t.Text
-			if encode {
-				body = daadEncode(body)
-			}
-
-			out[fmt.Sprint(t.Value)] = strings.TrimRight(body, " \t")
+			out[fmt.Sprint(t.Value)] = strings.TrimRight(t.Text, " \t")
 		}
 
 		return out
 	}
 
-	return compareMaps("entry", index(theirs, false), index(ours, true),
+	return compareMaps("entry", index(theirs), index(ours),
 		func(s string) string { return fmt.Sprintf("%q", s) })
 }
 
