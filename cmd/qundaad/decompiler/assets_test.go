@@ -352,16 +352,62 @@ func TestArchiveShapesDoNotCross(t *testing.T) {
 	require.False(t, ok, "nor is it little-endian")
 }
 
-// A picture whose header does not say it is compressed, or whose body ends
-// before the mask, is not one we can read.
+// An archive is cut by the offsets in its table, so a body is whatever lies
+// between two of them and some of those are not pictures at all. What keeps a
+// run of bytes from being read as one is that its header has to agree with
+// itself.
 func TestUnpackRejectsRubbish(t *testing.T) {
 	layout := daadLayouts[0]
 
+	// Not compressed, and the length says nothing: 240 by 96 would need 11520
+	// bytes and the header claims none.
 	_, _, _, ok := unpackDAAD([]byte{0x00, 0xF0, 0x00, 0x60, 0x00, 0x00, 0x00, 0x00}, layout)
-	require.False(t, ok, "the flag says it is not compressed")
+	require.False(t, ok, "the length does not match the size")
 
 	_, _, _, ok = unpackDAAD([]byte{0x80, 0xF0, 0x00, 0x60}, layout)
 	require.False(t, ok, "too short to hold the mask")
+
+	// A width that is not a whole number of eight-pixel groups cannot be one
+	// either, however well the rest adds up.
+	_, _, _, ok = unpackDAAD([]byte{0x00, 0x04, 0x00, 0x02, 0x00, 0x04, 0, 0, 0, 0}, layout)
+	require.False(t, ok, "four pixels wide is not a group")
+}
+
+// A picture stored without compression is read, which is what issue #4 was
+// about: the credits screen of Cozumel and the frame of Chichén Itzá were
+// coming out as "?" with no drawing.
+//
+// The body needs no undoing — it is already row by row, eight pixels at a
+// time, a byte from each of the four planes — so what this checks is that the
+// header is believed and the bytes handed back untouched.
+func TestUnpackReadsAnUncompressedPicture(t *testing.T) {
+	layout := daadLayouts[0]
+
+	// Eight by two: one group of four bytes per row.
+	body := []byte{
+		0x00, 0x08, // width
+		0x00, 0x02, // height
+		0x00, 0x08, // length, which is 8/2*2
+		0xFF, 0x00, 0x00, 0x00, // first row, every pixel colour 1
+		0x00, 0xFF, 0x00, 0x00, // second row, every pixel colour 2
+	}
+
+	width, height, planes, ok := unpackDAAD(body, layout)
+	require.True(t, ok)
+	require.Equal(t, 8, width)
+	require.Equal(t, 2, height)
+	require.Equal(t, body[daadImageHeader:], planes, "the body is handed back as it lies")
+
+	// And it draws: the two rows come out in the two colours the planes name.
+	var palette [degasColours]color.NRGBA
+	palette[1] = color.NRGBA{R: 0x11, A: 0xFF}
+	palette[2] = color.NRGBA{G: 0x22, A: 0xFF}
+
+	img, drawn := daadPicture(body, palette, layout)
+	require.True(t, drawn)
+	require.Equal(t, palette[1], img.At(0, 0))
+	require.Equal(t, palette[1], img.At(7, 0))
+	require.Equal(t, palette[2], img.At(0, 1))
 }
 
 // TestPCPictureLayoutsDiffer covers the mistake that was made and corrected: a

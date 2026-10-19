@@ -120,6 +120,13 @@ type slot struct {
 	offset   int
 	palette  string // empty where the archive keeps no palette
 	colours  []byte // the same, as it lies, for drawing
+	// placement is where the picture goes and how, already written out.
+	// Empty where the archive does not say — a PC one does not.
+	//
+	// It belongs to the slot and not to the picture, and the difference is
+	// real: in Cozumel and Los Templos Sagrados one drawing is the inventory
+	// box, and six locations point at it to have it put in six places.
+	placement string
 }
 
 // cut turns the slots into pieces, working out the size of each illustration
@@ -159,6 +166,28 @@ func cut(data []byte, slots []slot, header string,
 		}
 	}
 
+	// Where each picture goes, and which locations asked for it to go there.
+	// Kept per placement rather than per picture because one drawing can be
+	// put in several places: see slot.placement.
+	placements := map[int]map[string][]int{}
+	placementOrder := map[int][]string{}
+
+	for _, s := range slots {
+		if s.placement == "" {
+			continue
+		}
+
+		if placements[s.offset] == nil {
+			placements[s.offset] = map[string][]int{}
+		}
+
+		if _, seen := placements[s.offset][s.placement]; !seen {
+			placementOrder[s.offset] = append(placementOrder[s.offset], s.placement)
+		}
+
+		placements[s.offset][s.placement] = append(placements[s.offset][s.placement], s.location)
+	}
+
 	var (
 		pieces []piece
 		index  strings.Builder
@@ -185,6 +214,19 @@ func cut(data []byte, slots []slot, header string,
 
 		if p := palettes[at]; p != "" {
 			fmt.Fprintf(&index, ";        palette %s\n", p)
+		}
+
+		// One line where every location puts the picture in the same place,
+		// and one per place where they do not — with the locations named, since
+		// that is the only thing that tells them apart.
+		for _, where := range placementOrder[at] {
+			if len(placementOrder[at]) == 1 {
+				fmt.Fprintf(&index, ";        %s\n", where)
+
+				continue
+			}
+
+			fmt.Fprintf(&index, ";        %s  at %v\n", where, placements[at][where])
 		}
 
 		cut := piece{data: body}
@@ -295,10 +337,11 @@ func daadArchiveAs(data []byte, layout archiveLayout) ([]piece, string, bool) {
 		}
 
 		slots = append(slots, slot{
-			location: i,
-			offset:   offset,
-			palette:  strings.Join(colours, " "),
-			colours:  data[at+daadPaletteAt : at+daadPaletteAt+2*degasColours],
+			location:  i,
+			offset:    offset,
+			palette:   strings.Join(colours, " "),
+			colours:   data[at+daadPaletteAt : at+daadPaletteAt+2*degasColours],
+			placement: layout.placementOf(data, at),
 		})
 	}
 
@@ -322,11 +365,17 @@ func daadArchiveAs(data []byte, layout archiveLayout) ([]piece, string, bool) {
 
 	header := fmt.Sprintf(
 		"; Illustrations taken out of a %s archive: %d bit planes, %d of them.\n"+
-			"; The bodies are compressed by the interpreter's own scheme, so they are\n"+
-			"; written as they lie, with the drawing beside them. Each opens with three\n"+
-			"; words: a flag and the width, the height, and the length; then the mask\n"+
-			"; that says which colours carry a run length.\n"+
-			"; The palettes below are four bits to a component.",
+			"; The bodies are written as they lie, with the drawing beside them. Each\n"+
+			"; opens with three words: a flag and the width, the height, and the length.\n"+
+			"; Most are compressed by the interpreter's own scheme, and then a fourth\n"+
+			"; word follows: the mask that says which colours carry a run length. Where\n"+
+			"; the flag is clear there is no mask and the body is the pixels themselves.\n"+
+			"; The palettes below are four bits to a component.\n"+
+			"; Under each picture is where its locations put it. A fixed one is drawn at\n"+
+			"; its own coordinates and the window takes them; a floating one is drawn in\n"+
+			"; the window as it stands, so the coordinates are only where it was cut from\n"+
+			"; the artist's sheet. \"buffer\" means it is loaded at the start. One drawing\n"+
+			"; put in more than one place has a line per place, naming the locations.",
 		machine, layout.word(data, 0), layout.word(data, 4))
 
 	return cut(data, slots, header,
@@ -345,6 +394,65 @@ func daadArchiveAs(data []byte, layout archiveLayout) ([]piece, string, bool) {
 
 			return daadPicture(body, degasPalette(palette), layout)
 		})
+}
+
+// What a slot of a .DAT says about its picture besides where the bytes are:
+// four words between the offset and the palette.
+//
+// The meanings are the DMG chapter of the 1991 manual — its "Fix/float",
+// "Nobuff/buffer" and "Palette range" options — matched against what the disks
+// hold. Reported, with the reading, in issue #3.
+const (
+	daadFlagsAt    = 4
+	daadXAt        = 6
+	daadYAt        = 8
+	daadRangeAt    = 10
+	daadFullRange  = 0x000F // every colour of the sixteen
+	daadFloating   = 1 << 0
+	daadBuffered   = 1 << 1
+	daadKnownFlags = daadFloating | daadBuffered
+)
+
+// placementOf writes out where a slot puts its picture.
+//
+// Fixed and floating are the distinction that matters. A fixed picture is
+// always drawn at its own coordinates and the current window takes its position
+// and size from it; a floating one is drawn in the window as it stands and
+// clipped. So the coordinates of a floating picture are where it was cut from
+// the artist's sheet and the interpreter never uses them, which is why they are
+// written in brackets rather than as a position.
+//
+// Two things here are not understood and so are not translated. Bit 2 is set in
+// every record of the later adventures and in none of the earlier, which says
+// more about the generation than about the picture; and the palette range is
+// 0x000F in every record of every archive we have. Both are printed only when
+// they are not what is always there, so that the day one differs it is visible
+// rather than buried under four hundred lines saying the usual.
+func (l archiveLayout) placementOf(data []byte, at int) string {
+	flags := l.word(data, at+daadFlagsAt)
+	x, y := l.word(data, at+daadXAt), l.word(data, at+daadYAt)
+
+	var out strings.Builder
+
+	if flags&daadFloating != 0 {
+		fmt.Fprintf(&out, "float (cut from %d,%d)", x, y)
+	} else {
+		fmt.Fprintf(&out, "fixed %d,%d", x, y)
+	}
+
+	if flags&daadBuffered != 0 {
+		out.WriteString(" buffer")
+	}
+
+	if rest := flags &^ daadKnownFlags; rest != 0 {
+		fmt.Fprintf(&out, " flags %04x", flags)
+	}
+
+	if r := l.word(data, at+daadRangeAt); r != daadFullRange {
+		fmt.Fprintf(&out, " palette range %04x", r)
+	}
+
+	return out.String()
 }
 
 // The header on each 68000 illustration: three words holding a flag and the
@@ -376,7 +484,7 @@ func unpackDAAD(body []byte, layout archiveLayout) (int, int, []byte, bool) {
 
 	first := layout.word(body, 0)
 	if first&daadCompressed == 0 {
-		return 0, 0, nil, false
+		return rawDAAD(body, layout)
 	}
 
 	width, height := first&^daadCompressed, layout.word(body, 2)
@@ -483,6 +591,44 @@ func unpackDAAD(body []byte, layout archiveLayout) (int, int, []byte, bool) {
 	}
 
 	return width, height, out, true
+}
+
+// rawDAAD reads an illustration that was stored without compression.
+//
+// The compression bit of the first word is clear and the third word is the
+// length, which is the width halved times the height — two pixels to a byte.
+// After it the body is already what the compressed one unpacks into: row by
+// row, eight pixels at a time, a byte from each of the four planes. So there is
+// nothing to undo, only to hand back.
+//
+// These were coming out as "?" in the index with no drawing beside them, and
+// some of them are not minor: the credits screen of Cozumel, its "Estás
+// muerto", and the pieces of the frame in Chichén Itzá. Reported as issue #4.
+//
+// The checks are what keeps this from claiming things that are not pictures.
+// An archive is cut by the offsets in its table, so a body is whatever lies
+// between two of them, and some of those are not drawings at all — the six
+// bytes at the end of the second part of El Jabato are nothing, and sounds may
+// be in there too. A width that is a whole number of eight-pixel groups, a
+// length that is exactly the size the dimensions ask for, and a body long
+// enough to hold it, together leave very little room for a false reading.
+func rawDAAD(body []byte, layout archiveLayout) (int, int, []byte, bool) {
+	width, height := layout.word(body, 0), layout.word(body, 2)
+	length := layout.word(body, 4)
+
+	if width == 0 || width%daadGroupBits != 0 || width > screenWidth {
+		return 0, 0, nil, false
+	}
+
+	if height == 0 || height > screenHeight {
+		return 0, 0, nil, false
+	}
+
+	if size := width / 2 * height; length != size || daadImageHeader+size > len(body) {
+		return 0, 0, nil, false
+	}
+
+	return width, height, body[daadImageHeader : daadImageHeader+length], true
 }
 
 // daadPicture draws an unpacked illustration in the palette its slot carries.
