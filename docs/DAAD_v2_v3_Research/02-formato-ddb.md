@@ -104,6 +104,63 @@ V3CODE := DDBHeader.version = 3;
 el mismo tamaño (2038 bytes) y difieren **en un único byte: el offset `0x00`**. Es la prueba
 más directa de que v3 no cambia el formato. Ver [07-daad-v3.md](07-daad-v3.md).
 
+#### Qué versión lleva cada aventura
+
+Las 5 aventuras de Aventuras AD que sabemos descompilar, con el byte `0x00` leído de sus
+propias bases:
+
+| Aventura | Byte `0x00` | Ediciones en el corpus | Año | Fuente del año |
+|---|---|---|---|---|
+| La Aventura Original | **1** | 14 | 1989 | `PC/file_id.diz`, `AmstradCPC/ORIGINAL.TXT` |
+| El Jabato | **1** | 10 | 1989 | `AmstradCPC/file_id.diz`, `PC/CGA/JABATO.INF` |
+| Cozumel | 2 | 17 | 1990 | pantalla de créditos de la propia aventura |
+| Los Templos Sagrados | 2 | 14 | 1990-91 | `PC/KARNEVI.NFO` |
+| Chichén Itzá | 2 | 12 | — | sin fuente en el material que tenemos |
+
+El byte dice 1 o 2, que es el **formato**. La **build de DAAD** solo está documentada en una de
+ellas, en `El_Jabato/PC/CGA/JABATO.INF` (el fichero está en CP437):
+
+> Aventura grafico-conversacional, desarrollada con el parser DAAD, Versión 1.1
+
+Así que El Jabato se construyó con DAAD 1.1 y La Aventura Original con una build anterior, sin
+precisar cuál. Las dos escriben formato 1.
+
+#### Lo que cambia entre el formato 1 y el 2
+
+No es solo el byte. **4 condactos toman menos operandos en el formato 1**, y leerlos con la
+tabla de v2 descoloca el resto del bloque en silencio:
+
+| Opcode | Condacto | Operandos en v1 | En v2 |
+|---|---|---|---|
+| 19 | `DESC` | 0 | 1 |
+| 26 | `LOAD` | 0 | 1 |
+| 73 | `PARSE` | 0 | 1 |
+| 86 | `MOUSE` | 1 | 2 |
+
+Y los opcodes 56 a 59 son otros condactos, la familia `COPY`, con 2 operandos cada uno.
+Todo ello está en `cmd/qundaad/decompiler/oldcondacts.go`.
+
+Cómo se zanjó, porque la vía obvia no sirvió: el intérprete de La Aventura Original (`AD.EXE`,
+en el mismo directorio que sus 2 bases) se desensambló y su bucle de condactos deja ver 2 cosas
+firmes —el bit 7 del opcode es la indirección, y cada manejador declara cuántos operandos tomó
+por cuál de 2 salidas usa—, pero recorrer los 109 manejadores sugirió 10 aridades distintas y
+**8 eran falsas**: cuadraban en esa aventura y hacían ilegible El Jabato.
+
+Lo que decide es la **disposición**. Cada entrada alcanza su bloque por un puntero propio y los
+bloques van uno tras otro, así que un bloque que se pasa del comienzo del siguiente se leyó con
+la aridad mal: las 2 direcciones salen del binario y el recorrido entre ellas sale de la tabla.
+Con las 4 aridades de arriba, las 5 bases de formato 1 que tenemos sueltas —2 de La Aventura
+Original y 3 de El Jabato— encajan sin un solo bloque pasado. Es la comprobación de
+`cmd/qundaad/decompiler/arity_test.go`.
+
+De ahí sale lo útil para quien lea esto: **el formato 1 se comporta como uno solo**. Dos
+aventuras con builds distintas de DAAD y con intérpretes distintos coinciden en las 4 aridades,
+así que no hace falta distinguir por aventura.
+
+Queda 1 sin resolver, anotado en el código: `CALL` (101) se lee con 2 operandos porque una
+dirección son 16 bits, pero aparece una sola vez por base y en un bloque que encaja con
+cualquiera de las 2 lecturas, así que la disposición no lo decide.
+
 ### 2.2 Byte `0x01` — máquina e idioma
 
 Nibble alto = identificador de máquina (`getMachineIDByTarget`, `drb.php:1264-1280`):
