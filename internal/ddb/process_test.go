@@ -221,3 +221,65 @@ func TestProcessesAddCondactDoesNotAliasParams(t *testing.T) {
 		require.Equal(t, Param{Value: 200}, condact.Params[1], "condact %d", i)
 	}
 }
+
+// A process number is a position in a table, not a name. The interpreter's
+// PROCESS 7 indexes the seventh process the linker laid; it does not look one
+// up. So a source free to write its processes in any order, and to skip a
+// number, has to come out of here in order and with the gap filled — or every
+// PROCESS past the gap calls something else, and nothing says so.
+func TestAProcessNumberIsItsPlaceInTheTable(t *testing.T) {
+	t.Run("out of order comes back in order", func(t *testing.T) {
+		var ps Processes
+
+		require.NoError(t, ps.NewLegacy(Process{ID: 5, Entries: entries("cinco")}))
+		require.NoError(t, ps.NewLegacy(Process{ID: 1, Entries: entries("uno")}))
+		require.NoError(t, ps.NewLegacy(Process{ID: 3, Entries: entries("tres")}))
+
+		require.Len(t, ps, 6, "zero to five, whatever order they arrived in")
+
+		for i := range ps {
+			require.Equal(t, ID(i), ps[i].ID)
+		}
+
+		require.Equal(t, entries("uno"), ps[1].Entries)
+		require.Equal(t, entries("tres"), ps[3].Entries)
+		require.Equal(t, entries("cinco"), ps[5].Entries)
+	})
+
+	t.Run("a gap is a process with nothing in it", func(t *testing.T) {
+		var ps Processes
+
+		require.NoError(t, ps.NewLegacy(Process{ID: 0, Entries: entries("cero")}))
+		require.NoError(t, ps.NewLegacy(Process{ID: 2, Entries: entries("dos")}))
+
+		require.Len(t, ps, 3)
+		require.Empty(t, ps[1].Entries, "nothing matches it and a PROCESS into it returns")
+	})
+
+	// Writing a number twice is not an error: the reference warns and
+	// concatenates, which is how a source splits one table over two files.
+	t.Run("the same number twice concatenates", func(t *testing.T) {
+		var ps Processes
+
+		require.NoError(t, ps.NewLegacy(Process{ID: 2, Entries: entries("primero")}))
+		require.NoError(t, ps.NewLegacy(Process{ID: 2, Entries: entries("segundo")}))
+
+		require.Len(t, ps, 3)
+		require.Len(t, ps[2].Entries, 2)
+	})
+
+	t.Run("past the last number there is no table", func(t *testing.T) {
+		var ps Processes
+
+		require.Error(t, ps.NewLegacy(Process{ID: MAX_PROCESS_ID + 1}))
+	})
+}
+
+// entries is one entry carrying a message, so that two processes can be told
+// apart by what is in them.
+func entries(name string) []Entry {
+	return []Entry{{
+		Verb: 1, Noun: 1,
+		Condacts: []Condact{{Opcode: 22, Params: []Param{{Value: ID(len(name))}}}},
+	}}
+}

@@ -357,3 +357,94 @@ Para generar v3, un compilador debe:
 Y **nada más**. Todo lo demás del binario es idéntico a v2.
 
 Qué intérpretes lo soportan y en qué grado: [08-interpretes.md](08-interpretes.md).
+
+---
+
+## 11. Portar una aventura de DAAD 1 al intérprete v3
+
+Todo lo anterior es de v2 a v3, que es un salto pequeño. De **DAAD 1** —La
+Aventura Original y Jabato, 1989— a v3 hay un salto de otra clase, y no está en
+el formato del fichero: está en **quién lleva el bucle del juego**.
+
+En DAAD 1 el bucle vive en el código del intérprete. Describe la localidad,
+pide la orden, la parsea, ejecuta la tabla de respuestas, mueve al jugador. Las
+tablas de la base de datos son las tres del PAW y nada más. El intérprete v3 no
+tiene bucle propio: apila el proceso 0 y ejecuta lo que encuentre, así que **el
+bucle hay que escribirlo en la base de datos**, y es lo que trae la plantilla
+oficial en sus procesos 0, 1, 2 y 6.
+
+De ahí que compilar un fuente descompilado de AO con `-v3` enlace a la primera
+y resetee la máquina: el intérprete ejecuta el proceso 0, que en AO es la tabla
+de respuestas, cuyas entradas esperan un verbo que todavía no se ha parseado.
+
+### 11.1 Renumerar las tablas
+
+| AO / DAAD 1 | v3 | Qué es |
+|---|---|---|
+| 0 | **5** | la tabla de respuestas |
+| 1 | **3** | tras describir la localidad (proceso 1 del PAW) |
+| 2 | **4** | cada turno (proceso 2 del PAW) |
+| 3…16 | **7…20** | subprocesos, que solo se desplazan |
+| — | 0, 1, 2, 6 | el bucle, los errores del parser y la inicialización |
+
+Hay que renumerar las cabeceras `/PRO n` **y el operando de cada `PROCESS n`**.
+
+Ojo con una cosa que no se ve: **el número de un proceso es su posición en la
+tabla, no su nombre**. `PROCESS 7` indexa el séptimo proceso que escribió el
+enlazador; no busca uno que se llame 7. Así que un fuente con los procesos
+desordenados, o con un hueco, se compila mal sin decir nada. La referencia lo
+resuelve guardándolos en un array indexado por el número y emitiendo del 0 al
+mayor que haya visto (`UProcess.pas:33-40`, `UJSONExport.pas:414`); un hueco
+sale como proceso vacío, que es un proceso perfectamente válido —no lo cumple
+nada y un `PROCESS` que caiga en él retorna—.
+
+### 11.2 El `DESC` a secas es un `RESTART`
+
+El `DESC` sin operando de DAAD 1 describe la localidad **y ahí acaba el turno**,
+como en el PAW. El `DESC` de v3 solo describe, y la entrada sigue cayendo en la
+siguiente.
+
+AO depende de eso en el sitio más visible que hay, el final de su tabla de
+respuestas:
+
+```
+> _  _   LT 33 14          ; el verbo es una dirección
+         MOVE 38
+         DESC               ; se movió: describe y se acabó
+
+> _  _   LT 33 14           ; si llegamos aquí es que no se movió
+         SYSMESS 7          ; "No puedes "
+         ...
+```
+
+Traducido literalmente, el jugador se mueve, ve la descripción nueva, y a
+continuación lee «No puedes ir al Este.». Y ponerle un `DONE` detrás tampoco
+vale: la descripción se imprimiría antes de tiempo. El equivalente v3 de
+«describe aquí y acaba el turno» es
+
+```
+CLS
+RESTART
+```
+
+porque `RESTART` reinicia el proceso 0 y **el proceso 0 es quien describe**. Es
+exactamente lo que hace la plantilla oficial después de un `MOVE`.
+
+### 11.3 Los mensajes de sistema casi encajan
+
+Las dos tablas tienen 63 mensajes y los papeles coinciden ranura por ranura en
+casi todas. Lo que cambia es que **DAAD 1 guarda fragmentos donde v3 guarda
+frases**, porque el intérprete de 1989 montaba la frase en código:
+
+| n | AO (DAAD 1) | v3 |
+|---|---|---|
+| 3 | `"ir al "` | `"#n"` |
+| 4 | `". "` | `"#n"` |
+| 7 | `"No puedes "` | `"No puedo ir en esa dirección."` |
+| 17-20 | `"Has dado "`, `" orden"`, `"es"`, `".#n"` | vacíos |
+
+Así que un andamiaje que haga `SYSMESS 7` esperando una frase imprime `No
+puedes ` y se queda ahí. En AO no hace falta tocar nada: su propia tabla de
+respuestas ya monta la frase entera —`SYSMESS 7`, `SYSMESS 3`, el nombre de la
+dirección desde `MES @200`, y `SYSMESS 4`— y lo que sobra es el camino de
+movimiento del proceso 1 de la plantilla, que nunca llega a ejecutarse.

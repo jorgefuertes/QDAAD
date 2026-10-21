@@ -57,20 +57,30 @@ func NewProcessStore() Processes {
 // gives the number — /PRO 7 — and may give them out of order, which the "add to
 // the last one" pair cannot do. A number seen twice concatenates, as the
 // compiler of reference does: it warns and carries on.
+//
+// The number is a position, not a name. PROCESS 7 does not look up a process
+// called 7: it indexes the seventh in the table the linker lays, so a source
+// that writes its processes out of order, or leaves a gap, has to end up with
+// them in order and the gap filled. The reference does this by keeping an
+// array indexed by the number and emitting 0 up to the highest one seen
+// (UProcess.pas:33-40, UJSONExport.pas:414), and this does the same with a
+// slice. An empty process is a perfectly good process: nothing matches it, and
+// a PROCESS that reaches it returns.
 func (ps *Processes) NewLegacy(p Process) error {
 	if p.ID > MAX_PROCESS_ID {
 		return qderror.ErrProcessIDOutOfRange
 	}
 
-	for i := range *ps {
-		if (*ps)[i].ID == p.ID {
-			(*ps)[i].Entries = append((*ps)[i].Entries, p.Entries...)
-
-			return nil
-		}
+	for int(p.ID) >= len(*ps) {
+		*ps = append(*ps, Process{ID: ID(len(*ps))})
 	}
 
-	*ps = append(*ps, p)
+	at := &(*ps)[p.ID]
+	at.Entries = append(at.Entries, p.Entries...)
+
+	if p.LabelID != 0 {
+		at.LabelID = p.LabelID
+	}
 
 	return nil
 }
