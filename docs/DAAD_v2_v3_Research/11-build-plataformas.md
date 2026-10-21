@@ -473,3 +473,84 @@ para hacerlo tiene que ser la repetición de números y no el tamaño, porque **
 discos con pistas de anchos legítimamente distintos**: el de Spectrum de La
 Aventura Original tiene 18 pistas de nueve sectores y 22 de diez, y ninguna de
 las dos cosas es un fallo.
+
+## 9. El mapa de memoria de una cinta de Spectrum 48K
+
+El único eslabón de la cadena de DAAD READY cuyo fuente no se publicó es
+`daadmaker.exe`, el que junta las piezas en el `.TAP`. El frontal es Pascal, el
+enlazador es PHP, el paginador de imágenes es PHP; el empaquetador es un binario
+de Windows. Así que esto no está leído de ningún sitio: está medido arrancando
+cintas en un emulador hasta que una funcionó.
+
+El resultado, que es lo que escribe [`internal/pack`](../../internal/pack):
+
+| Desde | Hasta | Qué |
+|---|---|---|
+| `0x6000` | `0x7BF2` | el intérprete, 7155 bytes |
+| `0x7BF3` | `0x83FF` | **su área de trabajo** |
+| `0x8400` | | la base de datos |
+| | `0xF7D0` | lo que sobre |
+| `0xF7D1` | `0xF7D6` | la tabla de imágenes |
+| `0xF7D7` | `0xFFFF` | `DAAD.SDG` |
+
+Y el cargador BASIC: `CLEAR 24575`, cuatro `LOAD "" CODE` y `RANDOMIZE USR
+24576`.
+
+De las cuatro direcciones solo una es una elección, y no nuestra:
+
+- **`0x8400` es de la base de datos.** El enlazador escribió cada puntero de
+  dentro como dirección absoluta contada desde ahí, así que cargarla en otro
+  sitio no la mueve, la rompe entera.
+- **`0x6000` es del intérprete**, que no es reubicable.
+- **El `.SDG` acaba en `0xFFFF`** porque el intérprete lee direcciones fijas
+  dentro de sus últimos bytes.
+- **La tabla de imágenes va justo debajo**, porque se recorre hacia abajo desde
+  su último byte.
+
+### 9.1 El `.SDG` no es opcional y no es de gráficos
+
+El nombre y la extensión dicen lo contrario, y por eso costó: una aventura sin
+una sola imagen necesita `DAAD.SDG` igual, y lo necesita más que a nada
+opcional. Sin él el intérprete lee sus propios punteros de memoria sin
+inicializar y se va a ninguna parte antes de imprimir un carácter —el PC acaba
+en `0xFFFF`, que es un reset—.
+
+Son 2089 bytes en tres partes: trece de cabecera, **una fuente de 256 glifos de
+8 bytes**, y una cola de punteros en los últimos 28. Los del final del todo:
+
+```
+0xFFF7: e4 f7    ; dónde empieza la fuente
+0xFFF9: e4 ff    ; y dónde acaba, 2048 bytes después
+```
+
+Esa fuente es la que se ve en pantalla, y es por lo que `qdaad` no acepta un
+fichero de charset aunque `daadmaker` sí lo acepte. La que lleva el `.SDG` es
+reconocible como `AD8x6.CHR` **con cambios**: la ranura `0x7F` en blanco —que es
+el espacio forzado y tiene que imprimir nada— y toda la mitad alta sustituida
+por los caracteres gráficos. Un `.CHR` crudo no es eso, así que escribirlo
+encima sería adivinar, y adivinando sale una `ß` donde se pidió un espacio.
+
+### 9.2 La tabla de imágenes existe aunque no haya imágenes
+
+`pager48k.php` la escribe siempre, y con cero imágenes son seis bytes. Se monta
+hacia delante y se vuelca del revés, porque el intérprete la recorre hacia
+abajo:
+
+| Orden de lectura | Bytes | Qué |
+|---|---|---|
+| 1 | `C0 00` | dónde se cargó la página 0, la de los datos de imagen |
+| 2 | `00 00` | cuántos bytes tiene |
+| 3 | `FF` | no hay más páginas |
+| 4 | — | tres bytes por imagen: su número y dónde empieza |
+| 5 | `FF` | no hay más imágenes |
+
+Las dos palabras se leen con el byte alto primero, al revés que todo lo demás en
+esta máquina, y es consecuencia del volcado invertido.
+
+Omitirla es el error que cuesta encontrar, porque **depende de la aventura**. La
+plantilla recortada de DRC arranca sin ella; la oficial de DAAD READY no, porque
+hace `PICTURE 0` antes de imprimir nada y sin tabla lee la RAM que haya ahí y
+salta a donde apunte. Con las dos bases de datos idénticas byte a byte a las de
+`drb`, y los dos JSON idénticos a los de `drf`, una cinta funcionaba y la otra
+reseteaba la máquina: lo que faltaba no estaba en ninguno de los dos oráculos,
+estaba en el empaquetado.

@@ -29,7 +29,7 @@ import (
 // tree, so that the desktop players can be left out by a build tag and actually
 // save their bytes. An //go:embed of the directory would carry them regardless.
 //
-//go:embed assets/zx48 assets/zx128 assets/zxplus3 assets/zxnext assets/zxuno
+//go:embed assets/zx assets/zx48 assets/zx128 assets/zxplus3 assets/zxnext assets/zxuno
 //go:embed assets/zxesxdos assets/cpc assets/c64 assets/cp4 assets/msx1
 //go:embed assets/msx2 assets/pcw assets/st assets/amiga assets/pc
 var classic embed.FS
@@ -81,10 +81,15 @@ type Runtime struct {
 // DPCWISF3.BIN all name the Spanish interpreter of their machine, and no rule
 // generates the five.
 var runtimes = map[Target]Runtime{
-	ZX48: {interpreter: map[language.Language]string{
-		language.LanguageEnglish: "zx48/DS48IE3.BIN",
-		language.LanguageSpanish: "zx48/DS48IS3.BIN",
-	}},
+	ZX48: {
+		interpreter: map[language.Language]string{
+			language.LanguageEnglish: "zx48/DS48IE3.BIN",
+			language.LanguageSpanish: "zx48/DS48IS3.BIN",
+		},
+		// DAAD.SDG is not optional and not only about graphics, whatever its
+		// name says. See pack.ZX48, where what it holds is written out.
+		companions: []string{"zx/DAAD.SDG"},
+	},
 	ZX128: {interpreter: map[language.Language]string{
 		language.LanguageEnglish: "zx128/DS128KE3.BIN",
 		language.LanguageSpanish: "zx128/DS128KS3.BIN",

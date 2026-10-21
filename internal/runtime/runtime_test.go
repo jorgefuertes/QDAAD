@@ -48,9 +48,13 @@ func TestCompanions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2, "the MSX needs its graphics database and its loader")
 
+	// The Spectrum's graphics stub is needed whether or not the adventure has
+	// any graphics: the interpreter reads its own pointers out of the last
+	// bytes of it. A build without it does not start.
 	got, err = runtime.Companions(runtime.ZX48)
 	require.NoError(t, err)
-	require.Empty(t, got, "a 48K Spectrum needs nothing beside the interpreter")
+	require.Contains(t, got, "DAAD.SDG")
+	require.NotEmpty(t, got["DAAD.SDG"])
 }
 
 // Only the two 68000 machines have a player of the newer kind.

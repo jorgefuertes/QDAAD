@@ -12,7 +12,17 @@ import (
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
 	"github.com/jorgefuertes/QDAAD/internal/front/legacy"
+	"github.com/jorgefuertes/QDAAD/internal/pack"
 	"github.com/urfave/cli/v3"
+)
+
+// What the compiler can be asked to write. The database is the compiler's own
+// output and the one every target has; a tape is that database with an
+// interpreter and a loader around it, which only some machines know how to
+// boot from.
+const (
+	formatDDB = "ddb"
+	formatTAP = "tap"
 )
 
 func Command() *cli.Command {
@@ -68,6 +78,14 @@ func Command() *cli.Command {
 				Aliases:  []string{"o"},
 				Usage:    "Output file for the compiled database, without extension.",
 			},
+			&cli.StringFlag{
+				Name:     "format",
+				Category: "files",
+				Aliases:  []string{"f"},
+				Value:    formatDDB,
+				Usage: "What to write: " + formatDDB + " for the database alone, or " +
+					formatTAP + " for a tape that boots it.",
+			},
 		},
 		Action: compileAction,
 	}
@@ -103,23 +121,62 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	format := cmd.String("format")
+
+	body, err := wrap(format, image, opts)
+	if err != nil {
+		return err
+	}
+
 	out := cmd.String("output")
 	if out == "" {
 		out = strings.TrimSuffix(source, path.Ext(source))
 	}
 
 	if path.Ext(out) == "" {
-		out += ".ddb"
+		out += "." + format
 	}
 
-	if err := os.WriteFile(out, image, 0o644); err != nil {
+	if err := os.WriteFile(out, body, 0o644); err != nil {
 		return err
+	}
+
+	if format == formatTAP {
+		fmt.Printf("%s: %d bytes of tape, %d of database laid at 0x%04X\n",
+			out, len(body), len(image), opts.Machine.BaseAddress(opts.Subtarget))
+
+		return nil
 	}
 
 	fmt.Printf("%s: %d bytes, laid at 0x%04X\n", out, len(image),
 		opts.Machine.BaseAddress(opts.Subtarget))
 
 	return nil
+}
+
+// wrap puts the database into whatever container was asked for.
+//
+// Only the 48K Spectrum is packed so far. The other machines refuse rather than
+// quietly writing the database under a .tap extension, which would load on
+// nothing and say so nowhere.
+func wrap(format string, image []byte, opts legacy.Options) ([]byte, error) {
+	switch format {
+	case formatDDB:
+		return image, nil
+	case formatTAP:
+		if opts.Machine != arch.ZX {
+			return nil, fmt.Errorf("a tape is a Spectrum thing and this is a %s build", opts.Machine)
+		}
+
+		if opts.Subtarget != "" && !strings.EqualFold(opts.Subtarget, "48k") {
+			return nil, fmt.Errorf("only the 48K Spectrum is packed into a tape so far, not the %s",
+				opts.Subtarget)
+		}
+
+		return pack.ZX48(image, opts.Language, "qdaad")
+	default:
+		return nil, fmt.Errorf("%q is not a format: it is %s or %s", format, formatDDB, formatTAP)
+	}
 }
 
 // options turns the flags into what the front end needs to know.
