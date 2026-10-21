@@ -5,15 +5,17 @@
 // — put the interpreter, the database and whatever else the machine needs into
 // the container it boots from, at the addresses it expects them.
 //
-// The reference does this with daadmaker.exe, a Windows program whose source
-// was never released. So unlike the front end and the linker, which are held
-// byte-for-byte against drf and drb, nothing here can be compared against
-// anything. What it can be held against is a machine: the layout below is the
-// one that boots, and it was arrived at by watching it do so.
+// The reference does this with daadmaker, whose source is DRC's
+// work/DRC/src/daadmaker.pas, and what is written here follows it: the same
+// addresses, the same three blocks, the same loader. That is what
+// script/compare-daadmaker.sh checks, and it is the third of the three
+// comparisons this repository rests on — the front end against drf, the linker
+// against drb, and the tape against daadmaker.
 package pack
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
@@ -29,6 +31,9 @@ import (
 //	       ..       whatever is left
 //	       ..       the image index, read downwards from its last byte
 //	     ..0xFFFF   the graphics stub, ending on the last byte of RAM
+//
+// The last two travel as one block, index first, because the index is only ever
+// read as the thing immediately below the stub (daadmaker.pas:312-326).
 //
 // Three of those four addresses are forced. The database's is the linker's
 // already — every pointer inside it was written as an absolute address from
@@ -59,20 +64,49 @@ const topOfMemory = 0x10000
 // interpreter reads its own pointers out of uninitialised memory and runs off
 // into nothing before printing a character.
 //
-// The font is why no charset file is passed here. The reference's daadmaker
-// takes one, and the font inside the stub is recognisably AD8x6.CHR with
-// changes: slot 0x7F blanked, which is the forced space and has to print as
-// nothing, and the whole upper half replaced with the graphics characters. A
-// raw .CHR is not that, so writing one over the stub's font would be a guess,
-// and a guess that prints ß wherever a forced space was asked for.
+// The font is the one that ends up on screen, and it is replaceable: a .CHR
+// file is written straight over it, 2048 bytes ending 28 bytes before the end
+// of the stub, which is to say just under the trailer (daadmaker.pas:320-325).
+// Every ZX build of DAAD READY passes AD8x6.CHR and so does this one, so the
+// stub's own font is never what is seen — which is why the two differ in a
+// hundred-odd glyphs and it does not matter.
+const (
+	// charsetSize is a font: 256 glyphs of 8 bytes.
+	charsetSize = 2048
+	// charsetTrailer is what follows the font inside the stub, and the only
+	// way the font's position is expressed. The reference counts 2076 back
+	// from the end of the stub and the index together, which is the same
+	// number written less plainly.
+	charsetTrailer = 2076 - charsetSize
+	// charsetHeader is the one a .CHR may carry. Some are 2048 bytes and some
+	// are 2048 plus this, and the longer kind is read past rather than
+	// refused.
+	charsetHeader = 128
+)
+
+// Options is what a tape can be told beyond the database itself.
+type Options struct {
+	// Language picks the interpreter. The Spectrum's carries its own system
+	// messages, so there is one per language and they are not interchangeable.
+	Language language.Language
+	// Name goes in the block headers, where the ROM shows it while loading.
+	// Ten characters, upper case, and the tenth is taken for a letter saying
+	// which part this is.
+	Name string
+	// Charset replaces the font the graphics stub carries. Empty takes the
+	// built-in AD8x6.CHR, which is what every ZX build of DAAD READY passes;
+	// the stub's own font is never what anybody sees.
+	Charset []byte
+}
 
 // ZX48 builds a .TAP for a 48K Spectrum.
 //
-// The tape is a BASIC loader and three CODE blocks. The loader takes the memory
-// above the interpreter out of BASIC's reach before loading anything into it,
-// which is the whole reason it cannot simply be three LOADs.
-func ZX48(database []byte, lang language.Language, name string) ([]byte, error) {
-	_, interpreter, err := runtime.Interpreter(runtime.ZX48, lang)
+// The tape is a BASIC loader and three CODE blocks: the interpreter, the
+// database, and the image index and graphics stub together. The loader takes
+// the memory above the interpreter out of BASIC's reach before loading anything
+// into it, which is the whole reason it cannot simply be three LOADs.
+func ZX48(database []byte, opts Options) ([]byte, error) {
+	_, interpreter, err := runtime.Interpreter(runtime.ZX48, opts.Language)
 	if err != nil {
 		return nil, err
 	}
@@ -91,10 +125,21 @@ func ZX48(database []byte, lang language.Language, name string) ([]byte, error) 
 	// loader puts it at and the addresses the linker wrote inside it cannot
 	// drift apart. A Spectrum's base does not depend on its subtarget.
 	databaseOrigin := int(arch.ZX.BaseAddress(""))
-	stubOrigin := topOfMemory - len(stub)
 
-	index := imageIndex(databaseOrigin + len(database))
-	indexOrigin := stubOrigin - len(index)
+	// The index and the stub are one block, index first, ending on the last
+	// byte of RAM.
+	top := append(imageIndex(databaseOrigin+len(database)), stub...)
+
+	charset := opts.Charset
+	if len(charset) == 0 {
+		charset = companions["AD8x6.CHR"]
+	}
+
+	if err := replaceCharset(top, charset); err != nil {
+		return nil, err
+	}
+
+	topOrigin := topOfMemory - len(top)
 
 	if end := interpreterOrigin + len(interpreter); end > databaseOrigin {
 		return nil, fmt.Errorf(
@@ -103,22 +148,25 @@ func ZX48(database []byte, lang language.Language, name string) ([]byte, error) 
 
 	// The one limit a real adventure will meet. There is no paging on a 48K
 	// and nothing to move out of the way: the database has to fit between the
-	// interpreter's workspace and the index, and if it does not, the build is
+	// interpreter's workspace and the stub, and if it does not, the build is
 	// for a bigger machine.
-	if end := databaseOrigin + len(database); end > indexOrigin {
+	if end := databaseOrigin + len(database); end > topOrigin {
 		return nil, fmt.Errorf(
-			"the database is %d bytes and %d is all there is between 0x%04X and the image index at 0x%04X",
-			len(database), indexOrigin-databaseOrigin, databaseOrigin, indexOrigin)
+			"the database is %d bytes and %d is all there is between 0x%04X and the graphics stub at 0x%04X",
+			len(database), topOrigin-databaseOrigin, databaseOrigin, topOrigin)
 	}
 
+	// The letter is the tenth character of the name, which is why the name has
+	// nine to itself. I for the interpreter, D for the database, G for the
+	// stub: daadmaker.pas:305-317.
 	parts := []struct {
-		at   int
-		body []byte
+		letter byte
+		at     int
+		body   []byte
 	}{
-		{interpreterOrigin, interpreter},
-		{databaseOrigin, database},
-		{indexOrigin, index},
-		{stubOrigin, stub},
+		{'I', interpreterOrigin, interpreter},
+		{'D', databaseOrigin, database},
+		{'G', topOrigin, top},
 	}
 
 	var loader media.BASIC
@@ -127,24 +175,62 @@ func ZX48(database []byte, lang language.Language, name string) ([]byte, error) 
 	// there up belongs to us. CLEAR also empties the variables and resets the
 	// stack, which is why nothing can usefully come before it.
 	loader.Clear(interpreterOrigin - 1)
-
-	for range parts {
-		loader.LoadCode()
-	}
-
+	loader.LoadCode(len(parts))
 	loader.RandomizeUSR(interpreterOrigin)
 
 	var tape media.TAP
 
-	tape.Program(name, loader.Bytes(), media.FirstLine)
+	tape.Program(blockName(opts.Name, 0), loader.Bytes(), media.FirstLine)
 
 	for _, part := range parts {
-		if err := tape.Code(name, part.at, part.body); err != nil {
+		if err := tape.Code(blockName(opts.Name, part.letter), part.at, part.body); err != nil {
 			return nil, err
 		}
 	}
 
 	return tape.Bytes(), nil
+}
+
+// blockName pads a name to the ten characters a tape header has room for and
+// puts the part's letter in the last of them. The program block keeps the plain
+// name, trailing spaces and all.
+func blockName(name string, letter byte) string {
+	padded := []byte(strings.ToUpper(name) + "          ")[:10]
+
+	if letter != 0 {
+		padded[9] = letter
+	}
+
+	return string(padded)
+}
+
+// replaceCharset writes a font over the one the graphics stub carries.
+//
+// The font sits 2076 bytes from the end of the block, which is the position the
+// reference computes and the one the stub's own trailer points at. A .CHR is
+// 2048 bytes, or that plus a 128-byte header which is read past.
+func replaceCharset(top, charset []byte) error {
+	if len(charset) == 0 {
+		return nil
+	}
+
+	switch len(charset) {
+	case charsetSize:
+	case charsetSize + charsetHeader:
+		charset = charset[charsetHeader:]
+	default:
+		return fmt.Errorf("a charset is %d bytes, or %d with a header, and this one is %d",
+			charsetSize, charsetSize+charsetHeader, len(charset))
+	}
+
+	at := len(top) - charsetSize - charsetTrailer
+	if at < 0 {
+		return fmt.Errorf("the graphics stub has no room for a font: %d bytes", len(top))
+	}
+
+	copy(top[at:], charset)
+
+	return nil
 }
 
 // imageIndex writes the table that says where the pictures are.

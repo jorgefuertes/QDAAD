@@ -67,6 +67,7 @@ func TestALoaderStartsAtItsFirstLine(t *testing.T) {
 	var basic BASIC
 
 	basic.Clear(0x5FFF)
+	basic.LoadCode(3)
 	basic.RandomizeUSR(0x6000)
 
 	var tape TAP

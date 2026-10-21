@@ -123,11 +123,6 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 
 	format := cmd.String("format")
 
-	body, err := wrap(format, image, opts)
-	if err != nil {
-		return err
-	}
-
 	out := cmd.String("output")
 	if out == "" {
 		out = strings.TrimSuffix(source, path.Ext(source))
@@ -135,6 +130,13 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 
 	if path.Ext(out) == "" {
 		out += "." + format
+	}
+
+	// The name the ROM shows while loading is the one the file was given,
+	// which is what the reference does too and the only name there is to use.
+	body, err := wrap(format, image, opts, name(out))
+	if err != nil {
+		return err
 	}
 
 	if err := os.WriteFile(out, body, 0o644); err != nil {
@@ -159,7 +161,7 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 // Only the 48K Spectrum is packed so far. The other machines refuse rather than
 // quietly writing the database under a .tap extension, which would load on
 // nothing and say so nowhere.
-func wrap(format string, image []byte, opts legacy.Options) ([]byte, error) {
+func wrap(format string, image []byte, opts legacy.Options, name string) ([]byte, error) {
 	switch format {
 	case formatDDB:
 		return image, nil
@@ -173,10 +175,15 @@ func wrap(format string, image []byte, opts legacy.Options) ([]byte, error) {
 				opts.Subtarget)
 		}
 
-		return pack.ZX48(image, opts.Language, "qdaad")
+		return pack.ZX48(image, pack.Options{Language: opts.Language, Name: name})
 	default:
 		return nil, fmt.Errorf("%q is not a format: it is %s or %s", format, formatDDB, formatTAP)
 	}
+}
+
+// name is the output file's own name, without its directory or extension.
+func name(out string) string {
+	return strings.TrimSuffix(path.Base(out), path.Ext(out))
 }
 
 // options turns the flags into what the front end needs to know.

@@ -1,4 +1,4 @@
-.PHONY: dist build test doc decomp-all decomp-ao recompile-all compare-drf compare-drb
+.PHONY: dist build test doc decomp-all decomp-ao recompile-all compare-drf compare-drb compare-daadmaker
 
 VERSION=$$(git describe --tags --abbrev=0)
 
@@ -88,6 +88,12 @@ compare-drf:
 # Needs php and iconv; says so and stops if either is missing.
 compare-drb:
 	@script/compare-drb.sh
+
+# Packs every source into a 48K Spectrum tape with both packagers and compares
+# the tapes byte for byte.
+# Needs fpc, php and iconv; says so and stops if any is missing.
+compare-daadmaker:
+	@script/compare-daadmaker.sh
 
 AO_PC := work/aventuras/La_Aventura_Original/PC
 AO_OUT := work/decomp/ao/pc

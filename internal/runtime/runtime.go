@@ -88,7 +88,9 @@ var runtimes = map[Target]Runtime{
 		},
 		// DAAD.SDG is not optional and not only about graphics, whatever its
 		// name says. See pack.ZX48, where what it holds is written out.
-		companions: []string{"zx/DAAD.SDG"},
+		// AD8x6.CHR is the font every ZX build of DAAD READY passes, and it
+		// goes over the one the stub carries.
+		companions: []string{"zx/DAAD.SDG", "zx/AD8x6.CHR"},
 	},
 	ZX128: {interpreter: map[language.Language]string{
 		language.LanguageEnglish: "zx128/DS128KE3.BIN",

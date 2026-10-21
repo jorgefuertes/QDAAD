@@ -476,13 +476,18 @@ las dos cosas es un fallo.
 
 ## 9. El mapa de memoria de una cinta de Spectrum 48K
 
-El único eslabón de la cadena de DAAD READY cuyo fuente no se publicó es
-`daadmaker.exe`, el que junta las piezas en el `.TAP`. El frontal es Pascal, el
-enlazador es PHP, el paginador de imágenes es PHP; el empaquetador es un binario
-de Windows. Así que esto no está leído de ningún sitio: está medido arrancando
-cintas en un emulador hasta que una funcionó.
+Lo que DAAD READY reparte es `daadmaker.exe`, un binario de Windows, y los
+`.BAT` solo enseñan la lista de ficheros que le pasan —intérprete, `.DDB`,
+charset, `INDEX.BIN`, `.SDG`, `/48`— sin una sola dirección. Pero **el fuente
+está**: `work/DRC/src/daadmaker.pas`, 367 líneas de Pascal en el mismo
+directorio del que sale `drb.php`, y compila con `fpc` en un segundo.
 
-El resultado, que es lo que escribe [`internal/pack`](../../internal/pack):
+De ahí sale todo lo que viene, y de ahí sale también el tercer arnés:
+`make compare-daadmaker` empaqueta cada fuente del corpus con los dos y compara
+las cintas byte a byte, igual que `compare-drf` hace con el frontal y
+`compare-drb` con el enlazador.
+
+El mapa, que es lo que escribe [`internal/pack`](../../internal/pack):
 
 | Desde | Hasta | Qué |
 |---|---|---|
@@ -493,10 +498,23 @@ El resultado, que es lo que escribe [`internal/pack`](../../internal/pack):
 | `0xF7D1` | `0xF7D6` | la tabla de imágenes |
 | `0xF7D7` | `0xFFFF` | `DAAD.SDG` |
 
-Y el cargador BASIC: `CLEAR 24575`, cuatro `LOAD "" CODE` y `RANDOMIZE USR
-24576`.
+Las dos últimas viajan en **un solo bloque de cinta**, la tabla delante, porque
+la tabla solo se lee como lo que hay justo debajo del `.SDG`. O sea tres
+bloques de código, no cuatro. Y el cargador BASIC, tres líneas:
 
-De las cuatro direcciones solo una es una elección, y no nuestra:
+```basic
+10 CLEAR VAL "24575"
+20  LOAD ""CODE: LOAD ""CODE: LOAD ""CODE
+30 RANDOMIZE USR VAL "24576"
+```
+
+`VAL "24575"` y no `24575` porque un número escrito como lo escribe el editor
+lleva detrás el mismo valor otra vez en cinco bytes, y `VAL` de una cadena se
+ahorra esos cinco. Es lo que hacían todos los cargadores de la época. El espacio
+de más al principio de la línea 20 es del original y no hace nada; está para que
+las dos cintas sean los mismos bytes y no solo el mismo programa.
+
+De las direcciones ninguna es una elección nuestra:
 
 - **`0x8400` es de la base de datos.** El enlazador escribió cada puntero de
   dentro como dirección absoluta contada desde ahí, así que cargarla en otro
@@ -518,17 +536,25 @@ en `0xFFFF`, que es un reset—.
 Son 2089 bytes en tres partes: trece de cabecera, **una fuente de 256 glifos de
 8 bytes**, y una cola de punteros en los últimos 28. Los del final del todo:
 
-```
+```asm
 0xFFF7: e4 f7    ; dónde empieza la fuente
 0xFFF9: e4 ff    ; y dónde acaba, 2048 bytes después
 ```
 
-Esa fuente es la que se ve en pantalla, y es por lo que `qdaad` no acepta un
-fichero de charset aunque `daadmaker` sí lo acepte. La que lleva el `.SDG` es
-reconocible como `AD8x6.CHR` **con cambios**: la ranura `0x7F` en blanco —que es
-el espacio forzado y tiene que imprimir nada— y toda la mitad alta sustituida
-por los caracteres gráficos. Un `.CHR` crudo no es eso, así que escribirlo
-encima sería adivinar, y adivinando sale una `ß` donde se pidió un espacio.
+Esa fuente **se sustituye**: el `.CHR` que se le pasa a `daadmaker` se escribe
+encima, 2048 bytes que acaban 28 antes del final del bloque, o sea justo debajo
+de la cola de punteros (`daadmaker.pas:320-325`). Si el `.CHR` mide 2048+128 se
+salta la cabecera.
+
+Y se sustituye siempre, porque todos los `.BAT` de ZX pasan `AD8x6.CHR`. Así que
+la fuente que lleva el `.SDG` dentro no la ve nadie nunca, que es la explicación
+de por qué difiere de `AD8x6.CHR` en 116 glifos —entre ellos la ranura `0x7F`,
+en blanco en una y una `ß` en la otra— sin que eso se haya notado jamás.
+
+El binario que reparte DAAD READY lleva además un `.SDG` por defecto metido en
+el propio ejecutable, para cuando no se le pasa ninguno: la constante
+`EmptyGraphics` de `daadmaker.pas:29`, que son exactamente los mismos 2089 bytes
+que `ASSETS/ZX/DAAD.SDG`.
 
 ### 9.2 La tabla de imágenes existe aunque no haya imágenes
 
@@ -554,3 +580,33 @@ salta a donde apunte. Con las dos bases de datos idénticas byte a byte a las de
 `drb`, y los dos JSON idénticos a los de `drf`, una cinta funcionaba y la otra
 reseteaba la máquina: lo que faltaba no estaba en ninguno de los dos oráculos,
 estaba en el empaquetado.
+
+Con el tercer oráculo ya montado, ese fallo lo habría cazado `make
+compare-daadmaker` en un segundo. La moraleja no es sobre la tabla de imágenes:
+es que buscar el fuente antes de medir habría ahorrado el rodeo entero.
+
+### 9.3 Dos bugs del original que no reproducimos
+
+**El bloque vacío del final.** `ZX48.BAT` siempre le pasa a `daadmaker` un
+`PAGE0.TMP`, que `pager48k.php` escribe siempre aunque esté vacío. Con cero
+imágenes `daadmaker` añade al final de la cinta un bloque de datos sin cabecera
+y de longitud cero, y su suma de control es basura:
+
+```pascal
+checksum := $FF;
+for i := 0 to Size - 1 do checksum := checksum xor buffer[i];
+```
+
+`Size` es un `word`, así que con `Size = 0` el bucle no se queda quieto: cuenta
+hasta 65535 y suma los 64 KB enteros del búfer, que a esas alturas tiene lo que
+dejó el último fichero leído. Un Spectrum al que se le pidiera cargar ese bloque
+daría error de cinta. No se le pide nunca: el cargador tiene tres `LOAD` y hay
+tres bloques antes. Son cuatro bytes muertos y `compare-daadmaker` los descuenta
+explicando por qué.
+
+**El `Offset` que se ignora.** `SaveBlockFromBuffer` recibe un `Offset` y luego
+escribe con `Blockwrite(Foutput, buffer, size)`, desde `buffer[0]` siempre. El
+único sitio que lo usa es `SaveBlockFromFile`, que detecta la cabecera
+`PLUS3DOS` de 128 bytes de un fichero de +3 y pasa `Start := 128` para saltarla
+—y no se salta—. No nos afecta, porque ninguno de los ficheros que entran aquí
+lleva esa cabecera, pero un `.DDB` sacado de un disco de +3 se empaquetaría mal.
