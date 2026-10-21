@@ -88,6 +88,16 @@ type linker struct {
 
 	// where each section ended up, in the order the header wants them.
 	at [pointers]int
+
+	// The texts, encoded and compressed before anything is written: the table
+	// of tokens goes in front of them, so what they come to has to be known
+	// before the first of them is laid.
+	objectBodies   []string
+	locationBodies []string
+	userBodies     []string
+	systemBodies   []string
+	tokenTable     []string
+	savings        int
 }
 
 // The header slots, in the order they are written. The names are the
@@ -109,6 +119,10 @@ const (
 )
 
 func (l *linker) run() error {
+	if err := l.prepare(); err != nil {
+		return err
+	}
+
 	l.header()
 
 	// The order the sections go in is not free: the object texts come first on
@@ -139,6 +153,65 @@ func (l *linker) run() error {
 	l.at[ptrEndAddress] = l.here()
 
 	return l.fillHeader()
+}
+
+// prepare encodes every text and compresses the three tables that are
+// compressed, before a byte is written.
+//
+// It has to happen first because the table of tokens is laid in front of the
+// texts it explains, so its size has to be known before anything after it can
+// be placed.
+func (l *linker) prepare() error {
+	var err error
+
+	if l.objectBodies, err = l.encodeAll(l.objectTextsOf()); err != nil {
+		return fmt.Errorf("an object text: %w", err)
+	}
+
+	if l.locationBodies, err = l.encodeAll(l.locationTextsOf()); err != nil {
+		return fmt.Errorf("a location text: %w", err)
+	}
+
+	if l.userBodies, err = l.encodeAll(l.messagesOf(ddb.UserMessage)); err != nil {
+		return fmt.Errorf("a message: %w", err)
+	}
+
+	if l.systemBodies, err = l.encodeAll(l.messagesOf(ddb.SystemMessage)); err != nil {
+		return fmt.Errorf("a system message: %w", err)
+	}
+
+	// The object texts are not compressed. The reference leaves them out and
+	// the reason is where they are laid: they go first so that a target which
+	// pages the rest away still has them, and a paged-out token table would be
+	// no use to them there.
+	l.tokenTable, l.savings = compress(languageTag(l.opts.Language),
+		l.locationBodies, l.userBodies, l.systemBodies)
+
+	return nil
+}
+
+// languageTag is the two letters the compression tables are keyed by.
+func languageTag(l language.Language) string {
+	if l == language.LanguageSpanish {
+		return "ES"
+	}
+
+	return "EN"
+}
+
+func (l *linker) encodeAll(bodies []string) ([]string, error) {
+	out := make([]string, len(bodies))
+
+	for i, body := range bodies {
+		encoded, err := charset.EncodeBytes(body)
+		if err != nil {
+			return nil, err
+		}
+
+		out[i] = string(encoded)
+	}
+
+	return out, nil
 }
 
 // here is the address the next byte will be laid at.
@@ -245,13 +318,8 @@ func (l *linker) texts(slot int, bodies []string) error {
 
 		offsets[i] = l.here()
 
-		encoded, err := charset.EncodeBytes(body)
-		if err != nil {
-			return fmt.Errorf("text %d: %w", i, err)
-		}
-
-		for _, b := range encoded {
-			l.writeByte(b ^ obfuscate)
+		for j := range len(body) {
+			l.writeByte(body[j] ^ obfuscate)
 		}
 
 		l.writeByte(endOfText ^ obfuscate)
@@ -267,47 +335,41 @@ func (l *linker) texts(slot int, bodies []string) error {
 	return nil
 }
 
-func (l *linker) objectTexts() error {
+// objectTextsOf and the three like it gather what a table holds, as the source
+// wrote it. The encoding and the compression happen once, in prepare.
+func (l *linker) objectTextsOf() []string {
 	objects := l.db.Objects()
-	bodies := make([]string, 0, objects.Len())
+	out := make([]string, 0, objects.Len())
 
 	for i := range objects.Len() {
 		obj, err := objects.Get(ddb.ID(i))
 		if err != nil {
-			return fmt.Errorf("object %d: %w", i, err)
+			continue
 		}
 
-		bodies = append(bodies, obj.Description)
+		out = append(out, obj.Description)
 	}
 
-	return l.texts(ptrObjectText, bodies)
+	return out
 }
 
-func (l *linker) locationTexts() error {
+func (l *linker) locationTextsOf() []string {
 	locations := l.db.Locations()
-	bodies := make([]string, 0, locations.Len())
+	out := make([]string, 0, locations.Len())
 
 	for i := range locations.Len() {
 		loc, err := locations.Get(ddb.ID(i))
 		if err != nil {
-			return fmt.Errorf("location %d: %w", i, err)
+			continue
 		}
 
-		bodies = append(bodies, loc.Description)
+		out = append(out, loc.Description)
 	}
 
-	return l.texts(ptrLocationText, bodies)
+	return out
 }
 
-func (l *linker) systemMessages() error {
-	return l.texts(ptrSysMessageText, l.messages(ddb.SystemMessage))
-}
-
-func (l *linker) userMessages() error {
-	return l.texts(ptrMessageText, l.messages(ddb.UserMessage))
-}
-
-func (l *linker) messages(kind ddb.MessageKind) []string {
+func (l *linker) messagesOf(kind ddb.MessageKind) []string {
 	stored, _ := l.db.Messages().GetAllMessages(kind)
 
 	out := make([]string, len(stored))
@@ -316,6 +378,22 @@ func (l *linker) messages(kind ddb.MessageKind) []string {
 	}
 
 	return out
+}
+
+func (l *linker) objectTexts() error {
+	return l.texts(ptrObjectText, l.objectBodies)
+}
+
+func (l *linker) locationTexts() error {
+	return l.texts(ptrLocationText, l.locationBodies)
+}
+
+func (l *linker) systemMessages() error {
+	return l.texts(ptrSysMessageText, l.systemBodies)
+}
+
+func (l *linker) userMessages() error {
+	return l.texts(ptrMessageText, l.userBodies)
 }
 
 // objectNames is the noun and the adjective of each object, which is how the
@@ -549,9 +627,18 @@ func (l *linker) vocabularyOrder() []vocEntry {
 // zero in the header where its address would be, which is what the interpreter
 // reads as "the texts are in clear".
 func (l *linker) tokens() error {
-	l.at[ptrTokens] = 0
+	// A database with no table says so with a zero where its address would be,
+	// and the interpreter reads the texts as they stand.
+	if len(l.tokenTable) == 0 {
+		l.at[ptrTokens] = 0
+		l.writeByte(0)
+		l.pad()
 
-	l.writeByte(0)
+		return nil
+	}
+
+	l.at[ptrTokens] = l.here()
+	l.writeTokens(l.tokenTable)
 	l.pad()
 
 	return nil

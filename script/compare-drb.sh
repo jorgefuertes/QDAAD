@@ -203,10 +203,10 @@ compare_one() {
 	# identical either way once it is.
 	iconv -f UTF-8 -t ISO-8859-1 "${json}" >"${latin1}" 2>/dev/null || cp "${json}" "${latin1}"
 
-	# No compression. drb carries a table per language and prunes it, which is
-	# a second thing to get right and not this one: with none, a text is its
-	# own bytes and a difference can be read.
-	printf '{"compression":"none","tokens":[]}' >"${work}/latin1.tok"
+	# No .tok file, so drb uses the table it carries for the language. That is
+	# the invocation anyone building a game would make, and the one worth
+	# agreeing with.
+	rm -f "${work}/latin1.tok"
 
 	if ! php "${DRB}" "${their_args[@]}" ES "${latin1}" "${theirs}" \
 		>"${work}/drb.log" 2>&1; then

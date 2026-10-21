@@ -138,11 +138,10 @@ func TestEveryPointerLandsInsideTheDatabase(t *testing.T) {
 		"the last word is where the database ends")
 
 	for slot := range ptrEndAddress {
-		// The compression table is the one that is allowed to be absent, and
-		// says so with a zero.
-		if slot == ptrTokens {
-			require.Zero(t, read(slot), "nothing is compressed yet")
-
+		// The compression table is the one that is allowed to be absent: a
+		// database whose texts no token pays for carries none, and says so
+		// with a zero where its address would be.
+		if slot == ptrTokens && read(slot) == 0 {
 			continue
 		}
 
@@ -153,21 +152,31 @@ func TestEveryPointerLandsInsideTheDatabase(t *testing.T) {
 
 // A database laid for a big-endian machine is the same database with its words
 // the other way round, which is the one thing a Spectrum build never exercises.
+//
+// The two machines compared are the PC and the Atari ST, because they agree
+// about everything else: both load at zero and both want their words aligned,
+// so every address comes out the same number and only its bytes are swapped.
 func TestTheByteOrderFollowsTheMachine(t *testing.T) {
 	little, err := Link(bare(t), Options{
-		Machine: arch.ZX, Subtarget: "48K",
+		Machine: arch.PC, Subtarget: "VGA",
 		Language: language.LanguageSpanish, Version: 3,
 	})
 	require.NoError(t, err)
 
 	big, err := Link(bare(t), Options{
-		Machine:  arch.AMIGA,
+		Machine:  arch.ST,
 		Language: language.LanguageSpanish, Version: 3,
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, little[counters+1], big[counters],
-		"the first pointer, read from each end")
+	require.Len(t, big, len(little), "the same database either way round")
+
+	for slot := range pointers {
+		at := counters + 2*slot
+
+		require.Equal(t, little[at], big[at+1], "pointer %d, low byte", slot)
+		require.Equal(t, little[at+1], big[at], "pointer %d, high byte", slot)
+	}
 }
 
 // bare is the smallest database that can be laid: one of everything the header
