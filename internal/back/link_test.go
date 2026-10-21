@@ -47,6 +47,52 @@ func TestAVocabularyWordIsFiveBytesOfTheDaadCharacterSet(t *testing.T) {
 	}
 }
 
+// A pause is written in units of the note a machine takes as whole, and that
+// is not the same number of milliseconds everywhere. So the operand is not the
+// one the source wrote: it is rescaled, or a pause written once lasts a
+// different time on each machine it is built for.
+func TestAPauseIsRescaledToTheMachine(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		machine   arch.Machine
+		subtarget string
+		wrote     ddb.ID
+		want      byte
+	}{
+		{"a 48K Spectrum counts at 195", arch.ZX, "48K", 200, 195},
+		{"a 128K one counts at 100", arch.ZX, "128K", 200, 100},
+		{"a PC is the unit itself", arch.PC, "VGA", 200, 200},
+		{"a CPC counts slower", arch.CPC, "", 100, 150},
+		{"and cannot be asked for more than a byte", arch.CPC, "", 200, 255},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := &linker{opts: Options{Machine: tc.machine, Subtarget: tc.subtarget}}
+
+			got := l.operand(
+				ddb.Condact{Opcode: opPause},
+				0,
+				ddb.Param{Value: tc.wrote},
+			)
+
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	// An indirect operand names a flag, and what the flag holds at run time is
+	// not ours to touch.
+	t.Run("an indirect pause is left alone", func(t *testing.T) {
+		l := &linker{opts: Options{Machine: arch.ZX, Subtarget: "48K"}}
+
+		got := l.operand(
+			ddb.Condact{Opcode: opPause},
+			0,
+			ddb.Param{Value: 200, Indirect: true},
+		)
+
+		require.Equal(t, byte(200), got)
+	})
+}
+
 // The header says which machine and which parser, and the parser is one bit.
 func TestTheHeaderNamesTheMachineAndTheParser(t *testing.T) {
 	for _, tc := range []struct {

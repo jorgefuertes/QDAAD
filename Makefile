@@ -1,4 +1,4 @@
-.PHONY: dist build test doc decomp-all decomp-ao recompile-all compare-drf
+.PHONY: dist build test doc decomp-all decomp-ao recompile-all compare-drf compare-drb
 
 VERSION=$$(git describe --tags --abbrev=0)
 
@@ -82,6 +82,12 @@ recompile-all:
 # Needs fpc and iconv; says so and stops if either is missing.
 compare-drf:
 	@script/compare-drf.sh
+
+# Links every source with both back ends and compares the databases byte for
+# byte, over three targets so that the padding and the byte order are covered.
+# Needs php and iconv; says so and stops if either is missing.
+compare-drb:
+	@script/compare-drb.sh
 
 AO_PC := work/aventuras/La_Aventura_Original/PC
 AO_OUT := work/decomp/ao/pc

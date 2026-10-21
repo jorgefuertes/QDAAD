@@ -321,6 +321,7 @@ func (l *linker) messages(kind ddb.MessageKind) []string {
 // objectNames is the noun and the adjective of each object, which is how the
 // parser decides that "coger la llave vieja" means this one.
 func (l *linker) objectNames() error {
+	l.pad()
 	l.at[ptrObjectName] = l.here()
 
 	return l.eachObject(func(obj *ddb.Object) error {
@@ -334,7 +335,6 @@ func (l *linker) objectNames() error {
 // objectWeights packs the weight and the two flags that share its byte: 6 bits
 // of weight, then whether the object holds things and whether it is worn.
 func (l *linker) objectWeights() error {
-	l.pad()
 	l.at[ptrObjectWeight] = l.here()
 
 	return l.eachObject(func(obj *ddb.Object) error {
@@ -383,7 +383,6 @@ func (l *linker) objectAttributes() error {
 // objectLocations is where each object starts the game, and it is the one
 // object table with a terminator after it.
 func (l *linker) objectLocations() error {
-	l.pad()
 	l.at[ptrObjectLocation] = l.here()
 
 	if err := l.eachObject(func(obj *ddb.Object) error {
@@ -440,6 +439,7 @@ func (l *linker) vocabulary() error {
 	}
 
 	l.writeByte(0)
+	l.pad()
 
 	return nil
 }
@@ -552,6 +552,7 @@ func (l *linker) tokens() error {
 	l.at[ptrTokens] = 0
 
 	l.writeByte(0)
+	l.pad()
 
 	return nil
 }
@@ -618,6 +619,11 @@ func (l *linker) processes() error {
 				continue
 			}
 
+			// Each block starts where the machine can address one, which on a
+			// padded machine means an even byte. It is only paid when a block
+			// is written: one that is reused is already somewhere legal.
+			l.pad()
+
 			base := l.here()
 			blocks[i][j] = base
 
@@ -663,6 +669,67 @@ func (l *linker) processes() error {
 	return nil
 }
 
+// PAUSE counts in units of the note the machine takes as whole, and what that
+// is worth in milliseconds is not the same on each of them. A pause written
+// once has to last the same everywhere, so the number is rescaled on the way
+// out: see getBaseLength at drb.php:1529-1568.
+//
+// 200 is the unit itself, so a machine listed at 200 leaves the operand alone.
+const (
+	opPause        = 35
+	wholeNote      = 200
+	maxPauseLength = 255
+)
+
+// noteLength is what a whole note is worth on each machine, in milliseconds.
+// A machine not named here keeps the unit, which is what the reference does
+// with its default.
+func noteLength(m arch.Machine, subtarget string) int {
+	switch m {
+	case arch.ZX81:
+		return 195
+	case arch.ZX:
+		// The models with more to do in a frame count faster.
+		switch strings.ToUpper(subtarget) {
+		case "NEXT", "UNO", "PLUS3", "128K":
+			return 100
+		}
+
+		return 195
+	case arch.C64:
+		return 120
+	case arch.CP4:
+		return 80
+	case arch.PC:
+		if strings.EqualFold(subtarget, "VGA256") {
+			return 120
+		}
+
+		return 200
+	case arch.HTML, arch.MSX, arch.MSX2:
+		return 230
+	case arch.CPC:
+		return 300
+	}
+
+	return wholeNote
+}
+
+// operand is one byte of a condact, which is the value the source wrote unless
+// the machine wants it in its own units.
+func (l *linker) operand(c ddb.Condact, i int, p ddb.Param) byte {
+	// Only the duration, and only when it was written as a number: an
+	// indirect operand names a flag, and the flag's content is not ours to
+	// rescale.
+	if c.Opcode != opPause || i != 0 || p.Indirect {
+		return byte(p.Value)
+	}
+
+	scaled := (p.Value.Int()*noteLength(l.opts.Machine, l.opts.Subtarget) + wholeNote/2) / wholeNote
+
+	return byte(min(scaled, maxPauseLength))
+}
+
 // block builds one entry's condacts, without placing them.
 //
 // It comes back as bytes rather than going straight out because two entries
@@ -695,8 +762,8 @@ func (l *linker) block(condacts []ddb.Condact) (out []byte, starts []int, err er
 
 		out = append(out, opcode)
 
-		for _, p := range c.Params {
-			out = append(out, byte(p.Value))
+		for i, p := range c.Params {
+			out = append(out, l.operand(c, i, p))
 		}
 
 		if def.Terminal {
