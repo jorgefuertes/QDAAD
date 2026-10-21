@@ -172,6 +172,29 @@ func Encode(text string) string {
 	return out
 }
 
+// EncodeBytes is Encode with the result narrowed to the bytes a database
+// holds, which is where a character this table has no code for stops being
+// somebody else's problem.
+//
+// Encode leaves such a character alone so that it can be named here: a source
+// that writes "Ω" produces a code point no DAAD machine has, and the useful
+// thing to say is which character it was and not that byte 0xCE is out of
+// range.
+func EncodeBytes(text string) ([]byte, error) {
+	encoded := Encode(text)
+	out := make([]byte, 0, len(encoded))
+
+	for _, r := range encoded {
+		if r > 0xFF {
+			return nil, fmt.Errorf("%q has no code in the DAAD character set", r)
+		}
+
+		out = append(out, byte(r))
+	}
+
+	return out, nil
+}
+
 // Decode turns the codes of a text back into a source.
 //
 // The escapes it writes are the modern ones, with a hash, which is what the

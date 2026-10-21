@@ -2,9 +2,13 @@ package compile
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path"
+	"strings"
 
+	"github.com/jorgefuertes/QDAAD/internal/back"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
 	"github.com/jorgefuertes/QDAAD/internal/front/legacy"
@@ -69,21 +73,53 @@ func Command() *cli.Command {
 	}
 }
 
-func compileAction(ctx context.Context, cmd *cli.Command) error {
-	if path.Ext(cmd.String("input")) == ".sce" {
-		opts, err := options(cmd)
-		if err != nil {
-			return err
-		}
-
-		db, err := legacy.Analyze(cmd.String("input"), opts)
-		if err != nil {
-			return err
-		}
-		_ = db
+func compileAction(_ context.Context, cmd *cli.Command) error {
+	source := cmd.String("input")
+	if source == "" {
+		return errors.New("no source to compile: name one with -i")
 	}
 
-	return ErrNotImplemented
+	if ext := path.Ext(source); ext != ".sce" && ext != ".dsf" && ext != ".DSF" {
+		return fmt.Errorf("%q is not a source this reads", ext)
+	}
+
+	opts, err := options(cmd)
+	if err != nil {
+		return err
+	}
+
+	db, err := legacy.Analyze(source, opts)
+	if err != nil {
+		return err
+	}
+
+	image, err := back.Link(db, back.Options{
+		Machine:   opts.Machine,
+		Subtarget: opts.Subtarget,
+		Language:  opts.Language,
+		Version:   opts.Version,
+	})
+	if err != nil {
+		return err
+	}
+
+	out := cmd.String("output")
+	if out == "" {
+		out = strings.TrimSuffix(source, path.Ext(source))
+	}
+
+	if path.Ext(out) == "" {
+		out += ".ddb"
+	}
+
+	if err := os.WriteFile(out, image, 0o644); err != nil {
+		return err
+	}
+
+	fmt.Printf("%s: %d bytes, laid at 0x%04X\n", out, len(image),
+		opts.Machine.BaseAddress(opts.Subtarget))
+
+	return nil
 }
 
 // options turns the flags into what the front end needs to know.
