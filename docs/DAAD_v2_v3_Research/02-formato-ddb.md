@@ -161,6 +161,35 @@ Queda 1 sin resolver, anotado en el código: `CALL` (101) se lee con 2 operandos
 dirección son 16 bits, pero aparece una sola vez por base y en un bloque que encaja con
 cualquiera de las 2 lecturas, así que la disposición no lo decide.
 
+#### Y lo que la disposición *no* decide: el significado
+
+El oráculo de solapamiento prueba **cuántos operandos** toma cada condacto. No prueba qué
+significa ninguno: una tabla que llamase al opcode 54 cualquier otra cosa dejaría los bloques
+igual de planos, porque a la disposición solo le importan las longitudes.
+
+Para eso hay 2 comprobaciones más, y conviene saber qué alcanza cada una.
+
+**El manual de 1991**, que está en `work/DAAD_Manual_1991.pdf` y es texto, no escaneado
+—`pdftotext -layout` lo saca entero—, describe todos los condactos de la época con sus
+parámetros. De los 142 de nuestra tabla **solo faltan 2: `INDIR` y `SETAT`**, que son exactamente
+las 2 que `DAAD V3 CAMBIOS.txt` documenta como adiciones de v3. Así que el **vocabulario no está
+en duda**; lo único en duda es qué número nombra a qué condacto.
+
+**Los operandos**, que es `meaning_test.go`. Un número de objeto tiene que caber en el número de
+objetos, uno de mensaje en el de mensajes, un porcentaje por debajo de 100; un condacto archivado
+con el nombre equivocado casi siempre apunta sus operandos a un sitio imposible. Sobre las 5
+bases de formato 1: **4516 operandos comprobados, 0 fuera de rango**.
+
+Lo que no alcanza, dicho para que nadie lo dé por cubierto: los otros **4718 operandos son flags
+o valores crudos**, donde cualquier byte de 0 a 255 cabe y la comprobación no opina. Ahí caen la
+mitad de los condactos y casi todos los frecuentes —`DONE`, `LET`, `SET`, `CLEAR`, `WINDOW`,
+`COPYFF`, `PRINTAT`—.
+
+Y una idea que probamos y **no se sostiene**, anotada para no repetirla: «las condiciones van al
+principio del bloque». Sería una comprobación estupenda si fuera cierta, pero la tabla de
+respuestas de La Aventura Original hace `SYSMESS 7`, `EQ 33 13`, `SYSMESS 3` —una condición
+después de una acción, montando una frase a trozos— y esa forma está por todas partes.
+
 ### 2.2 Byte `0x01` — máquina e idioma
 
 Nibble alto = identificador de máquina (`getMachineIDByTarget`, `drb.php:1264-1280`):
