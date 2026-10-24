@@ -448,3 +448,54 @@ puedes ` y se queda ahí. En AO no hace falta tocar nada: su propia tabla de
 respuestas ya monta la frase entera —`SYSMESS 7`, `SYSMESS 3`, el nombre de la
 dirección desde `MES @200`, y `SYSMESS 4`— y lo que sobra es el camino de
 movimiento del proceso 1 de la plantilla, que nunca llega a ejecutarse.
+
+### 11.4 `QUIT` acababa la partida, y ahora solo pregunta
+
+El `QUIT` de v3 imprime el mensaje de sistema 12 («¿Estás seguro?»), lee la respuesta, y si el
+jugador confirma **deja que la entrada siga**. Quien acaba la partida es `END`, que imprime el
+mensaje 13 y vuelve a la inicialización o sale. La plantilla oficial escribe los 2 seguidos.
+
+La Aventura Original **no tiene un solo `END` en sus tablas**. Su respuesta al «fin» es:
+
+```
+> ABAND    _        QUIT
+                    DPRINT 21
+
+> ABAND    _        OK
+```
+
+Bajo el intérprete v3 eso no termina nada: confirmar ejecuta el `DPRINT 21` —que imprime los flags
+21 y 22 como un número de 2 bytes, y en pantalla sale un `0` suelto—, el bloque se acaba, y la
+ejecución cae en la entrada siguiente, cuyo `OK` contesta «Vale.» y devuelve al jugador al juego.
+
+Conviene saber por qué la descompilación no es la sospechosa, porque la tentación es leer esos
+bytes como `QUIT` + `DPRINT` + `END`. **Lo decide el `0xFF`**: el compilador de referencia se
+ahorra ese byte cuando el bloque acaba en un condacto terminal (`drb.php:1050`), y el binario de AO
+lo lleva puesto —`14 1B 15 FF`—, así que el último condacto no es terminal. `DPRINT 21` lo es;
+`END` no estaría ahí.
+
+Portar la aventura pide, pues, **insertar un `END` detrás de cada `QUIT`**.
+
+### 11.5 Una frase sin verbo deja `fVerb` a cero, no a 255
+
+Las entradas comodín del final de una tabla de respuestas de DAAD 1 dan por hecho que `fVerb` trae
+una dirección, y lo comprueban con `LT 33 14`. Un cero cumple esa condición igual que un 3.
+
+Y cero es lo que deja el intérprete v3 cuando el jugador escribe una frase **sin verbo**, que es
+más frecuente de lo que parece: en el vocabulario de AO, `I` e `INVEN` son **nombres** de valor 14,
+no verbos. Al escribir «I» se respondía correctamente «No tienes nada.» y acto seguido se colaba
+basura, porque los comodines disparaban y `MES @200` —que vale `fVerb + 100`— imprimía el mensaje
+100, que resulta existir.
+
+Que el valor correcto es 255 no hay que deducirlo: lo dice la propia aventura. Su respuesta a
+`LLAVE` prueba `EQ 33 255` justamente para distinguir la frase sin verbo, así que el intérprete de
+1989 dejaba ahí el 255.
+
+El arreglo va en el bucle que se escribe para el port, no en las tablas de la aventura:
+
+```
+> _       _     ZERO    33
+                LET     33 255
+
+> _       _     PROCESS 5          ; la tabla de respuestas
+```

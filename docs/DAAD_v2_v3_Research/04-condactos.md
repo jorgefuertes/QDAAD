@@ -184,6 +184,13 @@ del vocabulario del tipo indicado, `skip` desplazamiento de salto, `string` cade
 Las 3 entradas `dumb` — **120, 122 y 124** — son huecos reservados. En DAAD v3 2 pasan a ser
 condactos reales y la tercera se usa desde el backend; ver §5 y [07-daad-v3.md](07-daad-v3.md).
 
+Esta tabla tiene una **segunda fuente independiente**: el manual de DAAD de 1991
+(`work/DAAD_Manual_1991.pdf`, sección 4.3, donde explica los errores de ejecución) la lista entera
+del 0 al 127 con los mismos nombres, y marca esos 3 huecos como `internal`. Es texto, no escaneado:
+`pdftotext -layout` la saca. Sirve para confirmar que la numeración no se movió entre 1991 y v3 —
+**no** para el formato 1, que es anterior al manual y tiene sus propias diferencias, recogidas en
+[02-formato-ddb.md](02-formato-ddb.md).
+
 ---
 
 ## 3. Aridades irregulares
