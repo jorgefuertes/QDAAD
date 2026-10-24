@@ -44,6 +44,19 @@ func main() {
 						Usage: "Also write the vector drawings enlarged by this many times, " +
 							"beside the ones at their original size",
 					},
+					&cli.BoolFlag{
+						Name: "no-pictures",
+						Usage: "Leave out the condacts that load and show an illustration, for " +
+							"building without them. Not part of --v3: version 3 draws pictures too",
+					},
+					&cli.BoolFlag{
+						Name:    "v3",
+						Aliases: []string{"3"},
+						Usage: "Write a source a version 3 interpreter will run, rather than an " +
+							"account of what the database holds. Only a format 1 database has " +
+							"anything to convert, and the source it writes no longer recompiles " +
+							"into the database it came from",
+					},
 				},
 				Action: decompiler.RunAction,
 			},

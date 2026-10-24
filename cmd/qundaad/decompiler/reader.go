@@ -52,6 +52,35 @@ type Reader struct {
 	placeholder       string   // the leading token every interpreter skips
 	tokens            []string // the 128 a text can refer to, indexed from zero
 	vocabulary        []VocabularyEntry
+
+	// v3 is set when the caller wants a source a version 3 interpreter will
+	// run rather than an account of what the binary holds. Nil is the default
+	// and the faithful reading; see v3.go for what it changes.
+	v3 *v3Conversion
+	// noPictures drops the illustration condacts, for a build without them.
+	noPictures bool
+}
+
+// DropPictures leaves the illustration condacts out of everything this reader
+// hands back.
+func (r *Reader) DropPictures() { r.noPictures = true }
+
+// ConvertToV3 makes everything this reader hands out come back converted for a
+// version 3 interpreter. It is only ever right for a version 1 database: the
+// later formats already keep their loop where version 3 looks for it.
+func (r *Reader) ConvertToV3() error {
+	if !r.OldFormat() {
+		return fmt.Errorf("this database is format %d and needs no converting", r.Version())
+	}
+
+	plan, err := r.planV3()
+	if err != nil {
+		return err
+	}
+
+	r.v3 = plan
+
+	return nil
 }
 
 // FindDatabases looks for databases lying inside something that is not one.
@@ -534,6 +563,19 @@ func (r *Reader) TextTable(pointerIndex, count int) ([]string, error) {
 		texts = append(texts, text)
 	}
 
+	if r.v3 != nil {
+		// Every text may have a title in graphics mode, and the font that
+		// draws those changed between the versions.
+		texts = r.v3.convertTexts(texts)
+
+		// And the system messages are the one table where the slot itself
+		// matters: the interpreter prints some of them by itself, so an
+		// adventure that put its own text in those has to have it moved.
+		if pointerIndex == ptrSysMessageText {
+			texts = r.v3.convertSysmess(texts)
+		}
+	}
+
 	return texts, nil
 }
 
@@ -554,10 +596,32 @@ type Entry struct {
 	Condacts []Condact
 }
 
-// Processes reads the whole process section: three levels deep, a word per
+// Processes reads the whole process section, and converts it for a version 3
+// interpreter when the caller asked for that.
+//
+// The conversion is a different thing from reading and lives in v3.go. What
+// comes back without it is what the binary says.
+func (r *Reader) Processes() ([][]Entry, error) {
+	all, err := r.processes()
+	if err != nil {
+		return nil, err
+	}
+
+	if r.noPictures {
+		all = withoutPictures(all)
+	}
+
+	if r.v3 == nil {
+		return all, nil
+	}
+
+	return r.v3.convertProcesses(all), nil
+}
+
+// processes reads the whole process section: three levels deep, a word per
 // process pointing at a table of 4-byte entries, each of which points at a
 // block of condacts.
-func (r *Reader) Processes() ([][]Entry, error) {
+func (r *Reader) processes() ([][]Entry, error) {
 	const (
 		entrySize    = 4
 		endOfProcess = 0x00 // in the place of a verb

@@ -28,6 +28,9 @@ const (
 	connectionsFile = "connections.sce"
 	objectsFile     = "objects.sce"
 	processesFile   = "processes.sce"
+	// v3LoopFile is only written when converting, and holds the one thing the
+	// conversion invents rather than translates.
+	v3LoopFile = "v3-loop.sce"
 )
 
 // Word types, in the spelling the compiler expects. Note it is CONJUGATION,
@@ -146,6 +149,20 @@ type Options struct {
 	// copy beside the one at the size the machine had it rather than instead of
 	// it. Anything below two writes only the original.
 	Scale int
+	// NoPictures leaves out the condacts that load and show an illustration.
+	//
+	// It is not part of the version conversion and has its own flag for that
+	// reason: version 3 draws pictures perfectly well. It is for building
+	// without them, and then it matters — a PICTURE that finds no image still
+	// leaves the graphics window where it put it, and the text comes out with
+	// the edges of it showing.
+	NoPictures bool
+	// ToV3 writes a source a version 3 interpreter will run, instead of an
+	// account of what the database holds. Only a format 1 database has
+	// anything to convert, and converting is not free: see v3.go. With it off
+	// — which is the default — recompiling the source reproduces the database
+	// it came from, and with it on it does not.
+	ToV3 bool
 }
 
 // Decompile writes the source of a database into outputDir.
@@ -324,6 +341,18 @@ func decompileOne(db database, outputDir string, opts Options) error {
 			if err := os.MkdirAll(outputDir, 0o755); err != nil {
 				return fmt.Errorf("creating %s: %w", outputDir, err)
 			}
+
+			if opts.NoPictures {
+				r.DropPictures()
+			}
+
+			// Asked for before anything is written, so that everything below
+			// reads the converted tables and texts rather than the binary's.
+			if opts.ToV3 {
+				if err := r.ConvertToV3(); err != nil {
+					return err
+				}
+			}
 			// The order is the one the compiler expects, asnd it is not arbitrary: the
 			// tokens have to be known before any text refers to them.
 			sections := []struct {
@@ -339,6 +368,15 @@ func decompileOne(db database, outputDir string, opts Options) error {
 				{connectionsFile, writeConnections},
 				{objectsFile, writeObjects},
 				{processesFile, writeProcesses},
+			}
+
+			// The loop goes last because it is the only section that is not in
+			// the database: it is written for it. See v3.go.
+			if opts.ToV3 {
+				sections = append(sections, struct {
+					name  string
+					write func(*Reader) (string, error)
+				}{v3LoopFile, writeV3Loop})
 			}
 
 			names := make([]string, 0, len(sections))
@@ -709,6 +747,14 @@ func writeProcesses(r *Reader) (string, error) {
 	}
 
 	for number, entries := range all {
+		// Converting leaves four tables empty: they are the game loop, and it
+		// is written into a file of its own because it is not in the database.
+		if r.v3 != nil && slices.Contains(v3Reserved, number) {
+			fmt.Fprintf(&sb, "; TABLE %d is the game loop, in %s\n\n", number, v3LoopFile)
+
+			continue
+		}
+
 		fmt.Fprintf(&sb, "; %s\n", strings.Repeat("-", 70))
 		fmt.Fprintf(&sb, "; TABLE %d - %s\n", number, processRole(number, from[number]))
 		fmt.Fprintf(&sb, "; %s\n", strings.Repeat("-", 70))

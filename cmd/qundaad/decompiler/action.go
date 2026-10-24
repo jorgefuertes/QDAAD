@@ -19,7 +19,9 @@ func RunAction(_ context.Context, cmd *cli.Command) error {
 	console.Banner("QUNDAAD", console.TitleStyle)
 
 	return Decompile(inputFile, outputDir, Options{
-		Binaries: !cmd.Bool("no-binaries"),
-		Scale:    cmd.Int("scale"),
+		Binaries:   !cmd.Bool("no-binaries"),
+		Scale:      cmd.Int("scale"),
+		ToV3:       cmd.Bool("v3"),
+		NoPictures: cmd.Bool("no-pictures"),
 	})
 }
