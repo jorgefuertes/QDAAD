@@ -78,10 +78,11 @@ func TestEveryOperandFitsWhatItIsSupposedToBe(t *testing.T) {
 							looked++
 
 							// The markers live at the top of the byte and are
-							// not locations at all: 252 is "carried", 253
-							// "worn", 254 "here", 255 "anywhere". A condact
-							// that takes them accepts either.
-							if def.Params[i] == ddb.ParamLocationOrMarker && value >= firstMarker {
+							// not locations at all: 252 is "not created", 253
+							// "worn", 254 "carried" and 255 "here", as the 1991
+							// manual spells out and ddb.LOC_* already say. A
+							// condact that takes them accepts either.
+							if def.Params[i] == ddb.ParamLocationOrMarker && int(value) >= firstMarker {
 								continue
 							}
 
@@ -109,9 +110,10 @@ func TestEveryOperandFitsWhatItIsSupposedToBe(t *testing.T) {
 		"the oracle has stopped looking: %d checked, %d blind", looked, blind)
 }
 
-// firstMarker is where the location markers start: 252 carried, 253 worn, 254
-// here, 255 anywhere. Below it a locno_ operand is a real location.
-const firstMarker = 252
+// firstMarker is where the location markers start. Below it a locno_ operand
+// is a real location; from it up it is one of ddb.LOC_NOT_CREATED, LOC_WORN,
+// LOC_CARRIED or LOC_HERE.
+const firstMarker = int(ddb.LOC_NOT_CREATED)
 
 // boundOf is how large an operand of this kind may be in this database, and
 // whether that bound says anything at all. A flag or a free value is any byte,
