@@ -430,7 +430,31 @@ RESTART
 porque `RESTART` reinicia el proceso 0 y **el proceso 0 es quien describe**. Es
 exactamente lo que hace la plantilla oficial después de un `MOVE`.
 
-### 11.3 Los mensajes de sistema casi encajan
+### 11.3 Hay ranuras de mensaje que el intérprete se reserva
+
+Y es lo primero que hay que mirar, porque el síntoma no se parece a la causa.
+
+En la plantilla oficial los mensajes de sistema **2, 3, 4 y 5 son los cuatro `"#n"`**, un salto de
+línea, y por eso nunca se ha reparado en ellos: el intérprete v3 los imprime **por su cuenta** como
+separadores —el 3 es el salto que va justo antes del prompt, y el 4 lo acompaña—.
+
+La Aventura Original es de cuando esas ranuras eran del autor, y guarda ahí trozos de frase: el 3
+es `"ir al "` y el 4 es `". "`, que su tabla de respuestas encadena con `SYSMESS 7` para decir «No
+puedes ir al Este. ». Bajo v3 eso aparece impreso en cada turno, sin venir a cuento, y como lo que
+sale es un fragmento suelto —«ir al», o un punto— no se piensa en los mensajes de sistema sino en
+la lógica del juego.
+
+Se tarda en encontrarlo porque es intermitente de puertas afuera: **depende de cuándo el
+intérprete decida emitir el separador**, no de lo que teclee el jugador. Marcar las entradas
+sospechosas de la tabla de respuestas con un mensaje distinto cada una lo zanja en una prueba: si
+el texto sale y ninguna marca con él, no viene de la tabla.
+
+El arreglo es mudar el texto del autor a ranuras que estén vacías **en las dos tablas** —vacías en
+la del juego para no pisarle nada, y vacías en la de la plantilla para no caer en otra que el
+intérprete también se reserve— y dejar `"#n"` donde el intérprete lo espera. En AO sirven la 34 y
+la 11.
+
+### 11.3.1 Y los que no se reserva, casi encajan
 
 Las dos tablas tienen 63 mensajes y los papeles coinciden ranura por ranura en
 casi todas. Lo que cambia es que **DAAD 1 guarda fragmentos donde v3 guarda
