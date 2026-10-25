@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 )
 
 // Turning a version 1 database into a source a version 3 interpreter will run.
@@ -103,8 +105,8 @@ var reservedSysmess = []int{2, 3, 4, 5}
 var freeSysmess = []int{34, 22, 21, 20, 19, 18, 17, 14, 11}
 
 // planV3 works out what this database needs converting.
-func (r *Reader) planV3() (*v3Conversion, error) {
-	all, err := r.processes()
+func planV3(r *ddbfile.Reader) (*v3Conversion, error) {
+	all, err := r.Processes()
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +116,7 @@ func (r *Reader) planV3() (*v3Conversion, error) {
 		sysmess: map[int]int{},
 	}
 
-	texts, err := r.TextTable(ptrSysMessageText, r.NumSysMessages())
+	texts, err := r.SystemMessages()
 	if err != nil {
 		return nil, err
 	}
@@ -167,16 +169,25 @@ func (c *v3Conversion) convertSysmess(texts []string) []string {
 	return out
 }
 
+// Processes, Texts and SystemMessages are what ddbfile.Conversion asks for.
+func (c *v3Conversion) Processes(all [][]ddbfile.Entry) [][]ddbfile.Entry {
+	return c.convertProcesses(all)
+}
+
+func (c *v3Conversion) Texts(texts []string) []string { return c.convertTexts(texts) }
+
+func (c *v3Conversion) SystemMessages(texts []string) []string { return c.convertSysmess(texts) }
+
 // convertProcesses moves every table to where version 3 expects it and rewrites
 // the condacts that do not mean the same thing any more.
-func (c *v3Conversion) convertProcesses(old [][]Entry) [][]Entry {
-	out := make([][]Entry, c.tables)
+func (c *v3Conversion) convertProcesses(old [][]ddbfile.Entry) [][]ddbfile.Entry {
+	out := make([][]ddbfile.Entry, c.tables)
 
 	for number, entries := range old {
-		moved := make([]Entry, 0, len(entries))
+		moved := make([]ddbfile.Entry, 0, len(entries))
 
 		for _, e := range entries {
-			moved = append(moved, Entry{
+			moved = append(moved, ddbfile.Entry{
 				Verb: e.Verb, Noun: e.Noun,
 				Condacts: c.convertCondacts(e.Condacts),
 			})
@@ -189,14 +200,14 @@ func (c *v3Conversion) convertProcesses(old [][]Entry) [][]Entry {
 }
 
 // convertCondacts rewrites one block.
-func (c *v3Conversion) convertCondacts(in []Condact) []Condact {
-	out := make([]Condact, 0, len(in))
+func (c *v3Conversion) convertCondacts(in []ddbfile.Condact) []ddbfile.Condact {
+	out := make([]ddbfile.Condact, 0, len(in))
 
 	for i, condact := range in {
 		switch {
 		// A PROCESS names a table, and the tables have moved.
 		case condact.Opcode == opPROCESS && len(condact.Params) == 1 && !condact.Indirect:
-			out = append(out, Condact{
+			out = append(out, ddbfile.Condact{
 				Opcode: opPROCESS,
 				Params: []byte{byte(movedTable(int(condact.Params[0])))},
 			})
@@ -208,7 +219,7 @@ func (c *v3Conversion) convertCondacts(in []Condact) []Condact {
 				slot = to
 			}
 
-			out = append(out, Condact{Opcode: opSYSMESS, Params: []byte{byte(slot)}})
+			out = append(out, ddbfile.Condact{Opcode: opSYSMESS, Params: []byte{byte(slot)}})
 
 		// A DESC with no operand described the player's location and ended the
 		// turn there, the way PAW did. Version 3's DESC only describes, and the
@@ -223,16 +234,16 @@ func (c *v3Conversion) convertCondacts(in []Condact) []Condact {
 		// text window.
 		case condact.Opcode == opDESC && len(condact.Params) == 0:
 			out = append(out,
-				Condact{Opcode: opCLS},
-				Condact{Opcode: opRESTART})
+				ddbfile.Condact{Opcode: opCLS},
+				ddbfile.Condact{Opcode: opRESTART})
 
 		// QUIT ended the game in DAAD 1. In version 3 it only asks, and END is
 		// what ends it — so an adventure of 1989 has no END anywhere and
 		// confirming "quit" did nothing at all.
 		case condact.Opcode == opQUIT && !followedBy(in, i, opEND):
 			out = append(out,
-				Condact{Opcode: opQUIT},
-				Condact{Opcode: opEND})
+				ddbfile.Condact{Opcode: opQUIT},
+				ddbfile.Condact{Opcode: opEND})
 
 		default:
 			out = append(out, condact)
@@ -244,7 +255,7 @@ func (c *v3Conversion) convertCondacts(in []Condact) []Condact {
 
 // followedBy says whether the next condact of a block is this opcode, so that a
 // database which already does the version 3 thing is left alone.
-func followedBy(block []Condact, at int, opcode byte) bool {
+func followedBy(block []ddbfile.Condact, at int, opcode byte) bool {
 	return at+1 < len(block) && block[at+1].Opcode == opcode
 }
 
@@ -259,8 +270,13 @@ func followedBy(block []Condact, at int, opcode byte) bool {
 // with the graphics taken out, and the places where the template knows
 // something about its own game — which flag means darkness, which object is the
 // lamp, how much the player can carry — are places where this knows nothing.
-func writeV3Loop(r *Reader) (string, error) {
-	plan := r.v3
+func v3LoopSection(plan *v3Conversion) func(*ddbfile.Reader) (string, error) {
+	return func(_ *ddbfile.Reader) (string, error) {
+		return writeV3Loop(plan)
+	}
+}
+
+func writeV3Loop(plan *v3Conversion) (string, error) {
 	if plan == nil {
 		return "", fmt.Errorf("no version 3 conversion is in effect")
 	}
@@ -480,34 +496,20 @@ func (c *v3Conversion) convertTexts(texts []string) []string {
 	return out
 }
 
-// withoutPictures drops the condacts that load and show an illustration.
-//
-// Not part of the version conversion — version 3 draws pictures — but a build
-// that has none wants them gone rather than failing quietly: a PICTURE that
-// finds no image leaves the graphics window where it put it, and the text comes
-// out with the edges of it showing.
-func withoutPictures(all [][]Entry) [][]Entry {
-	out := make([][]Entry, len(all))
-
-	for number, entries := range all {
-		kept := make([]Entry, 0, len(entries))
-
-		for _, e := range entries {
-			condacts := make([]Condact, 0, len(e.Condacts))
-
-			for _, c := range e.Condacts {
-				if c.Opcode == opPICTURE || c.Opcode == opDISPLAY {
-					continue
-				}
-
-				condacts = append(condacts, c)
-			}
-
-			kept = append(kept, Entry{Verb: e.Verb, Noun: e.Noun, Condacts: condacts})
-		}
-
-		out[number] = kept
+// convertToV3 makes everything the reader hands out come back converted for a
+// version 3 interpreter. It is only ever right for a format 1 database: the
+// later ones already keep their loop where version 3 looks for it.
+func convertToV3(r *ddbfile.Reader) (*v3Conversion, error) {
+	if !r.OldFormat() {
+		return nil, fmt.Errorf("this database is format %d and needs no converting", r.Version())
 	}
 
-	return out
+	plan, err := planV3(r)
+	if err != nil {
+		return nil, err
+	}
+
+	r.Convert(plan)
+
+	return plan, nil
 }

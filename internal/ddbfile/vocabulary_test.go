@@ -1,4 +1,4 @@
-package decompiler
+package ddbfile
 
 import (
 	"testing"
@@ -18,7 +18,7 @@ import (
 // "LAMPA". It is the same word; it just looked like a different one in a diff.
 // Issue #7.
 func TestWordForPrefersTheSpellingWithoutAccents(t *testing.T) {
-	const noun = kindNoun
+	const noun = KindNoun
 
 	for _, tc := range []struct {
 		name  string
@@ -83,18 +83,18 @@ func TestWordForPrefersTheSpellingWithoutAccents(t *testing.T) {
 // a word of the first kind never falls through to the second.
 func TestWordForTakesTheKindsInOrder(t *testing.T) {
 	r := &Reader{vocabulary: []VocabularyEntry{
-		{Word: "NORTE", Value: 1, Kind: kindNoun},
-		{Word: "N", Value: 1, Kind: kindVerb},
+		{Word: "NORTE", Value: 1, Kind: KindNoun},
+		{Word: "N", Value: 1, Kind: KindVerb},
 	}}
 
-	got, found := r.WordFor(1, kindVerb, kindNoun)
+	got, found := r.WordFor(1, KindVerb, KindNoun)
 	require.True(t, found)
 	require.Equal(t, "N", got, "the verb is asked for first")
 
-	got, found = r.WordFor(1, kindNoun, kindVerb)
+	got, found = r.WordFor(1, KindNoun, KindVerb)
 	require.True(t, found)
 	require.Equal(t, "NORTE", got)
 
-	_, found = r.WordFor(99, kindNoun)
+	_, found = r.WordFor(99, KindNoun)
 	require.False(t, found)
 }

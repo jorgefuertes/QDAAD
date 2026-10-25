@@ -1,4 +1,4 @@
-package decompiler
+package ddbfile
 
 import (
 	"errors"
@@ -53,35 +53,44 @@ type Reader struct {
 	tokens            []string // the 128 a text can refer to, indexed from zero
 	vocabulary        []VocabularyEntry
 
-	// v3 is set when the caller wants a source a version 3 interpreter will
-	// run rather than an account of what the binary holds. Nil is the default
-	// and the faithful reading; see v3.go for what it changes.
-	v3 *v3Conversion
+	// conv transforms what is read on its way out, for a caller that wants
+	// something other than a faithful account of the binary. Nil is the
+	// default and the faithful reading.
+	conv Conversion
 	// noPictures drops the illustration condacts, for a build without them.
 	noPictures bool
 }
 
+// Conversion changes what a reader hands back.
+//
+// It is an interface and not a thing this package does, because what a
+// conversion means belongs to whoever wants one — this package's job is to say
+// what the binary holds. The decompiler's version 3 conversion is the only
+// implementation so far.
+//
+// The system messages get a method of their own because they are the one table
+// where the slot a text sits in has a meaning: some of them are the
+// interpreter's rather than the adventure's.
+type Conversion interface {
+	Processes(all [][]Entry) [][]Entry
+	Texts(texts []string) []string
+	SystemMessages(texts []string) []string
+}
+
+// Converting says whether anything read is being put through a conversion on
+// its way out, which a caller needs to know when what it writes depends on it.
+func (r *Reader) Converting() bool { return r.conv != nil }
+
+// Bytes is the database as it was read, for a caller that needs the bytes
+// themselves rather than what they mean.
+func (r *Reader) Bytes() []byte { return r.data }
+
+// Convert sets what to put everything read through on its way out.
+func (r *Reader) Convert(c Conversion) { r.conv = c }
+
 // DropPictures leaves the illustration condacts out of everything this reader
 // hands back.
 func (r *Reader) DropPictures() { r.noPictures = true }
-
-// ConvertToV3 makes everything this reader hands out come back converted for a
-// version 3 interpreter. It is only ever right for a version 1 database: the
-// later formats already keep their loop where version 3 looks for it.
-func (r *Reader) ConvertToV3() error {
-	if !r.OldFormat() {
-		return fmt.Errorf("this database is format %d and needs no converting", r.Version())
-	}
-
-	plan, err := r.planV3()
-	if err != nil {
-		return err
-	}
-
-	r.v3 = plan
-
-	return nil
-}
 
 // FindDatabases looks for databases lying inside something that is not one.
 //
@@ -230,6 +239,10 @@ func readsLikeProse(characters, escapes int) bool {
 // header and its vocabulary — Los Templos Sagrados has twenty-six bytes of it —
 // would otherwise be taken for one laid at an address, and every pointer in it
 // shifted by the width of the padding.
+// At reads a database beginning at an offset, working out for itself how it
+// is laid: see readerAt.
+func At(data []byte, off int) (*Reader, bool) { return readerAt(data, off) }
+
 func readerAt(data []byte, off int) (*Reader, bool) {
 	if off < 0 || off+headerSizeV1 > len(data) {
 		return nil, false
@@ -535,6 +548,26 @@ func (r *Reader) Text(addr int) (string, error) {
 	return sb.String(), errors.New("unterminated text: reached the end of the file")
 }
 
+// The four text tables, by what they are rather than by which pointer holds
+// them. The pointer indices stay private: which word of the header a table
+// hangs from is this package's business, and a caller that had to know would
+// be reading the format for itself.
+func (r *Reader) SystemMessages() ([]string, error) {
+	return r.TextTable(ptrSysMessageText, r.NumSysMessages())
+}
+
+func (r *Reader) Messages() ([]string, error) {
+	return r.TextTable(ptrMessageText, r.NumMessages())
+}
+
+func (r *Reader) ObjectTexts() ([]string, error) {
+	return r.TextTable(ptrObjectText, r.NumObjects())
+}
+
+func (r *Reader) LocationTexts() ([]string, error) {
+	return r.TextTable(ptrLocationText, r.NumLocations())
+}
+
 // TextTable reads one of the four text tables.
 //
 // The header pointer does not lead to the texts but to an index of one word
@@ -563,16 +596,13 @@ func (r *Reader) TextTable(pointerIndex, count int) ([]string, error) {
 		texts = append(texts, text)
 	}
 
-	if r.v3 != nil {
-		// Every text may have a title in graphics mode, and the font that
-		// draws those changed between the versions.
-		texts = r.v3.convertTexts(texts)
+	if r.conv != nil {
+		texts = r.conv.Texts(texts)
 
-		// And the system messages are the one table where the slot itself
-		// matters: the interpreter prints some of them by itself, so an
-		// adventure that put its own text in those has to have it moved.
+		// The system messages are the one table where the slot itself matters,
+		// so they get asked about separately.
 		if pointerIndex == ptrSysMessageText {
-			texts = r.v3.convertSysmess(texts)
+			texts = r.conv.SystemMessages(texts)
 		}
 	}
 
@@ -611,11 +641,11 @@ func (r *Reader) Processes() ([][]Entry, error) {
 		all = withoutPictures(all)
 	}
 
-	if r.v3 == nil {
+	if r.conv == nil {
 		return all, nil
 	}
 
-	return r.v3.convertProcesses(all), nil
+	return r.conv.Processes(all), nil
 }
 
 // processes reads the whole process section: three levels deep, a word per
@@ -739,6 +769,13 @@ type Object struct {
 	// version 1 database, which has no table for them.
 	Attributes [16]bool
 }
+
+// Word types, as the database numbers them. WordFor takes them.
+const (
+	KindVerb      = 0
+	KindNoun      = 2
+	KindAdjective = 3
+)
 
 // NoWord marks an absent word, in an object's name as well as in a process
 // entry, where it reads as a wildcard.
@@ -946,7 +983,7 @@ func flatten(word string) string {
 // which screen mode it was built for and had no room anywhere else, so for
 // that machine the byte is the subtarget instead. See drb.php:1844.
 const (
-	machineMSX2     = 0x0F
+	MachineMSX2     = 0x0F
 	classicNullWord = '_'
 	// What the subtarget byte holds: the screen mode as a number from zero,
 	// and bit 7 for the narrower character.
@@ -966,7 +1003,7 @@ const (
 // the only MSX edition we have is machine 4 — so what this rests on is drb.php
 // and nothing else. videoMode below has the same caveat.
 func (r *Reader) nullWord() byte {
-	if r.Machine() == machineMSX2 {
+	if r.Machine() == MachineMSX2 {
 		return classicNullWord
 	}
 
@@ -979,7 +1016,7 @@ func (r *Reader) nullWord() byte {
 // The mode is stored counting from SCREEN 5, and bit 7 asks for the narrower
 // character: see getSubMachineIDByTarget at drb.php:1248-1261.
 func (r *Reader) VideoMode() string {
-	if r.Machine() != machineMSX2 {
+	if r.Machine() != MachineMSX2 {
 		return ""
 	}
 

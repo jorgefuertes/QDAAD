@@ -2,6 +2,7 @@ package decompiler
 
 import (
 	"fmt"
+	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,7 +43,7 @@ var wordKinds = [...]string{
 // The machines, by the number in the high nibble of header byte 1. The first
 // eight are the ones of 1991; MSX2 is here because it is the one machine that
 // changed what another header byte means, and knowing it is what keeps the
-// null word right. See Reader.nullWord.
+// null word right. See ddbfile.Reader.nullWord.
 //
 // The other numbers drb.php hands out — 8 for the ZX81, 11 for CP/M, 13 for
 // the VGA256 interpreter and jDAAD, 14 for the Plus/4 — are left out. Nothing
@@ -51,7 +52,7 @@ var wordKinds = [...]string{
 var machineNames = map[byte]string{
 	0: "IBM PC", 1: "ZX Spectrum", 2: "Commodore 64", 3: "Amstrad CPC",
 	4: "MSX", 5: "Atari ST", 6: "Commodore Amiga", 7: "Amstrad PCW",
-	machineMSX2: "MSX2",
+	ddbfile.MachineMSX2: "MSX2",
 }
 
 var languageNames = map[byte]string{0: "English", 1: "Spanish"}
@@ -61,7 +62,7 @@ var languageNames = map[byte]string{0: "English", 1: "Spanish"}
 type database struct {
 	dir    string // empty when the input was a database on its own
 	source string
-	reader *Reader
+	reader *ddbfile.Reader
 	assets []asset // the character set and the graphics that shipped with it
 	// vectors holds the drawings of the eight-bit editions, which shipped none
 	// of the above: their illustrations travel in the same block as the
@@ -195,7 +196,7 @@ func databasesIn(path string) ([]database, error) {
 
 	// A database on its own is the common case, and it reads as one straight
 	// away. Only if it does not is the file worth trying as an image.
-	if r, ok := readerAt(data, 0); ok {
+	if r, ok := ddbfile.At(data, 0); ok {
 		return []database{{
 			source: filepath.Base(path),
 			reader: r,
@@ -236,7 +237,7 @@ func databasesIn(path string) ([]database, error) {
 			continue
 		}
 
-		r, ok := readerAt(f.Data, 0)
+		r, ok := ddbfile.At(f.Data, 0)
 		if !ok {
 			return nil, fmt.Errorf("%s in %s does not read as a database", f.Name, image)
 		}
@@ -269,10 +270,10 @@ func databasesIn(path string) ([]database, error) {
 	// into the same buffer and copies itself down into the RAM the game runs in.
 	// Putting those copies back is what makes the database findable, so the
 	// memory each load builds is searched alongside the files themselves.
-	for _, set := range msxSets(msxChunks(files)) {
-		if memory := msxImage(set); memory != nil {
+	for _, set := range ddbfile.MSXSets(ddbfile.MSXChunks(files)) {
+		if memory := ddbfile.MSXImage(set); memory != nil {
 			blobs = append(blobs, blob{
-				where: fmt.Sprintf("the memory %s builds", set[0].name),
+				where: fmt.Sprintf("the memory %s builds", set[0].Name),
 				data:  memory,
 			})
 		}
@@ -297,7 +298,7 @@ func databasesIn(path string) ([]database, error) {
 	for _, b := range blobs {
 		first := len(found)
 
-		for _, r := range FindDatabases(b.data) {
+		for _, r := range ddbfile.FindDatabases(b.data) {
 			found = append(found, database{
 				source: fmt.Sprintf("%s at %#x (from %s)", b.where, r.Offset(), image),
 				reader: r,
@@ -348,8 +349,11 @@ func decompileOne(db database, outputDir string, opts Options) error {
 
 			// Asked for before anything is written, so that everything below
 			// reads the converted tables and texts rather than the binary's.
+			var plan *v3Conversion
+
 			if opts.ToV3 {
-				if err := r.ConvertToV3(); err != nil {
+				var err error
+				if plan, err = convertToV3(r); err != nil {
 					return err
 				}
 			}
@@ -357,14 +361,14 @@ func decompileOne(db database, outputDir string, opts Options) error {
 			// tokens have to be known before any text refers to them.
 			sections := []struct {
 				name  string
-				write func(*Reader) (string, error)
+				write func(*ddbfile.Reader) (string, error)
 			}{
 				{tokensFile, writeTokens},
 				{vocabFile, writeVocabulary},
-				{sysMessFile, textSection("/STX", "System messages", ptrSysMessageText, (*Reader).NumSysMessages)},
-				{messagesFile, textSection("/MTX", "User messages", ptrMessageText, (*Reader).NumMessages)},
-				{objTextFile, textSection("/OTX", "Object descriptions", ptrObjectText, (*Reader).NumObjects)},
-				{locTextFile, textSection("/LTX", "Location descriptions", ptrLocationText, (*Reader).NumLocations)},
+				{sysMessFile, textSection("/STX", "System messages", (*ddbfile.Reader).SystemMessages)},
+				{messagesFile, textSection("/MTX", "User messages", (*ddbfile.Reader).Messages)},
+				{objTextFile, textSection("/OTX", "Object descriptions", (*ddbfile.Reader).ObjectTexts)},
+				{locTextFile, textSection("/LTX", "Location descriptions", (*ddbfile.Reader).LocationTexts)},
 				{connectionsFile, writeConnections},
 				{objectsFile, writeObjects},
 				{processesFile, writeProcesses},
@@ -375,8 +379,8 @@ func decompileOne(db database, outputDir string, opts Options) error {
 			if opts.ToV3 {
 				sections = append(sections, struct {
 					name  string
-					write func(*Reader) (string, error)
-				}{v3LoopFile, writeV3Loop})
+					write func(*ddbfile.Reader) (string, error)
+				}{v3LoopFile, v3LoopSection(plan)})
 			}
 
 			names := make([]string, 0, len(sections))
@@ -440,7 +444,7 @@ func decompileOne(db database, outputDir string, opts Options) error {
 		t.Row("Vector drawings", strconv.Itoa(pictures.drawings))
 	}
 	if r.Base() == 0 {
-		t.Row("Total size", strconv.Itoa(len(r.data))+" bytes")
+		t.Row("Total size", strconv.Itoa(len(r.Bytes()))+" bytes")
 		t.Row("Declared length", strconv.Itoa(r.DeclaredLength())+" bytes")
 	} else {
 		t.Row("Declared length", strconv.Itoa(r.DeclaredLength())+" bytes")
@@ -455,7 +459,7 @@ func decompileOne(db database, outputDir string, opts Options) error {
 
 // banner describes where the source came from, so a reader of the output knows
 // what was deduced rather than read.
-func banner(r *Reader, source string) string {
+func banner(r *ddbfile.Reader, source string) string {
 	var sb strings.Builder
 
 	line := strings.Repeat("-", 74)
@@ -500,7 +504,7 @@ func banner(r *Reader, source string) string {
 	return sb.String()
 }
 
-func writeMain(r *Reader, source string, includes []string) string {
+func writeMain(r *ddbfile.Reader, source string, includes []string) string {
 	var sb strings.Builder
 
 	sb.WriteString(banner(r, source))
@@ -519,7 +523,7 @@ func writeMain(r *Reader, source string, includes []string) string {
 	return sb.String()
 }
 
-func writeTokens(r *Reader) (string, error) {
+func writeTokens(r *ddbfile.Reader) (string, error) {
 	var sb strings.Builder
 
 	// Compiled without a compression table, so the source gets no /TOK either:
@@ -568,7 +572,7 @@ const (
 	lastConvertibleValue = 19
 )
 
-func writeVocabulary(r *Reader) (string, error) {
+func writeVocabulary(r *ddbfile.Reader) (string, error) {
 	entries := r.Vocabulary()
 
 	// The database keeps the vocabulary alphabetically, which is an artefact of
@@ -576,7 +580,7 @@ func writeVocabulary(r *Reader) (string, error) {
 	// emitting, so any order recompiles to the same bytes. Sorting by value puts
 	// synonyms together, which is what a reader of this file is after.
 	sorted := slices.Clone(entries)
-	slices.SortStableFunc(sorted, func(a, b VocabularyEntry) int {
+	slices.SortStableFunc(sorted, func(a, b ddbfile.VocabularyEntry) int {
 		if a.Value != b.Value {
 			return int(a.Value) - int(b.Value)
 		}
@@ -597,7 +601,7 @@ func writeVocabulary(r *Reader) (string, error) {
 	sb.WriteString("; carries the same value and the same type as the entry above it.\n\n")
 	sb.WriteString("/VOC\n")
 
-	var previous *VocabularyEntry
+	var previous *ddbfile.VocabularyEntry
 
 	defined := make(map[string]bool, len(sorted))
 
@@ -630,14 +634,7 @@ func writeVocabulary(r *Reader) (string, error) {
 	return sb.String(), nil
 }
 
-// Word types, as the database numbers them.
-const (
-	kindVerb      = 0
-	kindNoun      = 2
-	kindAdjective = 3
-)
-
-func writeConnections(r *Reader) (string, error) {
+func writeConnections(r *ddbfile.Reader) (string, error) {
 	all, err := r.Connections()
 	if err != nil {
 		return "", err
@@ -658,7 +655,7 @@ func writeConnections(r *Reader) (string, error) {
 		for _, m := range moves {
 			// A movement is "a Verb (or Noun < 20)", and this adventure declares
 			// its directions as nouns, so both types are worth trying.
-			word, found := r.WordFor(m.Word, kindVerb, kindNoun)
+			word, found := r.WordFor(m.Word, ddbfile.KindVerb, ddbfile.KindNoun)
 			if !found {
 				return "", fmt.Errorf("location %d moves on word value %d, "+
 					"which is in no vocabulary entry", location, m.Word)
@@ -698,7 +695,7 @@ func processRole(number int, calledFrom []int) string {
 // callers maps every process to the tables that invoke it with PROCESS. The
 // parameter is only meaningful when it is not indirect: an indirect call names
 // a flag, and where it lands is only known at run time.
-func callers(all [][]Entry) map[int][]int {
+func callers(all [][]ddbfile.Entry) map[int][]int {
 	const opProcess = 75
 
 	out := map[int][]int{}
@@ -721,7 +718,7 @@ func callers(all [][]Entry) map[int][]int {
 	return out
 }
 
-func writeProcesses(r *Reader) (string, error) {
+func writeProcesses(r *ddbfile.Reader) (string, error) {
 	all, err := r.Processes()
 	if err != nil {
 		return "", err
@@ -749,7 +746,7 @@ func writeProcesses(r *Reader) (string, error) {
 	for number, entries := range all {
 		// Converting leaves four tables empty: they are the game loop, and it
 		// is written into a file of its own because it is not in the database.
-		if r.v3 != nil && slices.Contains(v3Reserved, number) {
+		if r.Converting() && slices.Contains(v3Reserved, number) {
 			fmt.Fprintf(&sb, "; TABLE %d is the game loop, in %s\n\n", number, v3LoopFile)
 
 			continue
@@ -770,12 +767,12 @@ func writeProcesses(r *Reader) (string, error) {
 	return sb.String(), nil
 }
 
-func writeEntry(sb *strings.Builder, r *Reader, e Entry, null string) error {
+func writeEntry(sb *strings.Builder, r *ddbfile.Reader, e ddbfile.Entry, null string) error {
 	head := fmt.Sprintf("> %-8s %-8s ",
-		r.entryVerb(e.Verb, null), r.entryNoun(e.Noun, null))
+		entryVerb(r, e.Verb, null), entryNoun(r, e.Noun, null))
 
 	for _, c := range e.Condacts {
-		text, err := r.condactText(c)
+		text, err := condactText(r, c)
 		if err != nil {
 			return err
 		}
@@ -798,26 +795,26 @@ func writeEntry(sb *strings.Builder, r *Reader, e Entry, null string) error {
 // verb, or to a noun low enough to be used as one, and the second to a noun.
 const maxConvertibleNoun = 39
 
-func (r *Reader) entryVerb(value byte, null string) string {
-	if word, found := r.WordFor(value, kindVerb); found {
+func entryVerb(r *ddbfile.Reader, value byte, null string) string {
+	if word, found := r.WordFor(value, ddbfile.KindVerb); found {
 		return word
 	}
 
 	if value <= maxConvertibleNoun {
-		if word, found := r.WordFor(value, kindNoun); found {
+		if word, found := r.WordFor(value, ddbfile.KindNoun); found {
 			return word
 		}
 	}
 
-	return r.entryValue(value, null)
+	return entryValue(r, value, null)
 }
 
-func (r *Reader) entryNoun(value byte, null string) string {
-	if word, found := r.WordFor(value, kindNoun); found {
+func entryNoun(r *ddbfile.Reader, value byte, null string) string {
+	if word, found := r.WordFor(value, ddbfile.KindNoun); found {
 		return word
 	}
 
-	return r.entryValue(value, null)
+	return entryValue(r, value, null)
 }
 
 // entryValue is the last resort: the number itself.
@@ -826,8 +823,8 @@ func (r *Reader) entryNoun(value byte, null string) string {
 // word of the kind the slot wants. Across the five adventures it always does,
 // so this never fires; it is here so that a database where it does not still
 // decompiles into something that says what the entry matches on.
-func (r *Reader) entryValue(value byte, null string) string {
-	if value == NoWord {
+func entryValue(r *ddbfile.Reader, value byte, null string) string {
+	if value == ddbfile.NoWord {
 		return null
 	}
 
@@ -835,13 +832,13 @@ func (r *Reader) entryValue(value byte, null string) string {
 }
 
 // condactText writes one condact with its parameters.
-func (r *Reader) condactText(c Condact) (string, error) {
+func condactText(r *ddbfile.Reader, c ddbfile.Condact) (string, error) {
 	def, found := r.Condact(c.Opcode)
 	if !found {
 		return "", fmt.Errorf("opcode %d is not a condact", c.Opcode)
 	}
 
-	if text, translated := r.oldCondactText(c); translated {
+	if text, translated := oldCondactText(r, c); translated {
 		return text, nil
 	}
 
@@ -858,7 +855,7 @@ func (r *Reader) condactText(c Condact) (string, error) {
 			continue
 		}
 
-		out += r.paramText(def.Params[i], value)
+		out += paramText(r, def.Params[i], value)
 	}
 
 	// Where the sources disagree on how many bytes a condact takes, say so on
@@ -873,11 +870,11 @@ func (r *Reader) condactText(c Condact) (string, error) {
 
 // paramText renders a parameter. Those naming a vocabulary word are written as
 // the word; the rest stay numbers, which is what the source holds anyway.
-func (r *Reader) paramText(kind ddb.ParamKind, value byte) string {
+func paramText(r *ddbfile.Reader, kind ddb.ParamKind, value byte) string {
 	vocabulary := map[ddb.ParamKind]byte{
-		ddb.ParamVerb:        kindVerb,
-		ddb.ParamNoun:        kindNoun,
-		ddb.ParamAdjective:   kindAdjective,
+		ddb.ParamVerb:        ddbfile.KindVerb,
+		ddb.ParamNoun:        ddbfile.KindNoun,
+		ddb.ParamAdjective:   ddbfile.KindAdjective,
 		ddb.ParamAdverb:      1,
 		ddb.ParamPreposition: 4,
 	}
@@ -887,7 +884,7 @@ func (r *Reader) paramText(kind ddb.ParamKind, value byte) string {
 		return fmt.Sprint(value)
 	}
 
-	if value == NoWord {
+	if value == ddbfile.NoWord {
 		return string(rune(r.NullWord()))
 	}
 
@@ -905,7 +902,7 @@ const (
 	locCarried    = 254
 )
 
-func writeObjects(r *Reader) (string, error) {
+func writeObjects(r *ddbfile.Reader) (string, error) {
 	objects, err := r.Objects()
 	if err != nil {
 		return "", err
@@ -937,12 +934,12 @@ func writeObjects(r *Reader) (string, error) {
 	}
 
 	for i, o := range objects {
-		noun, err := r.objectWord(o.Noun, kindNoun, i, "noun")
+		noun, err := objectWord(r, o.Noun, ddbfile.KindNoun, i, "noun")
 		if err != nil {
 			return "", err
 		}
 
-		adjective, err := r.objectWord(o.Adjective, kindAdjective, i, "adjective")
+		adjective, err := objectWord(r, o.Adjective, ddbfile.KindAdjective, i, "adjective")
 		if err != nil {
 			return "", err
 		}
@@ -977,8 +974,8 @@ func initialLocation(value byte, null string) string {
 
 // objectWord names the noun or the adjective of an object, or the null word
 // when it has none.
-func (r *Reader) objectWord(value, kind byte, object int, field string) (string, error) {
-	if value == NoWord {
+func objectWord(r *ddbfile.Reader, value, kind byte, object int, field string) (string, error) {
+	if value == ddbfile.NoWord {
 		return string(rune(r.NullWord())), nil
 	}
 
@@ -994,7 +991,7 @@ func (r *Reader) objectWord(value, kind byte, object int, field string) (string,
 // rangeNote heads the value ranges the interpreter gives a meaning of its own,
 // so that a reader can see where they begin without knowing the conventions.
 // It returns the empty string when the entry does not open a range.
-func rangeNote(previous *VocabularyEntry, e VocabularyEntry) string {
+func rangeNote(previous *ddbfile.VocabularyEntry, e ddbfile.VocabularyEntry) string {
 	crosses := func(limit byte) bool {
 		return (previous == nil || previous.Value <= limit) && e.Value > limit
 	}
@@ -1015,9 +1012,9 @@ func rangeNote(previous *VocabularyEntry, e VocabularyEntry) string {
 
 // textSection builds the writer for one of the four text tables. They all share
 // the same shape: a "/n" line per entry followed by its text.
-func textSection(tag, title string, pointer int, count func(*Reader) int) func(*Reader) (string, error) {
-	return func(r *Reader) (string, error) {
-		texts, err := r.TextTable(pointer, count(r))
+func textSection(tag, title string, read func(*ddbfile.Reader) ([]string, error)) func(*ddbfile.Reader) (string, error) {
+	return func(r *ddbfile.Reader) (string, error) {
+		texts, err := read(r)
 		if err != nil {
 			return "", err
 		}

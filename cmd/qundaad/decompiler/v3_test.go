@@ -1,6 +1,8 @@
 package decompiler
 
 import (
+	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,20 +33,20 @@ func TestTheTablesMoveToWhereVersionThreeKeepsThem(t *testing.T) {
 func TestEveryProcessCallFollowsItsTable(t *testing.T) {
 	c := &v3Conversion{tables: 21, sysmess: map[int]int{}}
 
-	got := c.convertCondacts([]Condact{
+	got := c.convertCondacts([]ddbfile.Condact{
 		{Opcode: opPROCESS, Params: []byte{0}},
 		{Opcode: opPROCESS, Params: []byte{2}},
 		{Opcode: opPROCESS, Params: []byte{13}},
 	})
 
-	require.Equal(t, []Condact{
+	require.Equal(t, []ddbfile.Condact{
 		{Opcode: opPROCESS, Params: []byte{5}},
 		{Opcode: opPROCESS, Params: []byte{4}},
 		{Opcode: opPROCESS, Params: []byte{17}},
 	}, got)
 
 	// An indirect call names a flag and what it holds is not ours to touch.
-	got = c.convertCondacts([]Condact{{Opcode: opPROCESS, Indirect: true, Params: []byte{7}}})
+	got = c.convertCondacts([]ddbfile.Condact{{Opcode: opPROCESS, Indirect: true, Params: []byte{7}}})
 	require.Equal(t, byte(7), got[0].Params[0])
 }
 
@@ -57,13 +59,13 @@ func TestEveryProcessCallFollowsItsTable(t *testing.T) {
 func TestTheBareDescBecomesARestart(t *testing.T) {
 	c := &v3Conversion{tables: 21, sysmess: map[int]int{}}
 
-	got := c.convertCondacts([]Condact{{Opcode: opDESC}})
+	got := c.convertCondacts([]ddbfile.Condact{{Opcode: opDESC}})
 
-	require.Equal(t, []Condact{{Opcode: opCLS}, {Opcode: opRESTART}}, got)
+	require.Equal(t, []ddbfile.Condact{{Opcode: opCLS}, {Opcode: opRESTART}}, got)
 
 	// A DESC that names a location is version 3's own and is left alone.
-	got = c.convertCondacts([]Condact{{Opcode: opDESC, Params: []byte{12}}})
-	require.Equal(t, []Condact{{Opcode: opDESC, Params: []byte{12}}}, got)
+	got = c.convertCondacts([]ddbfile.Condact{{Opcode: opDESC, Params: []byte{12}}})
+	require.Equal(t, []ddbfile.Condact{{Opcode: opDESC, Params: []byte{12}}}, got)
 }
 
 // QUIT ended the game in DAAD 1. In version 3 it only asks, and END is what
@@ -72,9 +74,9 @@ func TestTheBareDescBecomesARestart(t *testing.T) {
 func TestQuitGetsTheEndItNeverNeeded(t *testing.T) {
 	c := &v3Conversion{tables: 21, sysmess: map[int]int{}}
 
-	got := c.convertCondacts([]Condact{{Opcode: opQUIT}, {Opcode: 27, Params: []byte{21}}})
+	got := c.convertCondacts([]ddbfile.Condact{{Opcode: opQUIT}, {Opcode: 27, Params: []byte{21}}})
 
-	require.Equal(t, []Condact{
+	require.Equal(t, []ddbfile.Condact{
 		{Opcode: opQUIT},
 		{Opcode: opEND},
 		{Opcode: 27, Params: []byte{21}},
@@ -82,7 +84,7 @@ func TestQuitGetsTheEndItNeverNeeded(t *testing.T) {
 
 	// One that already does the version 3 thing is left as it is, so that
 	// converting something twice is not a different answer.
-	already := []Condact{{Opcode: opQUIT}, {Opcode: opEND}}
+	already := []ddbfile.Condact{{Opcode: opQUIT}, {Opcode: opEND}}
 	require.Equal(t, already, c.convertCondacts(already))
 }
 
@@ -101,13 +103,13 @@ func TestTheReservedMessagesMoveAndTheirCallersFollow(t *testing.T) {
 	require.Equal(t, "ir al ", got[34])
 
 	require.Equal(t,
-		[]Condact{{Opcode: opSYSMESS, Params: []byte{34}}},
-		c.convertCondacts([]Condact{{Opcode: opSYSMESS, Params: []byte{3}}}))
+		[]ddbfile.Condact{{Opcode: opSYSMESS, Params: []byte{34}}},
+		c.convertCondacts([]ddbfile.Condact{{Opcode: opSYSMESS, Params: []byte{3}}}))
 
 	// One that names a slot nobody moved is left alone.
 	require.Equal(t,
-		[]Condact{{Opcode: opSYSMESS, Params: []byte{7}}},
-		c.convertCondacts([]Condact{{Opcode: opSYSMESS, Params: []byte{7}}}))
+		[]ddbfile.Condact{{Opcode: opSYSMESS, Params: []byte{7}}},
+		c.convertCondacts([]ddbfile.Condact{{Opcode: opSYSMESS, Params: []byte{7}}}))
 }
 
 // A space inside graphics mode is drawn with the glyph from the top half of the
@@ -153,7 +155,8 @@ func TestConvertingTheVersionOneAdventures(t *testing.T) {
 			before, err := r.Processes()
 			require.NoError(t, err)
 
-			require.NoError(t, r.ConvertToV3())
+			plan, err := convertToV3(r)
+			require.NoError(t, err)
 
 			after, err := r.Processes()
 			require.NoError(t, err)
@@ -201,10 +204,10 @@ func TestConvertingTheVersionOneAdventures(t *testing.T) {
 			// The system messages the interpreter reserves are now what it
 			// expects to print, and whatever the adventure had there is
 			// somewhere it can still be reached.
-			texts, err := r.TextTable(ptrSysMessageText, r.NumSysMessages())
+			texts, err := r.SystemMessages()
 			require.NoError(t, err)
 
-			for from, to := range r.v3.sysmess {
+			for from, to := range plan.sysmess {
 				require.Equal(t, "#n", texts[from], "message %d", from)
 				require.NotEmpty(t, texts[to], "message %d went to %d", from, to)
 				require.NotContains(t, reservedSysmess, to, "and not into another reserved slot")
@@ -219,22 +222,32 @@ func TestOnlyAVersionOneDatabaseIsConverted(t *testing.T) {
 	r := openDatabase(t, "../../../work/aventuras/Cozumel/PC/PART1.DDB")
 
 	require.False(t, r.OldFormat())
-	require.ErrorContains(t, r.ConvertToV3(), "needs no converting")
+
+	_, err := convertToV3(r)
+	require.ErrorContains(t, err, "needs no converting")
 }
 
-// The illustration condacts come out when the build has no pictures. It is not
-// part of the version conversion — version 3 draws pictures — and it is tested
-// apart for the same reason.
-func TestPicturesComeOutWhenAskedFor(t *testing.T) {
-	got := withoutPictures([][]Entry{{{
-		Verb: 1, Noun: 2,
-		Condacts: []Condact{
-			{Opcode: opPICTURE, Params: []byte{4}},
-			{Opcode: opDISPLAY, Params: []byte{0}},
-			{Opcode: opCLS},
-		},
-	}}})
+// The two adventures of 1989, which are the only ones there is anything to
+// convert in. The reader's own tests have a list like this; the two are
+// separate on purpose, so that moving one package's fixtures does not quietly
+// empty the other package's tests.
+var databases = []struct{ name, path string }{
+	{"AO part 1", "../../../work/aventuras/La_Aventura_Original/PC/PART1.DDB"},
+	{"AO part 2", "../../../work/aventuras/La_Aventura_Original/PC/PART2.DDB"},
+	{"Jabato part 1", "../../../work/aventuras/El_Jabato/PC/CGA/PART1.DDB"},
+	{"Jabato part 2", "../../../work/aventuras/El_Jabato/PC/CGA/PART2.DDB"},
+}
 
-	require.Equal(t, []Condact{{Opcode: opCLS}}, got[0][0].Condacts)
-	require.Equal(t, byte(1), got[0][0].Verb, "the entry itself is untouched")
+func openDatabase(t *testing.T, path string) *ddbfile.Reader {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("%s is not in the checkout: %v", path, err)
+	}
+
+	r, ok := ddbfile.At(data, 0)
+	require.True(t, ok, "%s does not read as a database", path)
+
+	return r
 }

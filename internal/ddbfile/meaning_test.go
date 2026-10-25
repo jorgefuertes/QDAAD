@@ -1,4 +1,4 @@
-package decompiler
+package ddbfile
 
 import (
 	"testing"

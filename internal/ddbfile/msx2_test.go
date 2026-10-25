@@ -1,4 +1,4 @@
-package decompiler
+package ddbfile
 
 import (
 	"fmt"
@@ -36,7 +36,7 @@ func TestTheNullWordIsNotReadFromTheMSX2SubtargetByte(t *testing.T) {
 
 	t.Run("MSX2 gets the underscore and not the subtarget", func(t *testing.T) {
 		// 0x03 is SCREEN 8, and as a character it does not print.
-		r := header(machineMSX2, 0x03)
+		r := header(MachineMSX2, 0x03)
 
 		require.Equal(t, byte('_'), r.NullWord(),
 			"the byte is the subtarget, so there is no null word to read")
@@ -55,7 +55,7 @@ func TestTheMSX2VideoModeIsReadFromThatByte(t *testing.T) {
 		{0x87, "SCREEN 12, 8-pixel characters"},
 	} {
 		t.Run(fmt.Sprintf("%02x", tc.byteTwo), func(t *testing.T) {
-			require.Equal(t, tc.want, header(machineMSX2, tc.byteTwo).VideoMode())
+			require.Equal(t, tc.want, header(MachineMSX2, tc.byteTwo).VideoMode())
 		})
 	}
 }

@@ -1,4 +1,4 @@
-package decompiler
+package ddbfile
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const msxImageFile = "../../../work/aventuras/Chichén_Itzá/MSX/chichen_itza.dsk"
+const msxImageFile = "../../work/aventuras/Chichén_Itzá/MSX/chichen_itza.dsk"
 
 func msxFiles(t *testing.T) []media.File {
 	t.Helper()
@@ -34,7 +34,7 @@ func names(sets [][]msxChunk) [][]string {
 	for _, set := range sets {
 		group := make([]string, 0, len(set))
 		for _, c := range set {
-			group = append(group, c.name)
+			group = append(group, c.Name)
 		}
 
 		out = append(out, group)
@@ -57,20 +57,20 @@ func TestMSXSetsAreKeptApart(t *testing.T) {
 		{"CIA1", "CIA2", "CIA3", "CIA4", "CIA5", "CIA6", "CIA7"},
 		{"CIB1", "CIB2", "CIB3", "CIB4", "CIB5", "CIB6", "CIB7"},
 		{"CI_LOGO.BIN"},
-	}, names(msxSets(msxChunks(msxFiles(t)))))
+	}, names(MSXSets(MSXChunks(msxFiles(t)))))
 }
 
 // The copies are read out of the code that performs them, and this is what they
 // come to. Nothing else on the disk says where a chunk ends up.
 func TestMSXCopiesAreReadFromTheCode(t *testing.T) {
-	sets := msxSets(msxChunks(msxFiles(t)))
+	sets := MSXSets(MSXChunks(msxFiles(t)))
 	require.NotEmpty(t, sets)
 
 	got := map[string][]msxCopy{}
 
 	for _, c := range sets[0] {
 		if moves := c.copies(); len(moves) > 0 {
-			got[c.name] = moves
+			got[c.Name] = moves
 		}
 	}
 
@@ -94,8 +94,8 @@ func TestMSXImageHoldsADatabase(t *testing.T) {
 
 	databases := 0
 
-	for i, set := range msxSets(msxChunks(files)) {
-		memory := msxImage(set)
+	for i, set := range MSXSets(MSXChunks(files)) {
+		memory := MSXImage(set)
 		if memory == nil {
 			continue
 		}

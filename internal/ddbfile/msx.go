@@ -1,4 +1,4 @@
-package decompiler
+package ddbfile
 
 import (
 	"sort"
@@ -37,7 +37,7 @@ const (
 
 // msxChunk is one BLOAD file: where it was loaded, and the bytes of it.
 type msxChunk struct {
-	name string
+	Name string
 	load int
 	body []byte
 }
@@ -47,9 +47,9 @@ type msxCopy struct {
 	from, to, size int
 }
 
-// msxChunks picks the BLOAD files out of what a disk holds. Anything else on it
+// MSXChunks picks the BLOAD files out of what a disk holds. Anything else on it
 // — the BASIC loader, a title screen — is left alone.
-func msxChunks(files []media.File) []msxChunk {
+func MSXChunks(files []media.File) []msxChunk {
 	var out []msxChunk
 
 	for _, f := range files {
@@ -58,7 +58,7 @@ func msxChunks(files []media.File) []msxChunk {
 		}
 
 		out = append(out, msxChunk{
-			name: f.Name,
+			Name: f.Name,
 			load: int(f.Data[1]) | int(f.Data[2])<<8,
 			body: f.Data[bloadHeader:],
 		})
@@ -99,7 +99,7 @@ func (c msxChunk) copies() []msxCopy {
 	return out
 }
 
-// msxSets groups the chunks into the loads they belong to.
+// MSXSets groups the chunks into the loads they belong to.
 //
 // A disk holds more than one: Chichén Itzá keeps both parts of the adventure on
 // the same one, as CIA1 to CIA7 and CIB1 to CIB7. They cannot be laid out
@@ -109,7 +109,7 @@ func (c msxChunk) copies() []msxCopy {
 // The directory names them in whatever order they were written, so each set is
 // put back into the order its numbers give: that is the order the loader asks
 // for them, and where two chunks write to the same place it decides which wins.
-func msxSets(chunks []msxChunk) [][]msxChunk {
+func MSXSets(chunks []msxChunk) [][]msxChunk {
 	split := func(name string) (string, int) {
 		at := len(name)
 		for at > 0 && name[at-1] >= '0' && name[at-1] <= '9' {
@@ -131,7 +131,7 @@ func msxSets(chunks []msxChunk) [][]msxChunk {
 	sets := map[string][]msxChunk{}
 
 	for _, c := range chunks {
-		s := stem(c.name)
+		s := stem(c.Name)
 		if _, seen := sets[s]; !seen {
 			order = append(order, s)
 		}
@@ -145,8 +145,8 @@ func msxSets(chunks []msxChunk) [][]msxChunk {
 		set := sets[s]
 
 		sort.SliceStable(set, func(i, j int) bool {
-			_, a := split(set[i].name)
-			_, b := split(set[j].name)
+			_, a := split(set[i].Name)
+			_, b := split(set[j].Name)
 
 			return a < b
 		})
@@ -157,13 +157,13 @@ func msxSets(chunks []msxChunk) [][]msxChunk {
 	return out
 }
 
-// msxImage lays one set of copies out where they go and gives back the memory
+// MSXImage lays one set of copies out where they go and gives back the memory
 // the game would have been running in.
 //
 // The chunks are taken in the order the disk names them, which is the order the
 // loader asks for them, so where two write to the same place the later one wins
 // — as it would have on the machine.
-func msxImage(chunks []msxChunk) []byte {
+func MSXImage(chunks []msxChunk) []byte {
 	memory := make([]byte, msxMemory)
 	wrote := false
 

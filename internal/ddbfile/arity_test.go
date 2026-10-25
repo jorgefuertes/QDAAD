@@ -1,4 +1,4 @@
-package decompiler
+package ddbfile
 
 import (
 	"os"
@@ -36,27 +36,27 @@ var databases = []struct {
 }{
 	{
 		name:    "AO part 1",
-		path:    "../../../work/aventuras/La_Aventura_Original/PC/PART1.DDB",
+		path:    "../../work/aventuras/La_Aventura_Original/PC/PART1.DDB",
 		version: 1,
 	},
 	{
 		name:    "AO part 2",
-		path:    "../../../work/aventuras/La_Aventura_Original/PC/PART2.DDB",
+		path:    "../../work/aventuras/La_Aventura_Original/PC/PART2.DDB",
 		version: 1,
 	},
 	{
 		name:    "Jabato part 1",
-		path:    "../../../work/aventuras/El_Jabato/PC/CGA/PART1.DDB",
+		path:    "../../work/aventuras/El_Jabato/PC/CGA/PART1.DDB",
 		version: 1,
 	},
 	{
 		name:    "Jabato part 2",
-		path:    "../../../work/aventuras/El_Jabato/PC/CGA/PART2.DDB",
+		path:    "../../work/aventuras/El_Jabato/PC/CGA/PART2.DDB",
 		version: 1,
 	},
 	{
 		name:    "Jabato part 1, EGA",
-		path:    "../../../work/aventuras/El_Jabato/PC/Ega/PART1.DDB",
+		path:    "../../work/aventuras/El_Jabato/PC/Ega/PART1.DDB",
 		version: 1,
 	},
 }
