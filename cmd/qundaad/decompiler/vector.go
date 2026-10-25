@@ -776,6 +776,26 @@ func writeGraphicsTable(v vectors, gfx string) error {
 		return err
 	}
 
+	// And the same thing cut to the 2048 bytes a character set is, so that it
+	// can be handed to the compiler as one.
+	//
+	// udg.bin is a dump of the memory between two addresses the interpreter
+	// holds, so it is a few bytes longer than the font: whatever came after it
+	// is in there too. That is the right thing for a dump and the wrong thing
+	// for a file meant to be loaded, which has to be exactly 256 glyphs.
+	//
+	// It is worth having. The font an adventure of 1989 shipped is not the one
+	// a version 3 interpreter loads, and the difference shows: AD8x6.CHR has a
+	// letter where this has the blank that a forced space needs, and italics
+	// where this has the little drawings that go beside an object's name.
+	const charsetSize = 256 * 8
+
+	if len(v.graphics) >= charsetSize {
+		if err := writeInto(gfx, fontsDir, "udg.chr", v.graphics[:charsetSize]); err != nil {
+			return err
+		}
+	}
+
 	return writePNGInto(gfx, fontsDir, "udg.png", udgAtlas(v))
 }
 

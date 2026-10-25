@@ -79,6 +79,13 @@ func Command() *cli.Command {
 				Usage:    "Output file for the compiled database, without extension.",
 			},
 			&cli.StringFlag{
+				Name:     "charset",
+				Category: "files",
+				Usage: "Character set to load with the game, 2048 bytes or that plus a " +
+					"128-byte header. Without it the one built in is used, which is the " +
+					"one every DAAD READY build loads.",
+			},
+			&cli.StringFlag{
 				Name:     "format",
 				Category: "files",
 				Aliases:  []string{"f"},
@@ -132,9 +139,17 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		out += "." + format
 	}
 
+	var charset []byte
+
+	if path := cmd.String("charset"); path != "" {
+		if charset, err = os.ReadFile(path); err != nil {
+			return err
+		}
+	}
+
 	// The name the ROM shows while loading is the one the file was given,
 	// which is what the reference does too and the only name there is to use.
-	body, err := wrap(format, image, opts, name(out))
+	body, err := wrap(format, image, opts, name(out), charset)
 	if err != nil {
 		return err
 	}
@@ -161,7 +176,7 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 // Only the 48K Spectrum is packed so far. The other machines refuse rather than
 // quietly writing the database under a .tap extension, which would load on
 // nothing and say so nowhere.
-func wrap(format string, image []byte, opts legacy.Options, name string) ([]byte, error) {
+func wrap(format string, image []byte, opts legacy.Options, name string, charset []byte) ([]byte, error) {
 	switch format {
 	case formatDDB:
 		return image, nil
@@ -175,7 +190,9 @@ func wrap(format string, image []byte, opts legacy.Options, name string) ([]byte
 				opts.Subtarget)
 		}
 
-		return pack.ZX48(image, pack.Options{Language: opts.Language, Name: name})
+		return pack.ZX48(image, pack.Options{
+			Language: opts.Language, Name: name, Charset: charset,
+		})
 	default:
 		return nil, fmt.Errorf("%q is not a format: it is %s or %s", format, formatDDB, formatTAP)
 	}
