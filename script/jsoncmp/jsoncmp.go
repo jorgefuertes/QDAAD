@@ -1,9 +1,11 @@
 // Command jsoncmp holds two intermediate-form files against each other and
 // says where they disagree.
 //
-// It is a development tool, driven by script/compare-drf.sh. Nothing in the
-// compiler calls it and nothing in the compiler depends on the other front end
-// existing.
+// It is a development tool and not one of this program's commands, which is
+// why it lives beside the script that drives it rather than under cmd/: it is
+// the Go half of compare-drf.sh, the way the rest of that harness is the shell
+// half. Nothing in the compiler calls it, nothing in the compiler depends on
+// the other front end existing, and nothing ships it.
 //
 // It compares meaning, not text. The two files are written by different
 // programs and will never match byte for byte: the keys come out in a

@@ -71,7 +71,7 @@ build_drf() {
 
 build_ours() {
 	go build -o "${QDAAD}" ./cmd/qdaad || exit 1
-	go build -o "${COMPARE}" ./cmd/jsoncmp || exit 1
+	go build -o "${COMPARE}" ./script/jsoncmp || exit 1
 }
 
 # sources_to_check is what was asked for, or everything we have.
