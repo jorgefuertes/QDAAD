@@ -200,6 +200,15 @@ type Machine struct {
 	// of whether a turn got anywhere. See Run.
 	inputs int
 
+	// literal is the phrase the player put in quotes, kept back from the
+	// sentence it was typed in so that PARSE 1 can have it.
+	//
+	// It is what talking to somebody is made of. DECIR "SIGUEME" is one line
+	// holding two sentences for two different readers: the verb is the
+	// player's, and the phrase is for whoever the verb hands it to. See
+	// useLiteralSentence, daad_parser_sentences.c:272.
+	literal string
+
 	// indir carries what an INDIR condact left for the one after it.
 	//
 	// Bit 7 of an opcode makes the first operand indirect and there is nowhere

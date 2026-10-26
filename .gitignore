@@ -18,3 +18,7 @@ AGENTS.md
 
 # OS
 .DS_Store
+
+# Decompiled sources dropped in the root by a "-o <name>" with no path.
+# They are output, not source: the place for them is work/port/.
+/ao-*/

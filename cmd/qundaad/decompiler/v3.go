@@ -37,10 +37,15 @@ const (
 	opCLS     = 29
 	opDISPLAY = 28
 	opSYSMESS = 54
+	opPARSE   = 73
 	opPICTURE = 84
 	opPROCESS = 75
 	opRESTART = 117
 )
+
+// parseLiteral is the operand that makes PARSE read the phrase the player put
+// in quotes rather than ask for a new line.
+const parseLiteral = 1
 
 // Where version 3 expects the loop to live. Tables 0, 1 and 2 are the loop
 // itself and the parser's replies; 6 is the initialisation. The adventure's own
@@ -236,6 +241,28 @@ func (c *v3Conversion) convertCondacts(in []ddbfile.Condact) []ddbfile.Condact {
 			out = append(out,
 				ddbfile.Condact{Opcode: opCLS},
 				ddbfile.Condact{Opcode: opRESTART})
+
+		// PARSE carried no operand in DAAD 1, and version 3 gives it one that
+		// chooses between two different things: 0 asks the player for a line,
+		// 1 reads the phrase they already put in quotes.
+		//
+		// The 1 is the one an adventure of 1989 means. Talking to somebody in
+		// La Aventura Original is DECIR "SIGUEME" — the quotes are in the game's
+		// own instructions and in every solution ever written for it — and that
+		// only works if the quoted phrase is what the conversation parses.
+		// Converted to 0 the phrase is thrown away and the elf's table eats the
+		// player's *next* command instead, so the answer arrives one turn late
+		// and attached to the wrong order.
+		//
+		// This is read from how the adventure is played rather than from a
+		// disassembly of its interpreter, which is a weaker kind of evidence
+		// and worth saying so. What makes it hard to doubt is that the other
+		// reading makes the published solution impossible.
+		case condact.Opcode == opPARSE && len(condact.Params) == 0:
+			out = append(out, ddbfile.Condact{
+				Opcode: opPARSE,
+				Params: []byte{parseLiteral},
+			})
 
 		// QUIT ended the game in DAAD 1. In version 3 it only asks, and END is
 		// what ends it — so an adventure of 1989 has no END anywhere and

@@ -178,7 +178,11 @@ var condacts = map[byte]func(*Machine, []byte){
 	// writes is "PARSE 0 / PROCESS 2 / REDO", and process 2 is what says "I
 	// don't understand" — so the condact has to succeed precisely when there
 	// is nothing to answer, and fail when there is.
-	73:  func(m *Machine, _ []byte) { m.need(m.parse()) },         // PARSE
+	// PARSE: 0 takes the player's next sentence, anything else the phrase
+	// they put in quotes. A format 1 database carries no operand at all, and
+	// the decompiler's version 3 conversion writes the 1 — see parseOperand in
+	// cmd/qundaad/decompiler.
+	73: func(m *Machine, a []byte) { m.need(m.parse(arg(a, 0))) }, // PARSE
 	92:  func(m *Machine, _ []byte) {},                            // NEWTEXT: nothing to flush here
 	127: func(m *Machine, _ []byte) { m.resetObjects(); m.did() }, // RESET
 
@@ -534,7 +538,18 @@ func (m *Machine) doallNext() bool {
 // parse takes the next sentence from the player. It reports whether the
 // sentence could not be understood, which is the way round PARSE is used:
 // "PARSE 0 / PROCESS 2" runs process 2 when the input made no sense.
-func (m *Machine) parse() bool {
+func (m *Machine) parse(which byte) bool {
+	// PARSE 1 reads the phrase the player put in quotes, which is already in
+	// hand: it asks nothing and takes nothing from the line still being
+	// answered. See useLiteralSentence, daad_parser_sentences.c:272.
+	//
+	// Nothing in quotes is not an error either. It leaves the sentence empty,
+	// which is a sentence the conversation's entries do not match, so the
+	// adventure's own "I did not understand that" answers it.
+	if which != 0 {
+		return !m.words(m.literal)
+	}
+
 	m.prompt()
 
 	line, ok := m.console.Input()

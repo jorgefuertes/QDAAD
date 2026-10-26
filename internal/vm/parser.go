@@ -23,7 +23,21 @@ const wordLength = 5
 
 // sentence reads a line into the sentence flags. It reports whether anything
 // in it was understood.
+//
+// Anything in quotes is taken out first and kept for PARSE 1 rather than
+// parsed here. That is how an adventure lets the player say something to
+// somebody: "DECIR "SIGUEME"" is the verb DECIR and a phrase that belongs to
+// whatever the verb hands it to, and the two are parsed by different condacts
+// into the same flags at different moments.
 func (m *Machine) sentence(line string) bool {
+	line, m.literal = splitQuoted(line)
+
+	return m.words(line)
+}
+
+// words fills the sentence flags from a line that has had its quotes taken
+// out, and reports whether anything in it was understood.
+func (m *Machine) words(line string) bool {
 	// The sentence starts empty, so that a word the player leaves out does not
 	// keep the value it had last turn. Leaving them would make "coger" after
 	// "coger llave" mean "coger llave" again.
@@ -59,6 +73,30 @@ func (m *Machine) sentence(line string) bool {
 	}
 
 	return found
+}
+
+// splitQuoted takes the quoted phrase out of a line, giving back the rest and
+// the phrase without its quotes.
+//
+// Only the first pair counts, and an opening quote with no closing one runs to
+// the end of the line — which is the forgiving reading, and the one a player
+// who forgot the second quote deserves.
+func splitQuoted(line string) (rest, quoted string) {
+	const quote = '"'
+
+	open := strings.IndexRune(line, quote)
+	if open < 0 {
+		return line, ""
+	}
+
+	tail := line[open+1:]
+
+	close := strings.IndexRune(tail, quote)
+	if close < 0 {
+		return line[:open], tail
+	}
+
+	return line[:open] + tail[close+1:], tail[:close]
 }
 
 // place files a word in the first slot of its kind that is still empty, which

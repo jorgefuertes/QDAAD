@@ -74,6 +74,16 @@ func oldCondactText(r *ddbfile.Reader, c ddbfile.Condact) (string, bool) {
 		return "", false
 	}
 
+	// What is missing is measured against the condact in hand and not against
+	// the old table's arity, because the two stopped agreeing the moment a
+	// conversion was allowed to supply an operand. A converted PARSE arrives
+	// with its 1 already in it, and padding it by the old arity wrote
+	// "PARSE 1 0" — an operand the author never asked for, in a condact that
+	// takes one.
+	if len(c.Params) >= len(modern.Params) {
+		return "", false
+	}
+
 	// DESC is the one with something to say rather than a hole to fill.
 	if c.Opcode == opDesc && len(c.Params) == 0 {
 		return fmt.Sprintf("DESC @%d   ; was a bare DESC: the old one means here", fPlayer), true
@@ -85,7 +95,7 @@ func oldCondactText(r *ddbfile.Reader, c ddbfile.Condact) (string, bool) {
 		out += fmt.Sprintf(" %d", p)
 	}
 
-	short := len(modern.Params) - len(old.Params)
+	short := len(modern.Params) - len(c.Params)
 	for range short {
 		out += " 0"
 	}

@@ -831,6 +831,28 @@ func entryValue(r *ddbfile.Reader, value byte, null string) string {
 	return strconv.Itoa(int(value))
 }
 
+// paramKind says what sort of thing the operand at i is.
+//
+// The database's own table is asked first, and the version 3 table after it,
+// because the two can disagree about how many operands a condact has and the
+// conversion to version 3 is allowed to add one. A converted PARSE carries a 1
+// that the format 1 table does not declare, and indexing that table by
+// position read off the end of it.
+//
+// Falling back to a plain value is the honest answer for an operand neither
+// table describes: it gets written as the number it is, which is what it was.
+func paramKind(def ddb.CondactDef, opcode byte, i int) ddb.ParamKind {
+	if i < len(def.Params) {
+		return def.Params[i]
+	}
+
+	if modern, known := ddb.LookupCondact(ddb.Opcode(opcode)); known && i < len(modern.Params) {
+		return modern.Params[i]
+	}
+
+	return ddb.ParamValue
+}
+
 // condactText writes one condact with its parameters.
 func condactText(r *ddbfile.Reader, c ddbfile.Condact) (string, error) {
 	def, found := r.Condact(c.Opcode)
@@ -855,7 +877,7 @@ func condactText(r *ddbfile.Reader, c ddbfile.Condact) (string, error) {
 			continue
 		}
 
-		out += paramText(r, def.Params[i], value)
+		out += paramText(r, paramKind(def, c.Opcode, i), value)
 	}
 
 	// Where the sources disagree on how many bytes a condact takes, say so on

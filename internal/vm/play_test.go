@@ -176,13 +176,15 @@ func TestWalkingAroundLaAventuraOriginal(t *testing.T) {
 //
 //   - AnyKey read a line even with nobody at the keyboard, so every pause ate
 //     a command and everything after it happened in the wrong room.
-//   - PARSE prompts for a line when no sentence is left over, which is right
-//     (getLogicalSentence, daad_parser_sentences.c:255) and means the answer
-//     to the elf is a line of its own rather than part of the DECIR. Typed
-//     together, the conversation never reaches the entry that matters.
-//   - And flag 37 was the template's guessed 4. The cave asks for EQ 1 5, so
-//     the first part could not be finished with any smaller carrying limit —
-//     the adventure stated its own answer and we had overridden it.
+//   - PARSE ignored its operand and always asked for a line. The phrase in
+//     quotes is what a conversation parses — that is PARSE 1 — so DECIR
+//     "SIGUEME" threw the phrase away and ate the player's next command
+//     instead, answering one turn late and attached to the wrong order.
+//   - And the carrying limit was the template's guessed 4, which no source
+//     should be guessing: La Aventura Original says ABILITY 5 255 in its own
+//     initialisation. The cave then asks for EQ 1 5 — exactly five objects in
+//     hand — which is unreachable if anything has overridden the adventure's
+//     own answer.
 // It is played on both layouts. The Spectrum build is the one that goes on a
 // tape, and until this ran twice the published one rested on tests that read
 // every section of it and answered nothing about whether it could be won.
@@ -222,11 +224,11 @@ func finishTheFirstPart(t *testing.T, machine arch.Machine, subtarget string) {
 		// The coin, in the pool.
 		"N", "S", "O", "N", "E", "BAJAR", "EXAMINAR CHARCO", "COGER MONEDA",
 		"SUBIR", "O", "S", "LLENAR BOTELLA",
-		// The elf. Each answer is a line of its own because that is what
-		// PARSE asks for; said in one breath it is never heard.
+		// The elf, talked to the way the game's own instructions say: a verb
+		// and a phrase in quotes, which PARSE 1 is what reads.
 		"E", "E", "S", "EXAMINAR FIGURA",
-		"DECIR", "PASA",
-		"DECIR", "SIGUE",
+		`DECIR "QUE TE PASA?"`,
+		`DECIR "SIGUEME"`,
 		// The grating, with the elf following.
 		"N", "O", "O", "S", "S", "ABRIR CANDADO", "COGER CANDADO", "EMPUJAR REJA",
 		// The tortilla it leaves in the picnic area, which is the fifth object.
@@ -320,12 +322,14 @@ func templateSource(t *testing.T) string {
 	return utf8Copy(t, "../../work/DRC/BLANK_ES.DSF")
 }
 
-// aoSource is La Aventura Original, decompiled and converted for version 3.
-// It is a directory of files rather than one, so what is copied is all of it.
+// aoSource is La Aventura Original, decompiled and converted for version 3 by
+// the decompiler itself — "qundaad decompile --v3" on the original tape and
+// nothing else. The whole conversion lives in the model now, so there is no
+// pipeline of text substitutions between the tape and this.
 func aoSource(t *testing.T) string {
 	t.Helper()
 
-	const dir = "../../work/port/ao-zx48"
+	const dir = "../../work/port/ao-v3"
 
 	if _, err := os.Stat(dir + "/game.sce"); err != nil {
 		t.Skipf("%s is not in the checkout: %v", dir, err)
