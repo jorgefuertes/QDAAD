@@ -30,6 +30,14 @@ func main() {
 				Usage:    "Database to play.",
 				Required: true,
 			},
+			&cli.IntFlag{
+				Name:  "trace-limit",
+				Value: vm.DefaultTraceLimit,
+				Usage: "How many bytes a trace file may hold before it starts again from " +
+					"the top. A trace is one line per condact and the usual reason to want " +
+					"one is a loop that will not end, so left alone it fills a disk. Zero " +
+					"removes the limit.",
+			},
 			&cli.StringFlag{
 				Name:    "trace",
 				Aliases: []string{"t"},
@@ -57,7 +65,7 @@ func run(_ context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("%s: %w", cmd.String("input"), err)
 	}
 
-	watch, closeWatch, err := tracer(cmd.String("trace"))
+	watch, closeWatch, err := tracer(cmd.String("trace"), int64(cmd.Int("trace-limit")))
 	if err != nil {
 		return err
 	}
@@ -96,12 +104,14 @@ func open(data []byte) (*ddbfile.Reader, error) {
 }
 
 // tracer builds the watcher the --trace flag asks for.
-func tracer(to string) (vm.Watcher, func(), error) {
+func tracer(to string, limit int64) (vm.Watcher, func(), error) {
 	switch to {
 	case "":
 		return vm.NoWatcher{}, func() {}, nil
 	case "-":
-		return vm.NewTrace(os.Stderr, nil), func() {}, nil
+		// Standard error cannot be rewound, so the limit does not apply: what
+		// is on a terminal has already been read by the time it scrolls away.
+		return vm.NewTrace(os.Stderr, nil, 0), func() {}, nil
 	}
 
 	f, err := os.Create(to)
@@ -109,7 +119,7 @@ func tracer(to string) (vm.Watcher, func(), error) {
 		return nil, nil, err
 	}
 
-	return vm.NewTrace(f, nil), func() { _ = f.Close() }, nil
+	return vm.NewTrace(f, nil, limit), func() { _ = f.Close() }, nil
 }
 
 // console is a person at a terminal: text out, a line in.
