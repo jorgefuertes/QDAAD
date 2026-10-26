@@ -136,7 +136,10 @@ func looksLikeHeader(d []byte) bool {
 
 	version, machine, nullWord := d[0], d[1]>>4, d[2]
 
-	return (version == 1 || version == 2) &&
+	// Version 3 is here because our own compiler writes it. The search this
+	// feeds was built for the adventures of 1989 to 1991 and never met one;
+	// an interpreter reading what we just built does, every time.
+	return (version >= 1 && version <= 3) &&
 		machine <= lastMachine &&
 		nullWord > ' ' && nullWord < 0x7F &&
 		// An adventure with no objects, no locations or no processes is not one.
@@ -469,34 +472,67 @@ func (r *Reader) readTokens() error {
 		return fmt.Errorf("token pointer out of range: %d", p)
 	}
 
-	next := func() (string, error) {
-		var raw []byte
+	// raw reads one token's bytes. The top bit marks the last of them and is
+	// not part of the token.
+	raw := func() ([]byte, error) {
+		var out []byte
 
 		for {
 			if p >= len(r.data) {
-				return "", errors.New("token table runs past the end of the file")
+				return nil, errors.New("token table runs past the end of the file")
 			}
 
 			b := r.data[p]
 			p++
 
-			raw = append(raw, b&0x7F)
+			out = append(out, b&0x7F)
 
 			if b&0x80 != 0 {
-				return charset.Decode(raw)
+				return out, nil
 			}
 		}
 	}
 
-	placeholder, err := next()
+	next := func() (string, error) {
+		bytes, err := raw()
+		if err != nil {
+			return "", err
+		}
+
+		return charset.Decode(bytes)
+	}
+
+	// The first entry is not a token and is never referred to: every table the
+	// compilers write opens with a byte no text contains, so that the real
+	// tokens start at the number the interpreter expects. It is kept as it was
+	// read rather than decoded — ours is 0x00, which is precisely a byte no
+	// text contains and therefore one the character set has no spelling for.
+	// Decoding it was why this reader refused the databases our own compiler
+	// writes.
+	mark, err := raw()
 	if err != nil {
 		return err
 	}
 
-	r.placeholder = placeholder
+	r.placeholder = string(mark)
+	// How many tokens there are is not written down anywhere, and 128 is only
+	// the most a byte can name. The databases of 1989 carry all 128, so this
+	// read a fixed 128 and was right about them and wrong about ours: our own
+	// compiler prunes the table, keeping the tokens that earn their place, and
+	// then there are fewer. Reading 128 anyway walks into whatever section
+	// comes next and decodes it as tokens.
+	//
+	// What bounds the table is the section after it. A reference is only ever
+	// to a token the compiler kept, so a short table loses nothing.
+	end := r.sectionAfter(r.Pointer(ptrTokens))
+
 	r.tokens = make([]string, 0, numTokens)
 
 	for range numTokens {
+		if p >= end {
+			break
+		}
+
 		token, err := next()
 		if err != nil {
 			return err
@@ -506,6 +542,54 @@ func (r *Reader) readTokens() error {
 	}
 
 	return nil
+}
+
+// sectionAfter is where whatever starts at from has to stop: the nearest
+// address anything else in the database occupies.
+//
+// The header's pointers are not enough on their own, and that is the whole
+// reason this exists. A text table's pointer names its index — a list of
+// addresses — and the strings themselves lie somewhere else entirely, usually
+// just before it. So between the token table and the next header pointer there
+// can be hundreds of bytes that are already spoken for, and a reader that
+// trusted the pointers alone would walk straight into them.
+//
+// What the strings are is written down after all: every one of them is named by
+// an address inside an index. So the indices are read too, and the lowest
+// address any of them names counts just as much as a pointer does.
+func (r *Reader) sectionAfter(from int) int {
+	end := r.DeclaredLength()
+
+	lower := func(at int) {
+		if at > from && at < end {
+			end = at
+		}
+	}
+
+	for i := range (r.headerSize-8)/2 - 1 {
+		lower(r.Pointer(i))
+	}
+
+	for _, table := range []struct {
+		pointer int
+		count   int
+	}{
+		{ptrSysMessageText, r.NumSysMessages()},
+		{ptrMessageText, r.NumMessages()},
+		{ptrObjectText, r.NumObjects()},
+		{ptrLocationText, r.NumLocations()},
+	} {
+		index := r.Pointer(table.pointer)
+		if index == 0 || !r.inRange(index, 2*table.count) {
+			continue
+		}
+
+		for i := range table.count {
+			lower(r.address(index + 2*i))
+		}
+	}
+
+	return end
 }
 
 // Text decodes a string at an address, undoing the obfuscation and expanding
