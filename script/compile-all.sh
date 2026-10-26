@@ -1,20 +1,42 @@
 #!/usr/bin/env bash
 #
-# Compiles every edition we can read into a version 3 database, for every
-# machine we target.
+# Decompiles every edition we can read, converts it to version 3, and compiles
+# it back into a database for the machine it came off.
 #
-# This asks a different question from the harnesses next to it. compare-drf and
-# compare-drb hold our compiler against the reference one; recompile-all hands
-# our sources to a compiler that had nothing to do with writing them. All three
-# are about agreement. This one is about reach: take an adventure off its 1989
-# tape, convert it to version 3, and see whether it compiles for each of the
-# fourteen machines — a Commodore 64 and a PCW included, which never had a
-# version 3 interpreter and are here because the compiler offers them.
+# Each edition goes to its own machine and to no other. The Spectrum tape of
+# La Aventura Original becomes a Spectrum database; the Amiga disk becomes an
+# Amiga one. That is the whole point: an edition was cut for the machine it
+# shipped on — its texts, its drawings and how much of either would fit — so
+# compiling the Amiga edition for a Spectrum asks a question nobody has.
 #
-# It stops at the database and does not package anything. A tape or a disk is a
-# machine's own business and has its own harness; what is being asked here is
-# whether the source is whole and the back end can lay it out, which is what a
-# .ddb answers.
+# What a database is not
+# ----------------------
+# It holds no illustrations and no character set. Those are separate blocks
+# that only exist once something is packaged: on a 48K Spectrum the database
+# loads at 0x8400 and the drawings at 0xF7D7, and --charset feeds the tape
+# packager rather than the compiler. So "an Amiga database with its images" is
+# not a file that can be written, and the images step belongs to the packaging
+# harness next door.
+#
+# What is machine-specific about a database, and what this therefore checks:
+# where it is laid, which way round its words go, how its sections are padded,
+# and that the condacts the edition actually uses all compile for that machine.
+#
+# The decompilation keeps the fonts and the drawings even so, beside the source
+# rather than in it, because that is what the packaging step will need and this
+# is where it is read off the original.
+#
+# The Spectrum editions and their drawings
+# ----------------------------------------
+# Version 3 has no vector drawings. The Spectrum editions are the only vector
+# ones in the whole corpus — every other machine here illustrates with bitmaps,
+# which version 3 draws perfectly well — and theirs cannot come across: not as
+# vectors, because there is nothing to run them, and not as bitmaps, because 41
+# screens of bitmap do not fit in a 48K Spectrum beside the game.
+#
+# So those compile with the illustration condacts dropped, and that is not a
+# shortcut. A PICTURE that finds no image still opens the graphics window and
+# leaves it there, and the text comes out with the edge of it showing.
 #
 # Needs nothing but the repository: both tools are ours.
 set -uo pipefail
@@ -24,26 +46,32 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # The corpus lives in its own file, because more than one harness walks it.
 source "script/editions.sh"
 
-readonly OUT="tmp/compile-all"
-readonly BIN="${OUT}/bin"
+# Its own tree, not decomp-all's. These sources are converted to version 3 and
+# the harnesses that compare us with the reference compiler read the unconverted
+# ones; writing both to one place would quietly change what those compare.
+readonly OUT="work/decomp-v3"
+readonly BIN="tmp/compile-all/bin"
 
-# Every machine the compiler takes. Asked for rather than written down, so that
-# a target added to the compiler is a target asked about here.
+# Which machine each edition belongs to, and the variant of it where the
+# machine has one. Keyed by the platform segment of the edition's own name,
+# which is where that fact already lives.
 #
-# Read with a loop and not with mapfile: macOS ships bash 3.2, which has not
-# got it, and a harness that only runs on a machine with a newer bash installed
-# is a harness nobody runs.
-MACHINES=()
-while read -r machine; do
-	[[ -n "${machine}" ]] && MACHINES+=("${machine}")
-done < <(go run ./cmd/qdaad compile --help 2>/dev/null |
-	sed -n 's/.*Valid values are: \(.*\)$/\1/p' | tr ',' '\n' |
-	sed 's/ or / /; s/^ *//; s/ *$//' | tr ' ' '\n')
-
-if [[ ${#MACHINES[@]} -eq 0 ]]; then
-	echo "could not ask the compiler which machines it takes" >&2
-	exit 1
-fi
+# The PC editions are CGA and EGA because that is what shipped beside them —
+# La Aventura Original's PC release carries PART1.CGA — and the Spectrum ones
+# are 48K because every tape and disk here is.
+machine_for() {
+	case "$1" in
+	amiga) echo "amiga " ;;
+	atarist) echo "st " ;;
+	cpc) echo "cpc " ;;
+	msx) echo "msx " ;;
+	pc | pc-cga) echo "pc cga" ;;
+	pc-ega) echo "pc ega" ;;
+	pcw) echo "pcw " ;;
+	spectrum) echo "zx 48k" ;;
+	*) return 1 ;;
+	esac
+}
 
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
@@ -51,48 +79,56 @@ yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
 
 mkdir -p "${BIN}"
 
-# Built once. Fifty editions times fourteen machines is seven hundred
-# compilations, and paying for a link of the compiler on each would be most of
-# the wall clock.
 echo "▶ building the tools…"
 go build -o "${BIN}/qundaad" ./cmd/qundaad || exit 1
 go build -o "${BIN}/qdaad" ./cmd/qdaad || exit 1
-
-echo "▶ ${#MACHINES[@]} machines: ${MACHINES[*]}"
 echo
 
 ok=0
 failed=0
 unreadable=0
-declare -a FAILURES=()
+FAILURES=()
 
 for edition in "${EDITIONS[@]}"; do
 	target="${edition%%:*}"
 	input="${edition#*:}"
+
+	platform="$(echo "${target}" | cut -d/ -f2)"
+
+	if ! read -r machine subtarget <<<"$(machine_for "${platform}")"; then
+		red "NO MACHINE ${target}: nothing maps the platform ${platform}"
+		failed=$((failed + 1))
+		continue
+	fi
 
 	if [[ ! -f "${input}" ]]; then
 		yellow "SKIP ${target}: ${input} is not in the checkout"
 		continue
 	fi
 
-	src="${OUT}/src/${target}"
+	src="${OUT}/${target}"
 	rm -rf "${src}"
 	mkdir -p "${src}"
 
-	# Converted on the way out, which is where the conversion belongs: --v3
-	# renumbers the processes, writes the loop a format 1 database has not got,
-	# and turns the condacts that changed meaning. -B leaves the fonts and the
-	# drawings where they are; none of them affect whether this compiles.
-	if ! "${BIN}/qundaad" decompile --v3 -B -i "${input}" -o "${src}" \
-		>"${src}/decompile.log" 2>&1; then
+	# Vector illustrations cannot come across to version 3, so the editions
+	# that have them lose the condacts that would show them. Only the Spectrum
+	# ones do; see the note at the top.
+	pictures=()
+	if [[ "${platform}" == "spectrum" ]]; then
+		pictures=(--no-pictures)
+	fi
+
+	# --v3 does nothing to a format 2 database, which already is one, so the
+	# same call serves both halves of the corpus.
+	if ! "${BIN}/qundaad" decompile --v3 "${pictures[@]+"${pictures[@]}"}" \
+		-i "${input}" -o "${src}" >"${src}/decompile.log" 2>&1; then
 		red "UNREADABLE ${target}: see ${src}/decompile.log"
 		unreadable=$((unreadable + 1))
 		continue
 	fi
 
-	# An image holds more than one database, so each lands in a directory of
-	# its own; a single database lands where it was asked for. Either way what
-	# is compiled is every game.sce underneath.
+	# An image holds more than one database and each lands in a directory of
+	# its own; a single database lands where it was asked for.
 	sources=()
 	while read -r found; do
 		[[ -n "${found}" ]] && sources+=("${found}")
@@ -105,32 +141,22 @@ for edition in "${EDITIONS[@]}"; do
 	fi
 
 	for source in "${sources[@]}"; do
-		part="${source#"${src}"/}"
-		part="${part%/game.sce}"
-		[[ "${part}" == "game.sce" ]] && part=""
+		name="$(dirname "${source}")"
+		name="${name#"${OUT}"/}"
 
-		name="${target}${part:+/${part}}"
-		line=""
+		out="$(dirname "${source}")/$(basename "${name}").ddb"
 
-		for machine in "${MACHINES[@]}"; do
-			out="${OUT}/ddb/${name}/${machine}.ddb"
-			mkdir -p "$(dirname "${out}")"
-
-			if "${BIN}/qdaad" compile -m "${machine}" -v 3 -f ddb \
-				-i "${source}" -o "${out}" >"${out}.log" 2>&1; then
-				ok=$((ok + 1))
-				line+="."
-			else
-				failed=$((failed + 1))
-				line+="✗"
-				FAILURES+=("${name} ${machine}: $(tail -1 "${out}.log")")
-			fi
-		done
-
-		if [[ "${line}" == *✗* ]]; then
-			red "${line}  ${name}"
+		# The database goes beside its own source, which is where somebody
+		# looking at this edition will expect to find it.
+		if "${BIN}/qdaad" compile -m "${machine}" ${subtarget:+-s "${subtarget}"} \
+			-v 3 -f ddb -i "${source}" -o "${out}" >"${out}.log" 2>&1; then
+			ok=$((ok + 1))
+			green "$(printf '%-34s %-6s %8d bytes' "${name}" "${machine}${subtarget:+/${subtarget}}" \
+				"$(wc -c <"${out}")")"
 		else
-			green "${line}  ${name}"
+			failed=$((failed + 1))
+			FAILURES+=("${name} -> ${machine}: $(tail -1 "${out}.log")")
+			red "$(printf '%-34s %-6s FAILED' "${name}" "${machine}${subtarget:+/${subtarget}}")"
 		fi
 	done
 done

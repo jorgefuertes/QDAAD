@@ -78,8 +78,10 @@ decomp-all:
 recompile-all:
 	@script/recompile-all.sh
 
-# Compiles every edition we can read into a version 3 database, for every
-# machine we target, and stops at the database without packaging anything.
+# Decompiles every edition we can read, converts it to version 3, and compiles
+# it back into a database for the machine it came off — each edition to its own
+# machine and to no other. Stops at the database: the illustrations and the
+# character sets are separate blocks and belong to the packaging step.
 # Needs nothing but the repository: both tools are ours.
 compile-all:
 	@script/compile-all.sh
