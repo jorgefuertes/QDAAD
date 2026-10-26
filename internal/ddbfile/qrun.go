@@ -15,8 +15,8 @@ import (
 // not one of these says so and stops.
 const (
 	qrunMagic   = "QDB1"
-	qrunVersion = 1
-	qrunHeader  = 8
+	qrunVersion = 2
+	qrunHeader  = 10
 )
 
 // OpenQRun reads a database in qrun's own container.
@@ -52,6 +52,10 @@ func OpenQRun(data []byte) (*Reader, error) {
 		headerSize:        size,
 		base:              int(binary.LittleEndian.Uint16(data[6:8])),
 		unreadableProcess: -1,
+		// How many tokens there are is the one thing the database itself
+		// cannot say, so here it is said. Below zero means nobody told us and
+		// the table has to be worked out the old way.
+		tokenCount: int(data[8]),
 	}
 
 	if !r.headerAgrees() {

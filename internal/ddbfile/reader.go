@@ -59,6 +59,10 @@ type Reader struct {
 	conv Conversion
 	// noPictures drops the illustration condacts, for a build without them.
 	noPictures bool
+	// tokenCount is how many entries the compression table has when somebody
+	// knew and said so, and zero when nobody did. Reading a database written
+	// by anyone else, nobody ever does: the number is in no byte of it.
+	tokenCount int
 }
 
 // Conversion changes what a reader hands back.
@@ -536,11 +540,20 @@ func (r *Reader) readTokens() error {
 	//
 	// What bounds the table is the section after it. A reference is only ever
 	// to a token the compiler kept, so a short table loses nothing.
+	// Told, if anyone could tell us; worked out if not. The difference is
+	// worth keeping visible rather than hiding behind one path: reading our
+	// own database is an exercise in being told, and reading a tape of 1989 is
+	// an exercise in deduction, and they are not equally trustworthy.
+	wanted := numTokens
+	if r.tokenCount > 0 {
+		wanted = r.tokenCount
+	}
+
 	end := r.sectionAfter(r.Pointer(ptrTokens))
 
-	r.tokens = make([]string, 0, numTokens)
+	r.tokens = make([]string, 0, wanted)
 
-	for range numTokens {
+	for range wanted {
 		if p >= end {
 			break
 		}

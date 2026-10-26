@@ -123,7 +123,7 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	image, err := back.Link(db, back.Options{
+	image, layout, err := back.LinkWithLayout(db, back.Options{
 		Machine:   opts.Machine,
 		Subtarget: opts.Subtarget,
 		Language:  opts.Language,
@@ -154,7 +154,7 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 
 	// The name the ROM shows while loading is the one the file was given,
 	// which is what the reference does too and the only name there is to use.
-	body, err := wrap(format, image, opts, name(out), charset)
+	body, err := wrap(format, image, opts, name(out), charset, layout)
 	if err != nil {
 		return err
 	}
@@ -181,13 +181,15 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 // Only the 48K Spectrum is packed so far. The other machines refuse rather than
 // quietly writing the database under a .tap extension, which would load on
 // nothing and say so nowhere.
-func wrap(format string, image []byte, opts legacy.Options, name string, charset []byte) ([]byte, error) {
+func wrap(format string, image []byte, opts legacy.Options, name string, charset []byte,
+	layout back.Layout,
+) ([]byte, error) {
 	switch format {
 	case formatDDB:
 		return image, nil
 	case formatQRun:
 		return pack.QRun(image, int(opts.Machine.BaseAddress(opts.Subtarget)),
-			opts.Machine.IsBigEndian())
+			opts.Machine.IsBigEndian(), layout)
 	case formatTAP:
 		if opts.Machine != arch.ZX {
 			return nil, fmt.Errorf("a tape is a Spectrum thing and this is a %s build", opts.Machine)

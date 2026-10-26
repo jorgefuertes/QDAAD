@@ -191,14 +191,14 @@ func TestOurOwnContainerNeedsNoGuessing(t *testing.T) {
 			db, err := legacy.Analyze(source, opts)
 			require.NoError(t, err)
 
-			image, err := back.Link(db, back.Options{
+			image, layout, err := back.LinkWithLayout(db, back.Options{
 				Machine: opts.Machine, Subtarget: opts.Subtarget,
 				Language: opts.Language, Version: opts.Version,
 			})
 			require.NoError(t, err)
 
 			wrapped, err := pack.QRun(image,
-				int(opts.Machine.BaseAddress(opts.Subtarget)), opts.Machine.IsBigEndian())
+				int(opts.Machine.BaseAddress(opts.Subtarget)), opts.Machine.IsBigEndian(), layout)
 			require.NoError(t, err)
 
 			r, err := ddbfile.OpenQRun(wrapped)
@@ -230,7 +230,7 @@ func TestTheContainerRefusesPlainly(t *testing.T) {
 	}{
 		{"empty", "too short", nil},
 		{"not ours", "not a qrun database", []byte("PK\x03\x04and then some more")},
-		{"a version we do not read", "version", append([]byte("QDB1\x7f\x00\x00\x00"), make([]byte, 64)...)},
+		{"a version we do not read", "version", append([]byte("QDB1\x7f\x00\x00\x00\x00\x00"), make([]byte, 64)...)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := ddbfile.OpenQRun(tc.data)

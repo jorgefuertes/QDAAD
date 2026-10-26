@@ -56,10 +56,36 @@ const (
 	indirectBit     = 0x80
 )
 
+// Layout is what the linker knew while it was laying a database out and the
+// DAAD header has nowhere to record.
+//
+// The header holds an address per section, which is enough for an interpreter
+// that only ever follows a pointer it was given. It is not enough for anything
+// that has to read a section whole: a text pointer names the table of
+// addresses, the strings sit somewhere else, and nothing says where one thing
+// stops and the next begins.
+//
+// So a reader of someone else's database deduces it, and has to. A reader of
+// ours should not have to, and this is what it is told instead.
+type Layout struct {
+	// Tokens is how many entries the compression table has, which is the one
+	// thing about it that cannot be worked out from the bytes: the table is
+	// pruned, so it is rarely the 128 a byte could name.
+	Tokens int
+}
+
 // Link lays a database out as the bytes a machine loads.
 func Link(db *ddb.DDB, opts Options) ([]byte, error) {
+	image, _, err := LinkWithLayout(db, opts)
+
+	return image, err
+}
+
+// LinkWithLayout lays a database out and also says what the linker knew while
+// it did, for a caller that is going to read it back.
+func LinkWithLayout(db *ddb.DDB, opts Options) ([]byte, Layout, error) {
 	if !opts.Machine.Valid() {
-		return nil, fmt.Errorf("%s is not a machine this can build for", opts.Machine)
+		return nil, Layout{}, fmt.Errorf("%s is not a machine this can build for", opts.Machine)
 	}
 
 	l := &linker{
@@ -71,10 +97,10 @@ func Link(db *ddb.DDB, opts Options) ([]byte, error) {
 	}
 
 	if err := l.run(); err != nil {
-		return nil, err
+		return nil, Layout{}, err
 	}
 
-	return l.out, nil
+	return l.out, Layout{Tokens: len(l.tokenTable)}, nil
 }
 
 type linker struct {
