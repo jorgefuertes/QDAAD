@@ -391,15 +391,32 @@ func expand(text string) string {
 }
 
 // end is END: ask whether to play again, and either start over or stop.
+//
+// The answer that stops it is "no", and the word it is held against is system
+// message 31 rather than the 30 that QUIT uses — see do_END,
+// daad_condacts.c:2340. That is why this does not go through confirm: the
+// question is not the same shape. "¿Hace otra partidita?" answered with
+// anything but "N" means another game, including an empty line.
+//
+// Having it the other way round was not a subtle wrong. Typing FIN, confirming
+// it, and then saying you had had enough started a fresh game instead of
+// giving the terminal back, which is the opposite of both things a machine of
+// the period did: load it again, or drop you back to BASIC.
 func (m *Machine) end() {
-	if m.confirm(13) {
+	if m.declined(13) {
 		m.finished = true
 
 		return
 	}
 
+	// A new game is a new game: the flags go back to nothing and the objects
+	// go back where the database says they start. do_END calls do_RESET for
+	// the second of those and we were leaving it out, so an object picked up
+	// in one game was still gone in the next.
 	m.reset()
+	m.resetObjects()
 	m.restart = true
+	m.continuing = false
 }
 
 // exit is EXIT, which is two condacts wearing one name.
@@ -427,30 +444,58 @@ func (m *Machine) exit(value byte) {
 	m.continuing = false
 }
 
-// confirm prints a system message and reads a yes or no, the way QUIT and END
-// do. Yes is a reply starting with the first letter of system message 30.
+// The two slots an adventure writes its own words for yes and no into. They
+// are a letter each, upper case, and a translation puts "Y" and "N" there
+// where a Spanish one puts "S" and "N".
+const (
+	sysYes = 30
+	sysNo  = 31
+)
+
+// confirm prints a system message and reports whether the reply means yes,
+// which is what QUIT asks.
 func (m *Machine) confirm(message int) bool {
+	return m.answered(message, sysYes, "S")
+}
+
+// declined prints a system message and reports whether the reply means no,
+// which is what END asks. The two questions are not each other's negation —
+// "anything but N" is a yes to one and "anything but S" is not a no to the
+// other — so each looks for its own word rather than inverting the other.
+func (m *Machine) declined(message int) bool {
+	return m.answered(message, sysNo, "N")
+}
+
+// answered asks a question and reports whether the reply begins with the
+// letter the named system message holds.
+//
+// fallback is for a database with nothing in that slot, which no real one has;
+// comparing against an empty string would match every reply including none.
+func (m *Machine) answered(message, word int, fallback string) bool {
 	m.say(m.texts.system, message, true)
 
 	answer, ok := m.console.Input()
 	if !ok {
+		// Running out of input is the answer that stops the game, and it is
+		// that for both questions: yes to "are you sure?", no to "another
+		// game?". Either way there is nobody left to play.
 		m.finished = true
 
 		return true
 	}
 
-	// This counts as the player having spoken, so that saying no to "another
-	// game?" is not mistaken for a turn that got nowhere.
+	// This counts as the player having spoken, so that ending a game is not
+	// mistaken for a turn that got nowhere.
 	m.inputs++
 
-	yes := "S"
-	if len(m.texts.system) > 30 && m.texts.system[30] != "" {
-		yes = m.texts.system[30]
+	want := fallback
+	if word < len(m.texts.system) && m.texts.system[word] != "" {
+		want = m.texts.system[word]
 	}
 
 	answer = strings.TrimSpace(strings.ToUpper(answer))
 
-	return answer != "" && strings.HasPrefix(answer, strings.ToUpper(yes[:1]))
+	return answer != "" && strings.HasPrefix(answer, strings.ToUpper(want[:1]))
 }
 
 // redo starts the current process again from its first entry.

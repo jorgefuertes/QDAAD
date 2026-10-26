@@ -249,6 +249,39 @@ func finishTheFirstPart(t *testing.T, machine arch.Machine, subtarget string) {
 		"the whole of the first part and not one condact we have yet to write")
 }
 
+// Ending the game, which has a right way round and had the wrong one.
+//
+// "FIN" asks whether you are sure, and then END asks whether you want another
+// game. Saying no to the second is the end of the session: on a machine of the
+// period it dropped you back to BASIC, and here the process exits. Saying yes
+// is a fresh game, which is the other thing those machines did.
+//
+// It was inverted, and the reason is worth keeping: the two questions are held
+// against different words. QUIT compares the reply with system message 30, the
+// adventure's own letter for yes; END compares it with message 31, its letter
+// for no. Treating the second as the negation of the first makes confirming
+// that you have had enough start a new game instead of giving the terminal
+// back. See do_END, daad_condacts.c:2340.
+func TestSayingYouHaveHadEnoughEndsIt(t *testing.T) {
+	source := aoSource(t)
+
+	t.Run("no to another game stops", func(t *testing.T) {
+		// The "mirar" is the trap: if it is answered, the game did not stop.
+		said := transcript(t, source, "fin", "s", "n", "mirar")
+
+		require.Contains(t, said, "¿Hace otra partidita?", "it never got that far")
+		require.Equal(t, 1, strings.Count(said, "Estás en el bosque"),
+			"the forest was described twice, so a new game started after the player declined")
+	})
+
+	t.Run("yes to another game starts one", func(t *testing.T) {
+		said := transcript(t, source, "fin", "s", "s", "mirar")
+
+		require.Greater(t, strings.Count(said, "Estás en el bosque"), 1,
+			"the game did not begin again")
+	})
+}
+
 // Every machine we compile for, played.
 //
 // This is the promise qrun is for: an adventure built for any target can be
