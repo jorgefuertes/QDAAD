@@ -36,15 +36,74 @@ func (m *Machine) carrying() int {
 // weightCarried is everything held and worn together, which is what the
 // strength limit is measured against.
 func (m *Machine) weightCarried() int {
+	// Capped again after adding: each half is already inside a byte, and two
+	// of those are not.
+	return capWeight(m.weightAt(LocCarried, 0) + m.weightAt(LocWorn, 0))
+}
+
+// objectWeight is what an object really weighs, which for a container is
+// itself plus what is in it.
+//
+// The exception is the one the manual spends a sentence on: a container of zero
+// weight transmits zero weight for its contents as well as for itself. That is
+// the magic bag, and it is why the check is on the container's own weight
+// rather than on whether it holds anything.
+//
+// See getObjectWeight, work/msx2daad/src/daad/daad_getObjectWeight.c.
+func (m *Machine) objectWeight(object int) int {
+	if object < 0 || object >= len(m.objects) {
+		return 0
+	}
+
+	return m.weighOne(object, 0)
+}
+
+// maxNesting is how deep a container may be looked into.
+//
+// The manual names the number — "nested containers stop adding their contents
+// after ten levels" — and having it is not only fidelity. An object whose
+// location is its own number is a container holding itself, which no author
+// writes and a half-built database can easily contain; without a bound that
+// is not a wrong total but a stack overflow.
+const maxNesting = 10
+
+func (m *Machine) weighOne(object, depth int) int {
+	own := int(m.objects[object].weight)
+
+	if own == 0 || !m.objects[object].container {
+		return own
+	}
+
+	// Inside a container, the contents are the objects whose location is the
+	// container's own number. That is the format's trick and the reason an
+	// object number and a location share one byte.
+	return capWeight(own + m.weightAt(byte(object), depth+1))
+}
+
+// weightAt sums what is in one place, going into the containers it finds.
+func (m *Machine) weightAt(where byte, depth int) int {
+	if depth >= maxNesting {
+		return 0
+	}
+
 	total := 0
 
-	for _, o := range m.objects {
-		if o.location == LocCarried || o.location == LocWorn {
-			total += int(o.weight)
+	for i, o := range m.objects {
+		if o.location == where {
+			total += m.weighOne(i, depth)
 		}
 	}
 
-	return total
+	return capWeight(total)
+}
+
+// capWeight keeps a total inside the byte a flag holds. The manual says the
+// maximum "will not be exceeded" rather than that it wraps, and a weight that
+// wrapped would read as light.
+func capWeight(weight int) int {
+	const most = 255
+
+	return min(weight, most)
 }
 
 // note records an object as the one most recently referred to, filling in the
@@ -98,7 +157,9 @@ func (m *Machine) get(object int) {
 		}
 	}
 
-	if m.weightCarried()+int(m.objects[object].weight) > int(m.flags[FlagStrength]) {
+	// Both halves are true weights, so picking up a full bag is refused for
+	// what is in it. See daad_condacts.c:706, which is this same sum.
+	if m.weightCarried()+m.objectWeight(object) > int(m.flags[FlagStrength]) {
 		m.say(m.texts.system, msgTooHeavy, true)
 		m.fail()
 

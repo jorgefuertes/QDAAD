@@ -207,6 +207,13 @@ var condacts = map[byte]func(*Machine, []byte){
 	// notably does not mark anything done.
 	56: func(m *Machine, a []byte) { m.note(int(a[0])) },
 
+	// WEIGH: what one object really weighs, into a flag. WEIGHT: what the
+	// player is carrying and wearing, into a flag. Both go through the same
+	// sum, which is why a bag of rocks is heavy and a magic bag is not — see
+	// objectWeight.
+	89: func(m *Machine, a []byte) { m.setFlag(int(a[1]), byte(m.objectWeight(int(a[0])))) },
+	94: func(m *Machine, a []byte) { m.setFlag(int(a[0]), byte(m.weightCarried())) },
+
 	// EXIT: leave for good on zero, start the game over on anything else.
 	// See do_EXIT, daad_condacts.c:2367.
 	110: func(m *Machine, a []byte) { m.exit(a[0]) },
