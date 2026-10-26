@@ -395,6 +395,8 @@ func (m *Machine) doallNext(_ []ddbfile.Entry) bool { return false }
 // sentence could not be understood, which is the way round PARSE is used:
 // "PARSE 0 / PROCESS 2" runs process 2 when the input made no sense.
 func (m *Machine) parse() bool {
+	m.prompt()
+
 	line, ok := m.console.Input()
 	if !ok {
 		m.finished = true
@@ -403,6 +405,23 @@ func (m *Machine) parse() bool {
 	}
 
 	return !m.sentence(line)
+}
+
+// prompt writes what goes in front of the player's line.
+//
+// Which system message that is lives in a flag, so an adventure can change it
+// as it goes — a sinking ship asking differently from a quiet room. Zero means
+// the interpreter picks one of the first four at random, which is a flourish
+// nobody used; the usual answer is 33.
+func (m *Machine) prompt() {
+	const defaultPrompt = 33
+
+	which := int(m.flags[FlagPrompt])
+	if which == 0 {
+		which = defaultPrompt
+	}
+
+	m.say(m.texts.system, which, false)
 }
 
 // A bit, the way HASAT, HASNAT and SETAT name one.
