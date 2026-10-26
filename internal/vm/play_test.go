@@ -142,6 +142,73 @@ func TestWalkingAroundLaAventuraOriginal(t *testing.T) {
 	require.NotContains(t, said, "not implemented")
 }
 
+// And the whole of the first part, played to the end.
+//
+// This is the test that is worth more than all the others together, because
+// finishing an adventure exercises the machine the way nothing smaller does:
+// 84 commands, every kind of condact, a conversation, a puzzle chain with four
+// stages and an ending that will not come unless all of it worked. The access
+// code it prints is AO's own answer, so there is no judging what counts as
+// success — either the adventure says TIMACUS or it does not.
+//
+// Three bugs hid behind this one transcript and all three were the same shape,
+// a machine helping itself to the player's input:
+//
+//   - AnyKey read a line even with nobody at the keyboard, so every pause ate
+//     a command and everything after it happened in the wrong room.
+//   - PARSE prompts for a line when no sentence is left over, which is right
+//     (getLogicalSentence, daad_parser_sentences.c:255) and means the answer
+//     to the elf is a line of its own rather than part of the DECIR. Typed
+//     together, the conversation never reaches the entry that matters.
+//   - And flag 37 was the template's guessed 4. The cave asks for EQ 1 5, so
+//     the first part could not be finished with any smaller carrying limit —
+//     the adventure stated its own answer and we had overridden it.
+func TestFinishingTheFirstPartOfLaAventuraOriginal(t *testing.T) {
+	source := aoSource(t)
+
+	said := transcript(t, source,
+		// The bottle, down the valley and back.
+		"S", "S", "S", "S", "COGER BOTELLA", "N", "N", "N",
+		// The boots, east and south.
+		"E", "E", "S", "S", "S", "S", "COGER BOTAS",
+		"N", "N", "N", "N", "O", "O", "N", "N",
+		// The battery, and the lamp Don Enano gives for the boots.
+		"E", "E", "S", "COGER PILA", "N", "N",
+		"DAR BOTAS", "COGER LINTERNA", "PONER PILAS", "ENCENDER LINTERNA",
+		// The key, out of the tree.
+		"S", "O", "O", "O", "S", "S", "S", "E", "E", "SE", "S",
+		"SUBIR ARBOL", "EXAMINAR RAMAS", "SACUDIR RAMAS", "BAJAR ARBOL",
+		"COGER LLAVE",
+		// The coin, in the pool.
+		"N", "S", "O", "N", "E", "BAJAR", "EXAMINAR CHARCO", "COGER MONEDA",
+		"SUBIR", "O", "S", "LLENAR BOTELLA",
+		// The elf. Each answer is a line of its own because that is what
+		// PARSE asks for; said in one breath it is never heard.
+		"E", "E", "S", "EXAMINAR FIGURA",
+		"DECIR", "PASA",
+		"DECIR", "SIGUE",
+		// The grating, with the elf following.
+		"N", "O", "O", "S", "S", "ABRIR CANDADO", "COGER CANDADO", "EMPUJAR REJA",
+		// The tortilla it leaves in the picnic area, which is the fifth object.
+		"N", "N", "E", "COGER TORTILLA", "O", "S", "S", "I",
+		"ENTRAR CAVERNA",
+	)
+
+	require.Contains(t, said, "TIMACUS",
+		"the access code to the second part, which only prints when the first is won")
+
+	// The five the game's own note says to arrive with, and the five the cave
+	// counts.
+	for _, thing := range []string{
+		"linterna encendida", "moneda", "tortilla", "botella con agua", "llave",
+	} {
+		require.Contains(t, said, thing, "missing from the inventory at the end")
+	}
+
+	require.NotContains(t, said, "not implemented",
+		"the whole of the first part and not one condact we have yet to write")
+}
+
 // templateSource is the blank adventure DRC ships, converted to the UTF-8 the
 // front end reads.
 func templateSource(t *testing.T) string {
