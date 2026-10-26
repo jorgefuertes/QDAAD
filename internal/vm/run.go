@@ -117,7 +117,7 @@ func (m *Machine) matches(e ddbfile.Entry) bool {
 func (m *Machine) loopOrPop(entries []ddbfile.Entry) bool {
 	f := m.top()
 
-	if f.doallCondact >= 0 && m.doallNext(entries) {
+	if f.doallCondact >= 0 && m.doallNext() {
 		return false
 	}
 

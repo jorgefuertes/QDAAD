@@ -176,6 +176,8 @@ var condacts = map[byte]func(*Machine, []byte){
 	59:  func(m *Machine, a []byte) { m.need(!m.hasBit(a[0])) }, // HASNAT
 	124: func(m *Machine, a []byte) { m.setBit(a[0], a[1]) },    // SETAT
 
+	85: func(m *Machine, a []byte) { m.doall(a[0]) }, // DOALL
+
 	30: func(m *Machine, _ []byte) { m.dropAll() },                                 // DROPALL
 	32: func(m *Machine, _ []byte) { m.whatO(); m.drop(int(m.flags[FlagCurObj])) }, // AUTOD
 	40: func(m *Machine, a []byte) { m.get(int(a[0])) },                            // GET
@@ -387,9 +389,17 @@ func (m *Machine) skip(by int) {
 	m.continuing = false
 }
 
-// doallNext is the loop a DOALL makes of the end of a table. Not written yet:
-// it needs the object iteration, and nothing in the first milestone reaches it.
-func (m *Machine) doallNext(_ []ddbfile.Entry) bool { return false }
+// doallNext is what a DOALL does with the end of its table: go round again
+// with the next object, or give up and let the process return.
+func (m *Machine) doallNext() bool {
+	if m.doallSearch() {
+		return true
+	}
+
+	m.top().doallCondact = -1
+
+	return false
+}
 
 // parse takes the next sentence from the player. It reports whether the
 // sentence could not be understood, which is the way round PARSE is used:

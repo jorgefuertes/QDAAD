@@ -226,3 +226,89 @@ func (m *Machine) listObjects(where byte, header bool) {
 	m.console.Print(strings.Join(found, ", ") + ".\n")
 	m.did()
 }
+
+// DOALL, which turns one command into one per object.
+//
+// "coger todo" is not a condact that picks everything up: it is a loop. DOALL
+// remembers where it stands, finds an object in the place its operand names,
+// puts that object's noun into the sentence, and lets the rest of the entry
+// run as though the player had named it. Running off the end of the table
+// comes back here for the next one instead of returning.
+//
+// Two details are the reference's rather than anything one would invent. The
+// object named by the second noun is skipped, which is how "coge todo excepto
+// la lámpara" works without a word for "except". And the counter starts at
+// the null word, so that adding one to it gives object zero.
+func (m *Machine) doall(where byte) {
+	f := m.top()
+
+	f.doallEntry = f.entry
+	f.doallCondact = f.condact
+	f.doallWhere = where
+
+	m.setFlag(FlagDoallObj, NoWord)
+
+	if m.doallSearch() {
+		return
+	}
+
+	// Nothing to do it to, which is not the same as having finished: the
+	// entry never ran even once, so nothing was done and the sentence is
+	// cleared rather than answered.
+	f.doallCondact = -1
+	m.newText()
+	m.done = false
+	m.continuing = false
+	m.pop()
+}
+
+// doallSearch finds the next object of the loop and puts it in the sentence.
+// It reports whether there was one.
+func (m *Machine) doallSearch() bool {
+	f := m.top()
+
+	where := f.doallWhere
+	if where == LocHere {
+		where = m.flags[FlagPlayer]
+	}
+
+	// Adding one to the null word is how the first time round starts at
+	// object zero, so it has to wrap the way a byte does.
+	const wrap = 0x100
+
+	for n := (int(m.flags[FlagDoallObj]) + 1) % wrap; n < len(m.objects); n++ {
+		o := m.objects[n]
+
+		if o.location != where {
+			continue
+		}
+
+		// The one the player asked to leave out.
+		if o.noun == m.flags[FlagNoun2] && o.adjective == m.flags[FlagAdject2] {
+			continue
+		}
+
+		m.setFlag(FlagDoallObj, byte(n))
+		m.setFlag(FlagNoun1, o.noun)
+		m.setFlag(FlagAdject1, o.adjective)
+
+		f.entry = f.doallEntry
+		f.condact = f.doallCondact
+		f.running = true
+
+		return true
+	}
+
+	return false
+}
+
+// newText is NEWTEXT: forget the rest of the sentence, so that what the player
+// typed after this point is not answered twice.
+func (m *Machine) newText() {
+	for _, flag := range []int{
+		FlagVerb, FlagNoun1, FlagAdject1, FlagAdverb,
+		FlagPrep, FlagNoun2, FlagAdject2,
+	} {
+		m.setFlag(flag, NoWord)
+	}
+}

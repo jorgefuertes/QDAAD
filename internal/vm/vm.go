@@ -161,9 +161,11 @@ type frame struct {
 	running bool
 
 	// doall is where a DOALL in this process sends execution back to, and -1
-	// in both when there is no loop running.
+	// in the condact when there is no loop running. doallWhere is the place
+	// it is going through, which the operand named and nothing else records.
 	doallEntry   int
 	doallCondact int
+	doallWhere   byte
 }
 
 // Machine runs one database.
