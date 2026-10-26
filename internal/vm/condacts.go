@@ -381,6 +381,10 @@ func (m *Machine) confirm(message int) bool {
 		return true
 	}
 
+	// This counts as the player having spoken, so that saying no to "another
+	// game?" is not mistaken for a turn that got nowhere.
+	m.inputs++
+
 	yes := "S"
 	if len(m.texts.system) > 30 && m.texts.system[30] != "" {
 		yes = m.texts.system[30]
@@ -436,6 +440,8 @@ func (m *Machine) parse() bool {
 
 		return true
 	}
+
+	m.inputs++
 
 	return !m.sentence(line)
 }

@@ -196,6 +196,9 @@ type Machine struct {
 	finished bool
 	// restart asks the loop to begin again from process zero.
 	restart bool
+	// inputs is how many lines the player has given, which is the only measure
+	// of whether a turn got anywhere. See Run.
+	inputs int
 	// spanish is what the database was built for, which decides how an
 	// object's article is read out. See objectName.
 	spanish bool
@@ -275,7 +278,22 @@ func New(r *ddbfile.Reader, console Console, watch Watcher) (*Machine, error) {
 func (m *Machine) Run() error {
 	m.reset()
 
+	// Turns that have gone round without the player saying anything. A RESTART
+	// is how the loop asks for another go, and the one thing it cannot do is
+	// ask forever: a turn that restarts without having read a line has changed
+	// nothing that could make the next turn end differently.
+	//
+	// Left unguarded that is not a hang but a flood, because every one of those
+	// turns prints the location first. One of them wrote 59 GB to a file that
+	// had already been deleted, so nothing on disk showed it and only the
+	// process holding it open did.
+	spins := 0
+
+	const spinLimit = 1000
+
 	for !m.finished {
+		before := m.inputs
+
 		m.restart = false
 		m.stack = m.stack[:0]
 		m.push(0)
@@ -288,6 +306,17 @@ func (m *Machine) Run() error {
 		// that empties the stack has ended the game.
 		if !m.restart {
 			return nil
+		}
+
+		if m.inputs > before {
+			spins = 0
+
+			continue
+		}
+
+		if spins++; spins > spinLimit {
+			return fmt.Errorf("the adventure restarted %d times without reading a line: "+
+				"it is looping, and every turn of it prints", spins)
 		}
 	}
 
