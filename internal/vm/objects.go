@@ -312,3 +312,68 @@ func (m *Machine) newText() {
 		m.setFlag(flag, NoWord)
 	}
 }
+
+// The object a message is about, which is what "_" and "@" stand for.
+//
+// Both name the object flag 51 holds, and the only difference between them is
+// the capital: "@" starts a sentence and "_" does not. What makes it more than
+// a substitution is that the article changes with it — an object is written
+// down indefinite, "Una linterna", and read out definite, "la linterna" — so
+// "Has cogido _." comes out as "Has cogido la linterna.".
+//
+// Spanish changes the article and English drops it, which is why this needs to
+// know which language the database was built for. See
+// daad_msg.c:107-136, printObjectMsgModif.
+func (m *Machine) objectName(capital bool) string {
+	n := int(m.flags[FlagCurObj])
+	if n < 0 || n >= len(m.texts.objects) {
+		return ""
+	}
+
+	// A name is read into a sentence, so whatever ended the line it was
+	// written on is not part of it.
+	name := strings.TrimRight(expand(m.texts.objects[n]), " .\n")
+
+	switch article, rest := splitArticle(name, m.spanish); {
+	case article == "":
+		return rest
+	case capital:
+		return strings.ToUpper(article[:1]) + article[1:] + rest
+	default:
+		return article + rest
+	}
+}
+
+// splitArticle takes the indefinite article off a name and says what definite
+// one belongs in its place. An empty article means there was none to change,
+// or that the language does not use one here.
+func splitArticle(name string, spanish bool) (article, rest string) {
+	lower := strings.ToLower(name)
+
+	// Both keep the two letters after the article, which is why "una" gives
+	// back an "l" and not a "la": the "a" of "una" is the one that stays.
+	// That is the reference's own trick and it is cheaper than it looks —
+	// "Una linterna" becomes "la linterna" by writing one character.
+	const kept = 2
+
+	if spanish {
+		switch {
+		case strings.HasPrefix(lower, "una "):
+			return "l", name[kept:]
+		case strings.HasPrefix(lower, "un "):
+			return "el", name[kept:]
+		}
+
+		return "", name
+	}
+
+	// English has nothing to put back: "a lantern" is read as "lantern".
+	switch {
+	case strings.HasPrefix(lower, "an "):
+		return "", name[len("an "):]
+	case strings.HasPrefix(lower, "a "):
+		return "", name[len("a "):]
+	}
+
+	return "", name
+}

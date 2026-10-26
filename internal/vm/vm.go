@@ -196,6 +196,9 @@ type Machine struct {
 	finished bool
 	// restart asks the loop to begin again from process zero.
 	restart bool
+	// spanish is what the database was built for, which decides how an
+	// object's article is read out. See objectName.
+	spanish bool
 }
 
 // texts is the four tables, read once.
@@ -255,6 +258,10 @@ func New(r *ddbfile.Reader, console Console, watch Watcher) (*Machine, error) {
 	}
 
 	m.vocab = r.Vocabulary()
+
+	const spanish = 1
+
+	m.spanish = r.Language() == spanish
 
 	return m, nil
 }

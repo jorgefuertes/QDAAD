@@ -312,7 +312,30 @@ func (m *Machine) say(table []string, number int, newline bool) {
 		text += "\n"
 	}
 
-	m.console.Print(expand(text))
+	m.console.Print(m.fill(expand(text)))
+}
+
+// fill puts the object a message is about where the message leaves room for
+// it. See objectName.
+func (m *Machine) fill(text string) string {
+	if !strings.ContainsAny(text, "_@") {
+		return text
+	}
+
+	var sb strings.Builder
+
+	for _, r := range text {
+		switch r {
+		case '_':
+			sb.WriteString(m.objectName(false))
+		case '@':
+			sb.WriteString(m.objectName(true))
+		default:
+			sb.WriteRune(r)
+		}
+	}
+
+	return sb.String()
 }
 
 // expand turns the escapes a source writes into what a console should show.
