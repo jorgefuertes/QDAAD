@@ -52,9 +52,9 @@ func run(_ context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	db, ok := ddbfile.At(data, 0)
-	if !ok {
-		return fmt.Errorf("%s does not read as a database", cmd.String("input"))
+	db, err := open(data)
+	if err != nil {
+		return fmt.Errorf("%s: %w", cmd.String("input"), err)
 	}
 
 	watch, closeWatch, err := tracer(cmd.String("trace"))
@@ -73,6 +73,26 @@ func run(_ context.Context, cmd *cli.Command) error {
 	}
 
 	return machine.Run()
+}
+
+// open reads the database.
+//
+// Our own container first, because it is the one that states where everything
+// is instead of leaving it to be worked out. Anything else is tried the old
+// way, which is what makes an original tape from 1989 playable too — it just
+// cannot promise as much.
+func open(data []byte) (*ddbfile.Reader, error) {
+	db, err := ddbfile.OpenQRun(data)
+	if err == nil {
+		return db, nil
+	}
+
+	db, ok := ddbfile.At(data, 0)
+	if !ok {
+		return nil, fmt.Errorf("neither ours (%w) nor one we can work out", err)
+	}
+
+	return db, nil
 }
 
 // tracer builds the watcher the --trace flag asks for.

@@ -317,6 +317,18 @@ func candidateBases(data []byte, whole bool, size int, big bool) []int {
 
 	var bases []int
 
+	// The one candidate that is arithmetic rather than a guess: a database in
+	// a file of its own ends where it says it ends, so the address it was laid
+	// at is the difference between the two.
+	//
+	// Everything below works from where the vocabulary sits, which is right
+	// after the header in the adventures of 1989 to 1991 and nowhere near it
+	// in the ones our own linker writes — its section order is its own. That
+	// is why a Spectrum database we had just built would not read back.
+	if end := int(probe.word(size - 2)); end >= len(data) {
+		bases = append(bases, end-len(data))
+	}
+
 	for pad := 0; pad <= maxPadding; pad++ {
 		at := size + pad
 		if at+wordLen > len(data) {
@@ -530,6 +542,15 @@ func (r *Reader) readTokens() error {
 
 	for range numTokens {
 		if p >= end {
+			break
+		}
+
+		// A token is characters, and 0x00 is not one of them: the only zero
+		// the table holds is the marker that opens it, and that is already
+		// read. So a zero here is not a token at all — it is the byte a
+		// word-aligned machine pads the section with, and the table ended
+		// before it.
+		if r.data[p] == 0 {
 			break
 		}
 

@@ -23,6 +23,10 @@ import (
 const (
 	formatDDB = "ddb"
 	formatTAP = "tap"
+	// formatQRun is the database in a container that states what the readers
+	// of the old formats have to guess: where it was laid and which way round
+	// its words go. See internal/pack/qrun.go.
+	formatQRun = "qrun"
 )
 
 func Command() *cli.Command {
@@ -90,8 +94,9 @@ func Command() *cli.Command {
 				Category: "files",
 				Aliases:  []string{"f"},
 				Value:    formatDDB,
-				Usage: "What to write: " + formatDDB + " for the database alone, or " +
-					formatTAP + " for a tape that boots it.",
+				Usage: "What to write: " + formatDDB + " for the database alone, " +
+					formatTAP + " for a tape that boots it, or " + formatQRun +
+					" for one our own interpreter reads without guessing at anything.",
 			},
 		},
 		Action: compileAction,
@@ -180,6 +185,9 @@ func wrap(format string, image []byte, opts legacy.Options, name string, charset
 	switch format {
 	case formatDDB:
 		return image, nil
+	case formatQRun:
+		return pack.QRun(image, int(opts.Machine.BaseAddress(opts.Subtarget)),
+			opts.Machine.IsBigEndian())
 	case formatTAP:
 		if opts.Machine != arch.ZX {
 			return nil, fmt.Errorf("a tape is a Spectrum thing and this is a %s build", opts.Machine)
@@ -194,7 +202,8 @@ func wrap(format string, image []byte, opts legacy.Options, name string, charset
 			Language: opts.Language, Name: name, Charset: charset,
 		})
 	default:
-		return nil, fmt.Errorf("%q is not a format: it is %s or %s", format, formatDDB, formatTAP)
+		return nil, fmt.Errorf("%q is not a format: it is %s, %s or %s",
+			format, formatDDB, formatTAP, formatQRun)
 	}
 }
 
