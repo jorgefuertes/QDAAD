@@ -376,7 +376,11 @@ func decompileOne(db database, outputDir string, opts Options) error {
 
 			// The loop goes last because it is the only section that is not in
 			// the database: it is written for it. See v3.go.
-			if opts.ToV3 {
+			//
+			// On the plan and not on the flag, because asking for the
+			// conversion of a database that already is version 3 does nothing
+			// — and writing it a loop it already carries would give it two.
+			if plan != nil {
 				sections = append(sections, struct {
 					name  string
 					write func(*ddbfile.Reader) (string, error)

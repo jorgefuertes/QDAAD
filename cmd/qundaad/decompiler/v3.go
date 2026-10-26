@@ -524,11 +524,19 @@ func (c *v3Conversion) convertTexts(texts []string) []string {
 }
 
 // convertToV3 makes everything the reader hands out come back converted for a
-// version 3 interpreter. It is only ever right for a format 1 database: the
-// later ones already keep their loop where version 3 looks for it.
+// version 3 interpreter, and gives back nothing at all when there is nothing to
+// do.
+//
+// A format 2 or 3 database already keeps its loop where version 3 looks for it,
+// so asking for the conversion is answered by not doing one. That is a nil plan
+// and no error on purpose: --v3 asks for a source a version 3 interpreter will
+// run, and for these the plain decompilation already is one. Refusing instead
+// made the flag unusable over a mixed corpus — the five adventures are two
+// formats, and a harness that walks all of them had to know which before it
+// could ask.
 func convertToV3(r *ddbfile.Reader) (*v3Conversion, error) {
 	if !r.OldFormat() {
-		return nil, fmt.Errorf("this database is format %d and needs no converting", r.Version())
+		return nil, nil
 	}
 
 	plan, err := planV3(r)

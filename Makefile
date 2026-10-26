@@ -1,4 +1,4 @@
-.PHONY: dist build test doc decomp-all decomp-ao recompile-all compare-drf compare-drb compare-daadmaker
+.PHONY: dist build test doc decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker
 
 VERSION=$$(git describe --tags --abbrev=0)
 
@@ -77,6 +77,12 @@ decomp-all:
 # Needs decomp-all to have run first.
 recompile-all:
 	@script/recompile-all.sh
+
+# Compiles every edition we can read into a version 3 database, for every
+# machine we target, and stops at the database without packaging anything.
+# Needs nothing but the repository: both tools are ours.
+compile-all:
+	@script/compile-all.sh
 
 # Reads every source with both front ends and compares what each understood.
 # Needs fpc and iconv; says so and stops if either is missing.

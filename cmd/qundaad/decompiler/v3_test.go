@@ -216,15 +216,28 @@ func TestConvertingTheVersionOneAdventures(t *testing.T) {
 	}
 }
 
-// Converting a database that needs no converting is refused rather than done
-// badly: version 2 onwards already keeps the loop where version 3 looks for it.
-func TestOnlyAVersionOneDatabaseIsConverted(t *testing.T) {
+// Converting a database that needs no converting does nothing, and says so by
+// handing back no plan rather than an error.
+//
+// Version 2 onwards already keeps the loop where version 3 looks for it, so
+// --v3 on one of those is a question whose answer is "it already is". It used
+// to be refused, and that made the flag unusable over the corpus we have: the
+// five adventures are two formats, and a harness walking all of them had to
+// know which each was before it could ask. Worth being careful about one thing
+// — a nil plan must also mean no loop file is written, or a database that
+// carries its own loop would be given a second one.
+func TestConvertingWhatIsAlreadyVersionThreeDoesNothing(t *testing.T) {
 	r := openDatabase(t, "../../../work/aventuras/Cozumel/PC/PART1.DDB")
 
 	require.False(t, r.OldFormat())
 
-	_, err := convertToV3(r)
-	require.ErrorContains(t, err, "needs no converting")
+	plan, err := convertToV3(r)
+	require.NoError(t, err)
+	require.Nil(t, plan, "a conversion was planned for a database that needs none")
+
+	// And the loop file is the thing a nil plan has to keep from happening.
+	_, err = writeV3Loop(plan)
+	require.Error(t, err, "it wrote a game loop for a database that already has one")
 }
 
 // The two adventures of 1989, which are the only ones there is anything to
