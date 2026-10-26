@@ -250,17 +250,31 @@ func (m *Machine) moveObject(object int, to byte) {
 	m.did()
 }
 
-// movePlayer follows a connection from where the player is, in the direction a
-// flag holds. It reports whether there was one.
+// movePlayer is MOVE, and its two halves come from different places.
+//
+// The operand names the flag holding the location to move FROM, and the new
+// location is written back into that same flag. The direction is not in the
+// operand at all: it is whatever fVerb holds.
+//
+// Getting that round the wrong way is not a small error and does not look like
+// one. Matching the connection against the operand's flag means matching it
+// against the location, so "salir" from location 10 found a connection whose
+// word happened to be 10 and went to location 0 — and location 0 is where the
+// main loop starts a new game, so leaving the cabin looked like the adventure
+// ending.
+//
+// That the flag is the location and not the direction is also what makes AO's
+// own exit-lister work: it does "COPYFF 38 202" and then "MOVE 202", walking a
+// copy of where the player is while fVerb counts through the directions.
 func (m *Machine) movePlayer(flag int) bool {
-	from := int(m.flags[FlagPlayer])
+	from := int(m.flags[flag])
 	if from < 0 || from >= len(m.conns) {
 		return false
 	}
 
 	for _, c := range m.conns[from] {
-		if c.Word == m.flags[flag] {
-			m.setFlag(FlagPlayer, c.To)
+		if c.Word == m.flags[FlagVerb] {
+			m.setFlag(flag, c.To)
 			m.did()
 
 			return true
