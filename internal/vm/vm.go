@@ -199,6 +199,20 @@ type Machine struct {
 	// inputs is how many lines the player has given, which is the only measure
 	// of whether a turn got anywhere. See Run.
 	inputs int
+
+	// indir carries what an INDIR condact left for the one after it.
+	//
+	// Bit 7 of an opcode makes the first operand indirect and there is nowhere
+	// in the encoding to say the same of the second, so version 3 does it with
+	// a condact: INDIR names a flag, and the interpreter writes that flag's
+	// value over the second operand of whatever comes next. In a database that
+	// is literally a poke into the process block, *(pPROC + 2) — see
+	// do_INDIR, daad_condacts.c:2495. Here the condacts arrive decoded, so
+	// what the poke would have changed is held until the next one runs.
+	indir struct {
+		pending bool
+		value   byte
+	}
 	// spanish is what the database was built for, which decides how an
 	// object's article is read out. See objectName.
 	spanish bool
@@ -329,6 +343,12 @@ func (m *Machine) reset() {
 	m.stack = m.stack[:0]
 	m.done, m.lastDone, m.finished = false, false, false
 
+	// A half-finished indirection belongs to the condact that was going to
+	// consume it, and that condact is not going to run now. inputs is left
+	// alone on purpose: it counts the player, not the game, and the loop's
+	// guard against restarting forever needs it to carry across.
+	m.indir.pending = false
+
 	// What the machine can do. A console has no graphics and no mouse, and
 	// saying so is better than leaving an adventure to find out.
 	m.flags[FlagGraphics] = 0
@@ -355,6 +375,17 @@ func (m *Machine) pop() {
 }
 
 func (m *Machine) top() *frame { return &m.stack[len(m.stack)-1] }
+
+// holds says whether f is still the frame on top.
+//
+// It cannot be a comparison against top(), because the thing it is asked about
+// is a condact having changed the stack, and one of the ways it can change it
+// is to empty it: the outermost process is allowed to return. La Aventura
+// Original's second part does exactly that on its first turn, and asking for
+// the frame afterwards read off the end of the slice and crashed.
+func (m *Machine) holds(f *frame) bool {
+	return len(m.stack) > 0 && m.top() == f
+}
 
 // setFlag is the only way a flag changes, so that a watcher sees every one.
 func (m *Machine) setFlag(number int, value byte) {

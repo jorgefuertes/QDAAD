@@ -49,6 +49,16 @@ func (m *Machine) exec(c ddbfile.Condact) error {
 		args[0] = m.flags[args[0]]
 	}
 
+	// And an INDIR in front reaches the second, which is the one bit 7 of the
+	// opcode cannot say anything about. See indir.
+	if m.indir.pending {
+		m.indir.pending = false
+
+		if len(args) > 1 {
+			args[1] = m.indir.value
+		}
+	}
+
 	run, known := condacts[c.Opcode]
 	if !known {
 		// Saying so is better than doing nothing quietly: an adventure that
@@ -191,6 +201,22 @@ var condacts = map[byte]func(*Machine, []byte){
 	},
 	100: func(m *Machine, _ []byte) { m.whatO() }, // WHATO
 	35:  nothing,                                  // PAUSE: a console has no frames to wait for
+
+	// SETCO: make an object the one the messages mean by "_", without moving
+	// it or saying anything. do_SETCO is one line — referencedObject — and
+	// notably does not mark anything done.
+	56: func(m *Machine, a []byte) { m.note(int(a[0])) },
+
+	// EXIT: leave for good on zero, start the game over on anything else.
+	// See do_EXIT, daad_condacts.c:2367.
+	110: func(m *Machine, a []byte) { m.exit(a[0]) },
+
+	// INDIR: the flag whose value belongs in the next condact's second
+	// operand. See the indir field on Machine.
+	122: func(m *Machine, a []byte) {
+		m.indir.pending = true
+		m.indir.value = m.flags[a[0]]
+	},
 
 	// ---- things a console has no use for, said plainly rather than omitted ----
 	18:  nothing, // SFX
@@ -367,6 +393,31 @@ func (m *Machine) end() {
 
 	m.reset()
 	m.restart = true
+}
+
+// exit is EXIT, which is two condacts wearing one name.
+//
+// Zero leaves the interpreter altogether — no asking, no new game, the way a
+// loading screen's menu quits rather than the way END does. Anything else
+// starts the adventure over: the flags go back to nothing, the objects go back
+// where they began, and the loop begins again at process zero.
+//
+// It asks nothing in either case, which is the whole difference from END. See
+// do_EXIT, daad_condacts.c:2367.
+func (m *Machine) exit(value byte) {
+	if value == 0 {
+		m.finished = true
+
+		return
+	}
+
+	m.reset()
+	m.resetObjects()
+	m.restart = true
+
+	// The entry it was written in has nothing more to say: whatever follows
+	// belongs to the game that just ended.
+	m.continuing = false
 }
 
 // confirm prints a system message and reads a yes or no, the way QUIT and END

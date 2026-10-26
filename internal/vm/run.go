@@ -52,14 +52,14 @@ func (m *Machine) runStack() error {
 
 			// A condact that pushed a process, jumped, or ended the game has
 			// moved the ground under this loop, so everything is read again.
-			if m.finished || m.restart || m.top() != f || !f.running {
+			if m.finished || m.restart || !m.holds(f) || !f.running {
 				break
 			}
 		}
 
 		// This entry is done with, one way or another. The next turn of the
 		// loop looks for another that matches.
-		if !m.finished && !m.restart && m.top() == f {
+		if !m.finished && !m.restart && m.holds(f) {
 			f.running = false
 		}
 	}

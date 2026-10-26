@@ -56,19 +56,39 @@ func (s *script) Input() (string, bool) {
 func (s *script) AnyKey() {}
 
 // transcript plays an adventure through a list of commands and gives back
-// everything it said.
+// everything it said. It builds for a PC, which is the plainest layout there
+// is: laid at zero, little-endian, sections aligned to even addresses.
 func transcript(t *testing.T, source string, commands ...string) string {
 	t.Helper()
 
-	db, err := legacy.Analyze(source, legacy.Options{
-		Machine: arch.PC, Subtarget: "VGA",
+	return transcriptFor(t, source, arch.PC, "VGA", commands...)
+}
+
+// transcriptFor is the same for a named machine, because the layout is not a
+// detail the interpreter is supposed to notice and the only way to know it
+// does not is to play the same adventure on two of them.
+//
+// A Spectrum is the one that matters: it is laid at 0x8400 instead of zero and
+// packs its sections tight instead of aligning them, and it is the build that
+// goes on a tape. Playing only the PC build would leave the published one
+// resting on the roundtrip tests, which read every section but answer nothing
+// about whether the adventure can be won.
+func transcriptFor(t *testing.T, source string, target arch.Machine, subtarget string,
+	commands ...string,
+) string {
+	t.Helper()
+
+	opts := legacy.Options{
+		Machine: target, Subtarget: subtarget,
 		Language: language.LanguageSpanish, Version: 3,
-	})
+	}
+
+	db, err := legacy.Analyze(source, opts)
 	require.NoError(t, err)
 
 	image, layout, err := back.LinkWithLayout(db, back.Options{
-		Machine: arch.PC, Subtarget: "VGA",
-		Language: language.LanguageSpanish, Version: 3,
+		Machine: opts.Machine, Subtarget: opts.Subtarget,
+		Language: opts.Language, Version: opts.Version,
 	})
 	require.NoError(t, err)
 	require.Positive(t, layout.Tokens)
@@ -163,10 +183,30 @@ func TestWalkingAroundLaAventuraOriginal(t *testing.T) {
 //   - And flag 37 was the template's guessed 4. The cave asks for EQ 1 5, so
 //     the first part could not be finished with any smaller carrying limit —
 //     the adventure stated its own answer and we had overridden it.
+// It is played on both layouts. The Spectrum build is the one that goes on a
+// tape, and until this ran twice the published one rested on tests that read
+// every section of it and answered nothing about whether it could be won.
 func TestFinishingTheFirstPartOfLaAventuraOriginal(t *testing.T) {
+	for _, target := range []struct {
+		name      string
+		machine   arch.Machine
+		subtarget string
+	}{
+		{"a 48K Spectrum, laid at 0x8400 and packed tight", arch.ZX, "48K"},
+		{"a PC, laid at zero and word-aligned", arch.PC, "VGA"},
+	} {
+		t.Run(target.name, func(t *testing.T) {
+			finishTheFirstPart(t, target.machine, target.subtarget)
+		})
+	}
+}
+
+func finishTheFirstPart(t *testing.T, machine arch.Machine, subtarget string) {
+	t.Helper()
+
 	source := aoSource(t)
 
-	said := transcript(t, source,
+	said := transcriptFor(t, source, machine, subtarget,
 		// The bottle, down the valley and back.
 		"S", "S", "S", "S", "COGER BOTELLA", "N", "N", "N",
 		// The boots, east and south.
@@ -207,6 +247,36 @@ func TestFinishingTheFirstPartOfLaAventuraOriginal(t *testing.T) {
 
 	require.NotContains(t, said, "not implemented",
 		"the whole of the first part and not one condact we have yet to write")
+}
+
+// Every machine we compile for, played.
+//
+// This is the promise qrun is for: an adventure built for any target can be
+// played and debugged here, without a tape, a disk or an emulator. The layouts
+// disagree about everything that matters to a reader — where the database is
+// laid, which way round its words go, whether sections are padded to even
+// addresses — so the only way to know none of that reaches the interpreter is
+// to build the same adventure for all of them and play each one.
+//
+// It goes through MachineNames rather than a list written here, so that adding
+// a target to the compiler adds it to this test too and a new one cannot
+// arrive unplayed.
+func TestEveryMachineWeCompileForPlays(t *testing.T) {
+	source := templateSource(t)
+
+	for _, name := range arch.MachineNames() {
+		machine, err := arch.Parse(strings.ToLower(name))
+		require.NoError(t, err)
+
+		t.Run(name, func(t *testing.T) {
+			said := transcriptFor(t, source, machine, "", "mirar", "i")
+
+			require.Contains(t, said, "mazmorra",
+				"the location the template starts in, so the loop ran and the text was read")
+			require.NotContains(t, said, "not implemented",
+				"a condact we have yet to write")
+		})
+	}
 }
 
 // templateSource is the blank adventure DRC ships, converted to the UTF-8 the
