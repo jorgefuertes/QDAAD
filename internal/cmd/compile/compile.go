@@ -27,6 +27,12 @@ const (
 	// of the old formats have to guess: where it was laid and which way round
 	// its words go. See internal/pack/qrun.go.
 	formatQRun = "qrun"
+	// formatDir is everything the machine needs, as files in a directory.
+	//
+	// It is the one format every machine can have, because it is the recipe
+	// rather than a container for it — and a machine whose release really is
+	// one file gets a directory with that file in it. See internal/pack/release.go.
+	formatDir = "dir"
 )
 
 func Command() *cli.Command {
@@ -95,8 +101,10 @@ func Command() *cli.Command {
 				Aliases:  []string{"f"},
 				Value:    formatDDB,
 				Usage: "What to write: " + formatDDB + " for the database alone, " +
-					formatTAP + " for a tape that boots it, or " + formatQRun +
-					" for one our own interpreter reads without guessing at anything.",
+					formatTAP + " for a tape that boots it, " + formatDir +
+					" for a directory holding everything the machine needs, or " +
+					formatQRun + " for one our own interpreter reads without guessing " +
+					"at anything.",
 			},
 		},
 		Action: compileAction,
@@ -140,7 +148,9 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		out = strings.TrimSuffix(source, path.Ext(source))
 	}
 
-	if path.Ext(out) == "" {
+	// A directory is named, not suffixed. Everything else gets the format for
+	// an extension when none was given.
+	if path.Ext(out) == "" && format != formatDir {
 		out += "." + format
 	}
 
@@ -154,18 +164,39 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 
 	// The name the ROM shows while loading is the one the file was given,
 	// which is what the reference does too and the only name there is to use.
-	body, err := wrap(format, image, opts, name(out), charset, layout)
+	release, err := assemble(format, image, opts, name(out), charset, layout)
 	if err != nil {
 		return err
 	}
 
-	if err := os.WriteFile(out, body, 0o644); err != nil {
+	if format == formatDir {
+		if err := release.WriteDir(out); err != nil {
+			return err
+		}
+
+		files := "files"
+		if len(release.Files()) == 1 {
+			files = "file"
+		}
+
+		fmt.Printf("%s: %d %s, %d bytes in all\n%s", out,
+			len(release.Files()), files, release.Total(), release.Listing())
+
+		return nil
+	}
+
+	file, err := release.Single()
+	if err != nil {
+		return fmt.Errorf("%s: %w\n\tbuild it as --format %s instead", format, err, formatDir)
+	}
+
+	if err := os.WriteFile(out, file.Body, 0o644); err != nil {
 		return err
 	}
 
 	if format == formatTAP {
 		fmt.Printf("%s: %d bytes of tape, %d of database laid at 0x%04X\n",
-			out, len(body), len(image), opts.Machine.BaseAddress(opts.Subtarget))
+			out, len(file.Body), len(image), opts.Machine.BaseAddress(opts.Subtarget))
 
 		return nil
 	}
@@ -176,36 +207,53 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// wrap puts the database into whatever container was asked for.
+// assemble gathers what the asked-for format needs, as a release.
 //
-// Only the 48K Spectrum is packed so far. The other machines refuse rather than
+// Everything comes back as a release even when it is one file, so that the
+// caller has one thing to write and --format dir works for every format
+// without each one knowing about it. A database on its own is a release of one;
+// so is a tape, which only looks like a container because the gluing happened
+// inside it.
+//
+// Only the Spectrum is packaged so far. The other machines refuse rather than
 // quietly writing the database under a .tap extension, which would load on
 // nothing and say so nowhere.
-func wrap(format string, image []byte, opts legacy.Options, name string, charset []byte,
+func assemble(format string, image []byte, opts legacy.Options, name string, charset []byte,
 	layout back.Layout,
-) ([]byte, error) {
+) (*pack.Release, error) {
 	switch format {
 	case formatDDB:
-		return image, nil
+		return pack.NewRelease(pack.File{
+			Name: name + ".ddb", Body: image,
+			Note: fmt.Sprintf("database, laid at 0x%04X",
+				opts.Machine.BaseAddress(opts.Subtarget)),
+		}), nil
+
 	case formatQRun:
-		return pack.QRun(image, int(opts.Machine.BaseAddress(opts.Subtarget)),
+		body, err := pack.QRun(image, int(opts.Machine.BaseAddress(opts.Subtarget)),
 			opts.Machine.IsBigEndian(), layout)
-	case formatTAP:
+		if err != nil {
+			return nil, err
+		}
+
+		return pack.NewRelease(pack.File{
+			Name: name + ".qrun", Body: body,
+			Note: "database in our own container, for qrun",
+		}), nil
+
+	case formatDir, formatTAP:
 		if opts.Machine != arch.ZX {
-			return nil, fmt.Errorf("a tape is a Spectrum thing and this is a %s build", opts.Machine)
+			return nil, fmt.Errorf("only the Spectrum is packaged so far, not the %s",
+				opts.Machine)
 		}
 
-		if opts.Subtarget != "" && !strings.EqualFold(opts.Subtarget, "48k") {
-			return nil, fmt.Errorf("only the 48K Spectrum is packed into a tape so far, not the %s",
-				opts.Subtarget)
-		}
-
-		return pack.ZX48(image, pack.Options{
+		return pack.ZXRelease(image, opts.Subtarget, pack.Options{
 			Language: opts.Language, Name: name, Charset: charset,
 		})
+
 	default:
-		return nil, fmt.Errorf("%q is not a format: it is %s, %s or %s",
-			format, formatDDB, formatTAP, formatQRun)
+		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s or %s",
+			format, formatDDB, formatTAP, formatDir, formatQRun)
 	}
 }
 
