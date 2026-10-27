@@ -74,6 +74,30 @@ func (b *BASIC) LoadCode(blocks int) {
 	b.statement(body)
 }
 
+// LoadNamed writes a LOAD "name" CODE for each name given, all on one line,
+// separated by colons.
+//
+// It is the disk machines' version of LoadCode. A tape has no names and no
+// choice: the blocks come in the order they were written, and LOAD ""CODE takes
+// the next one. A disk has both, so each load says which file it wants — and
+// where each one goes is still the file's own business, read from the header it
+// carries, so the loader never names an address and cannot contradict one.
+func (b *BASIC) LoadNamed(names ...string) {
+	var body []byte
+
+	for i, name := range names {
+		if i > 0 {
+			body = append(body, ':')
+		}
+
+		body = append(body, tokLOAD, '"')
+		body = append(body, name...)
+		body = append(body, '"', tokCODE)
+	}
+
+	b.statement(body)
+}
+
 // RandomizeUSR calls machine code at an address, which is how BASIC hands over
 // and, for a loader, the last thing it does.
 func (b *BASIC) RandomizeUSR(at int) {

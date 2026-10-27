@@ -105,20 +105,32 @@ type Options struct {
 // database, and the image index and graphics stub together. The loader takes
 // the memory above the interpreter out of BASIC's reach before loading anything
 // into it, which is the whole reason it cannot simply be three LOADs.
-func ZX48(database []byte, opts Options) ([]byte, error) {
-	_, interpreter, err := runtime.Interpreter(runtime.ZX48, opts.Language)
+// zxBlocks is the three blocks a Spectrum build is made of, wherever they are
+// going to be put.
+//
+// A tape and a +3 disk carry the same three things to the same three addresses
+// and differ only in who assembles them, so this is what they share: the
+// interpreter for the target asked for, the index and graphics stub as one
+// block, where that block begins, and the two checks that say whether any of it
+// fits.
+func zxBlocks(target runtime.Target, database []byte, opts Options) (
+	interpreter, top []byte, topOrigin int, err error,
+) {
+	_, interpreter, err = runtime.Interpreter(target, opts.Language)
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 
+	// The stub and the font come from the 48K set whatever the target: they are
+	// data rather than code, and every ZX interpreter reads the same two.
 	companions, err := runtime.Companions(runtime.ZX48)
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 
 	stub, carried := companions["DAAD.SDG"]
 	if !carried {
-		return nil, fmt.Errorf("the built-in graphics stub is missing")
+		return nil, nil, 0, fmt.Errorf("the built-in graphics stub is missing")
 	}
 
 	// Read from the machine rather than written here, so that the address the
@@ -128,7 +140,7 @@ func ZX48(database []byte, opts Options) ([]byte, error) {
 
 	// The index and the stub are one block, index first, ending on the last
 	// byte of RAM.
-	top := append(imageIndex(databaseOrigin+len(database)), stub...)
+	top = append(imageIndex(databaseOrigin+len(database)), stub...)
 
 	charset := opts.Charset
 	if len(charset) == 0 {
@@ -136,13 +148,13 @@ func ZX48(database []byte, opts Options) ([]byte, error) {
 	}
 
 	if err := replaceCharset(top, charset); err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 
-	topOrigin := topOfMemory - len(top)
+	topOrigin = topOfMemory - len(top)
 
 	if end := interpreterOrigin + len(interpreter); end > databaseOrigin {
-		return nil, fmt.Errorf(
+		return nil, nil, 0, fmt.Errorf(
 			"the interpreter ends at 0x%04X and the database starts at 0x%04X", end, databaseOrigin)
 	}
 
@@ -151,10 +163,21 @@ func ZX48(database []byte, opts Options) ([]byte, error) {
 	// interpreter's workspace and the stub, and if it does not, the build is
 	// for a bigger machine.
 	if end := databaseOrigin + len(database); end > topOrigin {
-		return nil, fmt.Errorf(
+		return nil, nil, 0, fmt.Errorf(
 			"the database is %d bytes and %d is all there is between 0x%04X and the graphics stub at 0x%04X",
 			len(database), topOrigin-databaseOrigin, databaseOrigin, topOrigin)
 	}
+
+	return interpreter, top, topOrigin, nil
+}
+
+func ZX48(database []byte, opts Options) ([]byte, error) {
+	interpreter, top, topOrigin, err := zxBlocks(runtime.ZX48, database, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	databaseOrigin := int(arch.ZX.BaseAddress(""))
 
 	// The letter is the tenth character of the name, which is why the name has
 	// nine to itself. I for the interpreter, D for the database, G for the
