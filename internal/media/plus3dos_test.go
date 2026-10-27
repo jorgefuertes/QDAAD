@@ -61,6 +61,53 @@ func TestThePlus3HeaderChecksums(t *testing.T) {
 	require.Equal(t, byte(sum), out[Plus3HeaderSize-1])
 }
 
+// Taking the header off again, which is what +3DOS does for whatever reads a
+// file and so what a reader of ours has to do too.
+//
+// A database with a header in front of it is a database whose every pointer is
+// 128 bytes out, and what that looks like is not a clear failure but an
+// adventure with the wrong words in it.
+func TestTakingThePlus3HeaderBackOff(t *testing.T) {
+	body := []byte("the file itself")
+
+	with, err := Plus3Code(0x8400, body)
+	require.NoError(t, err)
+	require.Equal(t, body, WithoutPlus3Header(with))
+
+	// A file that has none is left alone, which is every file on a CPC disk.
+	require.Equal(t, body, WithoutPlus3Header(body))
+
+	// And neither is a file that merely starts with the right eight letters.
+	// Taking 128 bytes off on that evidence alone would be worse than leaving
+	// it: the checksum is what makes it a header.
+	fake := append([]byte("PLUS3DOS"), make([]byte, 200)...)
+	fake[Plus3HeaderSize-1] ^= 0xFF
+	require.Equal(t, fake, WithoutPlus3Header(fake))
+}
+
+// The end of the file is not trimmed, and this is the measurement that says so.
+//
+// CP/M pads the last record of a file to 128 bytes, so the declared length
+// looks like the right place to cut. On Cozumel's Spectrum disk it is not:
+// D1.BIN declares 40443 bytes and its graphics block runs to 40448, so the
+// drawings are in what the header calls padding. Cutting to the declared
+// length finds no drawings at all.
+//
+// This test exists so that trimming — which reads as an obvious improvement —
+// cannot be put back without the reason it was left out.
+func TestTheDeclaredLengthIsNotWhereAFileIsCut(t *testing.T) {
+	body := []byte("the file itself")
+
+	with, err := Plus3Code(0x8400, body)
+	require.NoError(t, err)
+
+	// Padded the way CP/M pads it, to a whole number of 128-byte records.
+	padded := append(with, make([]byte, 5)...)
+
+	require.Len(t, WithoutPlus3Header(padded), len(body)+5,
+		"the padding was trimmed off, and on at least one real disk the drawings are in it")
+}
+
 func TestAnAddressOutsideASpectrumIsRefused(t *testing.T) {
 	_, err := Plus3Code(0x10000, []byte("x"))
 	require.ErrorContains(t, err, "not an address")

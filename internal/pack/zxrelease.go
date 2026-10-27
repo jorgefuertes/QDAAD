@@ -24,6 +24,33 @@ import (
 // The two are the same adventure and a different release, which is why the
 // subtarget is not a detail here.
 
+// ZXDisk writes a Spectrum release onto a +3 disk image.
+//
+// It is the +3 release and nothing else: the four files, in the order the
+// bundle lists them, so that a CAT shows the loader first. A 48K build has no
+// disk to go on — the subtarget decides the release and a tape release is one
+// file — so asking for a disk of one says so rather than writing a disk with an
+// interpreter on it and no game.
+func ZXDisk(database []byte, subtarget string, opts Options) ([]byte, error) {
+	release, err := ZXRelease(database, subtarget, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(release.Files()) == 1 {
+		return nil, fmt.Errorf(
+			"a %s release is one file and belongs on a tape: build it as --format tap",
+			subtarget)
+	}
+
+	files := make([]media.File, 0, len(release.Files()))
+	for _, f := range release.Files() {
+		files = append(files, media.File{Name: f.Name, Data: f.Body})
+	}
+
+	return media.Plus3Disk(files)
+}
+
 // ZXRelease gathers what a Spectrum build needs, for the Spectrum it is built
 // for.
 //

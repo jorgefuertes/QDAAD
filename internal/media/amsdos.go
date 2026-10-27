@@ -237,7 +237,11 @@ func cpmAssemble(extents []cpmExtent, area []byte) ([]File, error) {
 			data = append(data, extent...)
 		}
 
-		files = append(files, File{Name: name, Data: data})
+		// A Spectrum +3 file carries a 128-byte header that +3DOS hides from
+		// whatever reads it, and a reader that keeps it hands back 128 bytes
+		// that were never part of the file. On a CPC disk there is no such
+		// header and this leaves the file alone.
+		files = append(files, File{Name: name, Data: WithoutPlus3Header(data)})
 	}
 
 	return files, nil

@@ -62,6 +62,50 @@ func Plus3Program(line int, body []byte) ([]byte, error) {
 	return plus3Header(plus3Program, len(body), line, len(body), body)
 }
 
+// WithoutPlus3Header gives back a file's contents with its +3DOS header taken
+// off, and the file unchanged when it has none.
+//
+// +3DOS hides the header from whatever reads the file, so anything that reads
+// one and keeps it is reading 128 bytes that were never part of the file. It
+// matters most where it is least visible: a database with a header in front of
+// it is a database whose every pointer is 128 bytes out, and what that looks
+// like is not a clear failure but an adventure with the wrong words in it.
+//
+// What it does not do is trim the end, and that is a decision with a
+// measurement behind it rather than an omission.
+//
+// CP/M stores a length in records of 128 bytes, so the last record of a file is
+// padded and the header is the only place the true length is written down. It
+// would follow that the declared length is where to cut — except that on
+// Cozumel's Spectrum disk it is not where the file ends. D1.BIN declares 40443
+// bytes and its graphics block runs to 40448: the drawings are in what the
+// header calls padding. Cutting to the declared length finds no drawings at
+// all, and leaving the padding on finds them.
+//
+// So the header's presence is trusted and its length is not. Trailing bytes
+// cost a reader nothing — everything downstream looks for structures rather
+// than measuring from the end — while five missing ones cost a whole edition
+// its illustrations.
+func WithoutPlus3Header(data []byte) []byte {
+	if len(data) < Plus3HeaderSize || string(data[:8]) != "PLUS3DOS" {
+		return data
+	}
+
+	sum := 0
+	for _, b := range data[:Plus3HeaderSize-1] {
+		sum += int(b)
+	}
+
+	// A header that does not add up is not a header. Taking 128 bytes off a
+	// file on the strength of eight that happen to spell PLUS3DOS would be
+	// worse than leaving it alone.
+	if byte(sum) != data[Plus3HeaderSize-1] {
+		return data
+	}
+
+	return data[Plus3HeaderSize:]
+}
+
 func plus3Header(kind, length, param1, param2 int, body []byte) ([]byte, error) {
 	out := make([]byte, Plus3HeaderSize, Plus3HeaderSize+len(body))
 

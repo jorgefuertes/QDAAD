@@ -27,6 +27,9 @@ const (
 	// of the old formats have to guess: where it was laid and which way round
 	// its words go. See internal/pack/qrun.go.
 	formatQRun = "qrun"
+	// formatDSK is a disk image the machine boots from, which on a Spectrum
+	// means a 180K +3 disk. See internal/media/plus3disk.go.
+	formatDSK = "dsk"
 	// formatDir is everything the machine needs, as files in a directory.
 	//
 	// It is the one format every machine can have, because it is the recipe
@@ -101,7 +104,8 @@ func Command() *cli.Command {
 				Aliases:  []string{"f"},
 				Value:    formatDDB,
 				Usage: "What to write: " + formatDDB + " for the database alone, " +
-					formatTAP + " for a tape that boots it, " + formatDir +
+					formatTAP + " for a tape that boots it, " + formatDSK +
+					" for a disk that does, " + formatDir +
 					" for a directory holding everything the machine needs, or " +
 					formatQRun + " for one our own interpreter reads without guessing " +
 					"at anything.",
@@ -194,9 +198,13 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	if format == formatTAP {
-		fmt.Printf("%s: %d bytes of tape, %d of database laid at 0x%04X\n",
-			out, len(file.Body), len(image), opts.Machine.BaseAddress(opts.Subtarget))
+	// A container says its own size as well as the database's, because the two
+	// are different numbers and the one that matters depends on what you are
+	// about to do with it: a tape has to fit in a machine, a disk on a disk.
+	if format == formatTAP || format == formatDSK {
+		fmt.Printf("%s: %d bytes of %s, %d of database laid at 0x%04X\n",
+			out, len(file.Body), format, len(image),
+			opts.Machine.BaseAddress(opts.Subtarget))
 
 		return nil
 	}
@@ -251,9 +259,27 @@ func assemble(format string, image []byte, opts legacy.Options, name string, cha
 			Language: opts.Language, Name: name, Charset: charset,
 		})
 
+	case formatDSK:
+		if opts.Machine != arch.ZX {
+			return nil, fmt.Errorf("only the Spectrum is packaged so far, not the %s",
+				opts.Machine)
+		}
+
+		body, err := pack.ZXDisk(image, opts.Subtarget, pack.Options{
+			Language: opts.Language, Name: name, Charset: charset,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return pack.NewRelease(pack.File{
+			Name: name + ".dsk", Body: body,
+			Note: "180K +3 disk, bootable from the +3's own menu",
+		}), nil
+
 	default:
-		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s or %s",
-			format, formatDDB, formatTAP, formatDir, formatQRun)
+		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s, %s or %s",
+			format, formatDDB, formatTAP, formatDSK, formatDir, formatQRun)
 	}
 }
 
