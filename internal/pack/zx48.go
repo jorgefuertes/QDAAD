@@ -232,18 +232,32 @@ func blockName(name string, letter byte) string {
 // The font sits 2076 bytes from the end of the block, which is the position the
 // reference computes and the one the stub's own trailer points at. A .CHR is
 // 2048 bytes, or that plus a 128-byte header which is read past.
+// charsetGlyphs is the 2048 bytes of a font, with the header some .CHR files
+// carry read past.
+//
+// Which end it goes at is the caller's business and differs by machine: a
+// Spectrum's font sits a fixed distance from the end of the graphics block and
+// a CPC's a fixed distance from the start of it.
+func charsetGlyphs(charset []byte) ([]byte, error) {
+	switch len(charset) {
+	case charsetSize:
+		return charset, nil
+	case charsetSize + charsetHeader:
+		return charset[charsetHeader:], nil
+	default:
+		return nil, fmt.Errorf("a charset is %d bytes, or %d with a header, and this one is %d",
+			charsetSize, charsetSize+charsetHeader, len(charset))
+	}
+}
+
 func replaceCharset(top, charset []byte) error {
 	if len(charset) == 0 {
 		return nil
 	}
 
-	switch len(charset) {
-	case charsetSize:
-	case charsetSize + charsetHeader:
-		charset = charset[charsetHeader:]
-	default:
-		return fmt.Errorf("a charset is %d bytes, or %d with a header, and this one is %d",
-			charsetSize, charsetSize+charsetHeader, len(charset))
+	charset, err := charsetGlyphs(charset)
+	if err != nil {
+		return err
 	}
 
 	at := len(top) - charsetSize - charsetTrailer

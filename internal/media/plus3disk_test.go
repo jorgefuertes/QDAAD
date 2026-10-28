@@ -21,11 +21,11 @@ func TestADiskWeWriteIsADiskWeCanRead(t *testing.T) {
 	// exactly a block, one that spills a few bytes into a second.
 	files := []File{
 		{Name: "DISK", Data: bytes.Repeat([]byte{1}, 202)},
-		{Name: "DAAD.BIN", Data: bytes.Repeat([]byte{2}, plus3BlockSize)},
-		{Name: "PART1.DDB", Data: bytes.Repeat([]byte{3}, plus3BlockSize+7)},
+		{Name: "DAAD.BIN", Data: bytes.Repeat([]byte{2}, dataBlockSize)},
+		{Name: "PART1.DDB", Data: bytes.Repeat([]byte{3}, dataBlockSize+7)},
 	}
 
-	image, err := Plus3Disk(files)
+	image, err := DataDisk(files)
 	require.NoError(t, err)
 
 	disk, err := NewDSK(image)
@@ -51,16 +51,16 @@ func TestADiskWeWriteIsADiskWeCanRead(t *testing.T) {
 // The shape of the image, which is what an emulator reads before it reads
 // anything else.
 func TestTheImageIsADiskAnEmulatorRecognises(t *testing.T) {
-	image, err := Plus3Disk([]File{{Name: "X", Data: []byte("x")}})
+	image, err := DataDisk([]File{{Name: "X", Data: []byte("x")}})
 	require.NoError(t, err)
 
 	require.Equal(t, dskSignature, string(image[:len(dskSignature)]))
-	require.Equal(t, byte(plus3Tracks), image[0x30])
-	require.Equal(t, byte(plus3Sides), image[0x31])
+	require.Equal(t, byte(dataTracks), image[0x30])
+	require.Equal(t, byte(dataSides), image[0x31])
 
-	trackSize := dskTrackHeader + plus3SectorsTrack*plus3SectorSize
+	trackSize := dskTrackHeader + dataSectorsTrack*dataSectorSize
 	require.Equal(t, trackSize, int(image[0x32])|int(image[0x33])<<8)
-	require.Len(t, image, dskHeaderSize+plus3Tracks*trackSize,
+	require.Len(t, image, dskHeaderSize+dataTracks*trackSize,
 		"180K is 40 tracks of nine 512-byte sectors, and the headers on top")
 
 	// Every track says what it holds, and the sector numbering starts where
@@ -68,9 +68,9 @@ func TestTheImageIsADiskAnEmulatorRecognises(t *testing.T) {
 	// fine and is read as unformatted.
 	track := image[dskHeaderSize:]
 	require.Equal(t, trackSignature, string(track[:len(trackSignature)]))
-	require.Equal(t, byte(plus3SectorsTrack), track[0x15])
-	require.Equal(t, byte(plus3FirstSectorID), track[0x18+2])
-	require.Equal(t, byte(plus3FirstSectorID+plus3SectorsTrack-1), track[0x18+8*8+2])
+	require.Equal(t, byte(dataSectorsTrack), track[0x15])
+	require.Equal(t, byte(dataFirstSectorID), track[0x18+2])
+	require.Equal(t, byte(dataFirstSectorID+dataSectorsTrack-1), track[0x18+8*8+2])
 }
 
 // The directory is in the first sector of track 0, and that is the one thing
@@ -87,7 +87,7 @@ func TestTheImageIsADiskAnEmulatorRecognises(t *testing.T) {
 // The number comes off a disk known to work: DAAD's own +3 disk has
 // "PART1   SDG" 512 bytes into the image, which is track 0's first sector.
 func TestTheDirectoryIsInTheFirstSectorOfTrackZero(t *testing.T) {
-	image, err := Plus3Disk([]File{{Name: "DISK", Data: []byte("loader")}})
+	image, err := DataDisk([]File{{Name: "DISK", Data: []byte("loader")}})
 	require.NoError(t, err)
 
 	entry := image[dskHeaderSize+dskTrackHeader:]
@@ -97,7 +97,7 @@ func TestTheDirectoryIsInTheFirstSectorOfTrackZero(t *testing.T) {
 	require.Equal(t, "   ", string(entry[9:12]))
 
 	// Block 2, because the directory itself takes blocks 0 and 1.
-	require.Equal(t, byte(plus3DirBlocks), entry[16],
+	require.Equal(t, byte(dataDirBlocks), entry[16],
 		"the first file was put somewhere other than straight after the directory")
 }
 
@@ -110,14 +110,14 @@ func TestNamesADiskCannotHold(t *testing.T) {
 	for _, name := range []string{
 		"DEMASIADOLARGO.BIN", "X.CUATRO", "", "CON ESPACIO.BIN", "RARO?.BIN",
 	} {
-		_, err := Plus3Disk([]File{{Name: name, Data: []byte("x")}})
+		_, err := DataDisk([]File{{Name: name, Data: []byte("x")}})
 		require.Error(t, err, "name %q was accepted", name)
 	}
 }
 
 // And a release too big for the disk says so with the numbers.
 func TestMoreThanFitsOnADiskIsRefused(t *testing.T) {
-	_, err := Plus3Disk([]File{{Name: "ENORME.BIN", Data: make([]byte, 200*1024)}})
+	_, err := DataDisk([]File{{Name: "ENORME.BIN", Data: make([]byte, 200*1024)}})
 	require.ErrorContains(t, err, "does not fit")
 	require.ErrorContains(t, err, "blocks")
 }

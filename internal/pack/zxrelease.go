@@ -48,7 +48,7 @@ func ZXDisk(database []byte, subtarget string, opts Options) ([]byte, error) {
 		files = append(files, media.File{Name: f.Name, Data: f.Body})
 	}
 
-	return media.Plus3Disk(files)
+	return media.DataDisk(files)
 }
 
 // ZXRelease gathers what a Spectrum build needs, for the Spectrum it is built

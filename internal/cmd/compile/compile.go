@@ -259,32 +259,44 @@ func assemble(format string, image []byte, opts legacy.Options, name string, cha
 		}), nil
 
 	case formatDir, formatTAP:
-		if opts.Machine != arch.ZX {
-			return nil, fmt.Errorf("only the Spectrum is packaged so far, not the %s",
+		packOpts := pack.Options{Language: opts.Language, Name: name, Charset: charset}
+
+		switch opts.Machine {
+		case arch.ZX:
+			return pack.ZXRelease(image, opts.Subtarget, packOpts)
+		case arch.CPC:
+			return pack.CPCRelease(image, packOpts)
+		default:
+			return nil, fmt.Errorf("only the Spectrum and the CPC are packaged so far, not the %s",
 				opts.Machine)
 		}
-
-		return pack.ZXRelease(image, opts.Subtarget, pack.Options{
-			Language: opts.Language, Name: name, Charset: charset,
-		})
 
 	case formatDSK:
-		if opts.Machine != arch.ZX {
-			return nil, fmt.Errorf("only the Spectrum is packaged so far, not the %s",
+		packOpts := pack.Options{Language: opts.Language, Name: name, Charset: charset}
+
+		var (
+			body []byte
+			note string
+			err  error
+		)
+
+		switch opts.Machine {
+		case arch.ZX:
+			body, err = pack.ZXDisk(image, opts.Subtarget, packOpts)
+			note = "180K +3 disk, bootable from the +3's own menu"
+		case arch.CPC:
+			body, err = pack.CPCDisk(image, packOpts)
+			note = "180K CPC disk in DATA format: RUN\"" + name + "\""
+		default:
+			return nil, fmt.Errorf("only the Spectrum and the CPC are packaged so far, not the %s",
 				opts.Machine)
 		}
 
-		body, err := pack.ZXDisk(image, opts.Subtarget, pack.Options{
-			Language: opts.Language, Name: name, Charset: charset,
-		})
 		if err != nil {
 			return nil, err
 		}
 
-		return pack.NewRelease(pack.File{
-			Name: name + ".dsk", Body: body,
-			Note: "180K +3 disk, bootable from the +3's own menu",
-		}), nil
+		return pack.NewRelease(pack.File{Name: name + ".dsk", Body: body, Note: note}), nil
 
 	default:
 		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s, %s or %s",
