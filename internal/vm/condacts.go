@@ -203,6 +203,37 @@ var condacts = map[byte]func(*Machine, []byte){
 		m.setFlag(FlagMaxCarried, a[0])
 		m.setFlag(FlagStrength, a[1])
 	},
+	// INPUT: say which window the player's next line comes from, and how to
+	// treat it. It reads nothing itself, which is the surprising part and the
+	// reason it sat unimplemented — the name promises a prompt and what it
+	// does is set two flags. See do_INPUT, daad_condacts.c:1630.
+	//
+	// La Aventura Original's second part is the first thing in the corpus to
+	// use it: it asks for the access code the first part gives you.
+	96: func(m *Machine, a []byte) {
+		// Eight windows, numbered from zero. A stream that is not one of them
+		// is left alone rather than clamped, which is what the reference does.
+		const windows = 8
+
+		if a[0] >= windows {
+			return
+		}
+
+		m.setFlag(FlagInStream, a[0])
+
+		// Three option bits, moved into the middle of the timeout flags where
+		// the interpreter keeps them: clear the window afterwards, reprint the
+		// line, reprint after a timeout.
+		const (
+			optionMask = 0x07
+			optionAt   = 3
+			keepRest   = 0xC7
+		)
+
+		options := (a[1] & optionMask) << optionAt
+		m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]&keepRest|options)
+	},
+
 	100: func(m *Machine, _ []byte) { m.whatO() }, // WHATO
 	35:  nothing,                                  // PAUSE: a console has no frames to wait for
 

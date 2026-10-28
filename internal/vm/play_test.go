@@ -284,6 +284,33 @@ func TestSayingYouHaveHadEnoughEndsIt(t *testing.T) {
 	})
 }
 
+// The second part, which is the one the first part's ending is a ticket to.
+//
+// It opens by asking for an access code, and that one question is why it sat
+// untested for so long: it is the only thing in the corpus that uses INPUT,
+// and INPUT does not read anything. It names the window the player's next line
+// comes from and sets three option bits — the name promises a prompt and what
+// it does is set two flags — so an interpreter that has not written it stops
+// dead on the title screen of every part two there is.
+//
+// TIMACUS is what the first part prints when it is won, which makes this the
+// two halves of the adventure meeting: the code is not ours and not the
+// test's, it is what TestFinishingTheFirstPartOfLaAventuraOriginal watches for.
+func TestTheSecondPartOfLaAventuraOriginalTakesItsCode(t *testing.T) {
+	source := ao2Source(t)
+
+	said := transcript(t, source, "TIMACUS", "mirar", "salidas")
+
+	require.Contains(t, said, "Clave de acceso",
+		"it never asked, so INPUT is not reaching the question")
+	require.Contains(t, said, "la puerta se cierra",
+		"the code was not accepted and the adventure did not begin")
+	require.Contains(t, said, "Los rayos del sol",
+		"the first location was never described")
+
+	require.NotContains(t, said, "not implemented")
+}
+
 // Every machine we compile for, played.
 //
 // This is the promise qrun is for: an adventure built for any target can be
@@ -312,6 +339,20 @@ func TestEveryMachineWeCompileForPlays(t *testing.T) {
 				"a condact we have yet to write")
 		})
 	}
+}
+
+// ao2Source is the second part, decompiled and converted the same way as the
+// first.
+func ao2Source(t *testing.T) string {
+	t.Helper()
+
+	const dir = "../../work/port/ao-v3-part2"
+
+	if _, err := os.Stat(dir + "/game.sce"); err != nil {
+		t.Skipf("%s is not in the checkout: %v", dir, err)
+	}
+
+	return dir + "/game.sce"
 }
 
 // templateSource is the blank adventure DRC ships, converted to the UTF-8 the
