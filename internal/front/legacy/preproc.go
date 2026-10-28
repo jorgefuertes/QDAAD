@@ -77,6 +77,10 @@ type Settings struct {
 	Classic bool
 	// Debug asks for an interpreter that can be stepped.
 	Debug bool
+	// Charset is the font to build with, which the source names in a header
+	// comment because it is a property of the adventure rather than a choice
+	// the person compiling makes. See settings.go.
+	Charset string
 }
 
 type preprocessor struct {

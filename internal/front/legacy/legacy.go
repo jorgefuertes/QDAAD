@@ -47,6 +47,18 @@ func Compile(filename string, opts Options) (*ddb.DDB, *Result, error) {
 		return nil, nil, err
 	}
 
+	// What the header comments say, which the scanner never sees because they
+	// are comments. The directives have had their turn by now, so this fills
+	// in beside them rather than over them. See settings.go.
+	header, err := readHeaderSettings(filename)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if header.Charset != "" {
+		res.Settings.Charset = header.Charset
+	}
+
 	db, err := Parse(res, opts)
 	if err != nil {
 		return nil, nil, err

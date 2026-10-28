@@ -30,9 +30,17 @@ const (
 	// plus3FirstSectorID is where the +3's sector numbering starts. A CPC disk
 	// uses 0xC1 upwards for a data-format disk and this is the same scheme.
 	plus3FirstSectorID = 0xC1
-	// plus3Reserved is the track the filesystem does not use. The +3 keeps one,
-	// which is CP/M's OFF: the data area starts at track 1.
-	plus3Reserved = 1
+	// plus3Reserved is how many tracks the filesystem leaves alone before its
+	// data area, which is CP/M's OFF. On a +3 it is none: the directory is in
+	// the first sector of track 0.
+	//
+	// Nothing in CP/M makes that obvious — a PCW reserves one and an AMSDOS
+	// disk reserves two — so it is read off a disk known to work. DAAD's own
+	// +3 disk has "PART1   SDG" in track 0's first sector, 512 bytes into the
+	// image. A disk written with one reserved track formats perfectly and
+	// CATs as empty, because the +3 looks at track 0, finds the 0xE5 of a
+	// freshly formatted disk, and believes it.
+	plus3Reserved = 0
 	// plus3BlockSize is the unit a file is allocated in. A file of one byte
 	// takes a whole one.
 	plus3BlockSize = 1024

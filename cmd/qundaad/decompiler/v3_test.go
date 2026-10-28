@@ -2,6 +2,7 @@ package decompiler
 
 import (
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
+	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"os"
 	"testing"
 
@@ -236,7 +237,7 @@ func TestConvertingWhatIsAlreadyVersionThreeDoesNothing(t *testing.T) {
 	require.Nil(t, plan, "a conversion was planned for a database that needs none")
 
 	// And the loop file is the thing a nil plan has to keep from happening.
-	_, err = writeV3Loop(plan)
+	_, err = writeV3Loop(plan, arch.ZX)
 	require.Error(t, err, "it wrote a game loop for a database that already has one")
 }
 

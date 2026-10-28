@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -402,7 +403,9 @@ func decompileOne(db database, outputDir string, opts Options) error {
 				names = append(names, s.name)
 			}
 
-			main := writeMain(r, db.source, names)
+			// Where the adventure's own font will land, so that the source can
+			// say so and a rebuild needs no flag. See internal/front/legacy/settings.go.
+			main := writeMain(r, db.source, names, charsetPath(db))
 			if err := os.WriteFile(filepath.Join(outputDir, mainFile), []byte(main), 0o644); err != nil {
 				return fmt.Errorf("writing %s: %w", mainFile, err)
 			}
@@ -508,10 +511,34 @@ func banner(r *ddbfile.Reader, source string) string {
 	return sb.String()
 }
 
-func writeMain(r *ddbfile.Reader, source string, includes []string) string {
+// charsetPath is where this database's own character set is written, relative
+// to the source, or empty when it has none.
+//
+// It mirrors the condition in writeVectorAssets rather than being told by it,
+// because the source file is written before the assets are. Getting the two out
+// of step would put a path in the source that nothing wrote — which is a build
+// that stops, and so is the kind of mistake that does not survive a test run.
+func charsetPath(db database) string {
+	const charsetSize = 256 * 8
+
+	if db.vectors == nil || len(db.vectors.graphics) < charsetSize {
+		return ""
+	}
+
+	return path.Join(graphicsDir, fontsDir, "udg.chr")
+}
+
+func writeMain(r *ddbfile.Reader, source string, includes []string, charset string) string {
 	var sb strings.Builder
 
 	sb.WriteString(banner(r, source))
+
+	// What this source needs to be built with, which is a comment to every
+	// other tool and a setting to ours.
+	if charset != "" {
+		fmt.Fprintf(&sb, "\n; qdaad: charset=%s\n", charset)
+	}
+
 	sb.WriteString("\n/CTL\n")
 	sb.WriteString(string(rune(r.NullWord())))
 	sb.WriteString("\n\n")

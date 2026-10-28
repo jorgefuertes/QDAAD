@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
+	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 )
 
 // Turning a version 1 database into a source a version 3 interpreter will run.
@@ -298,12 +299,14 @@ func followedBy(block []ddbfile.Condact, at int, opcode byte) bool {
 // something about its own game — which flag means darkness, which object is the
 // lamp, how much the player can carry — are places where this knows nothing.
 func v3LoopSection(plan *v3Conversion) func(*ddbfile.Reader) (string, error) {
-	return func(_ *ddbfile.Reader) (string, error) {
-		return writeV3Loop(plan)
+	// The machine comes from the database rather than from a flag: a loop
+	// sized for the wrong screen is a loop that writes off the edge of it.
+	return func(r *ddbfile.Reader) (string, error) {
+		return writeV3Loop(plan, arch.Machine(r.Machine()))
 	}
 }
 
-func writeV3Loop(plan *v3Conversion) (string, error) {
+func writeV3Loop(plan *v3Conversion, machine arch.Machine) (string, error) {
 	if plan == nil {
 		return "", fmt.Errorf("no version 3 conversion is in effect")
 	}
@@ -346,9 +349,35 @@ func writeV3Loop(plan *v3Conversion) (string, error) {
 		sb.WriteString(";\n")
 	}
 
-	sb.WriteString(v3LoopBody)
+	sb.WriteString(strings.ReplaceAll(v3LoopBody, windowToken, windowSize(machine)))
 
 	return sb.String(), nil
+}
+
+// windowToken stands where the loop sizes its text window, so that the two
+// places it does so cannot drift apart.
+const windowToken = "@VENTANA@"
+
+// windowSize is the WINSIZE operands for a machine's whole screen.
+//
+// Every DAAD source asks for more than the screen holds and lets the
+// interpreter clamp — "WINSIZE 25 127", with a comment saying maximum size —
+// and that works, because the interpreters do clamp. It is a bet all the same,
+// and on a Spectrum it is lost: a window declared 25 rows tall on a 24-row
+// screen puts its first line on a row that is not there, and the lines after
+// it wrap round to the top. La Aventura Original opens with "Este hay una
+// cabaña de ladrillos rodeada de árboles", because "Estás en el bosque. Muy
+// cerca hacia el" went to the row below the bottom of the screen.
+//
+// Where the size is known it is written down. Where it is not, the old idiom
+// stays: asking for too much and being clamped still beats inventing a number.
+func windowSize(machine arch.Machine) string {
+	rows, cols, known := machine.TextSize()
+	if !known {
+		return "25 127   ; más de lo que cabe, para que el intérprete lo recorte"
+	}
+
+	return fmt.Sprintf("%d %d   ; la pantalla entera de un %s", rows, cols, machine)
 }
 
 // tableRole names what version 1 kept in each of its first three tables.
@@ -377,7 +406,7 @@ const v3LoopBody = `
 
 > _       _     WINDOW  1
                 WINAT   0 0
-                WINSIZE 25 127
+                WINSIZE @VENTANA@
 
 ; CONJETURA: que el flag 0 marca la oscuridad y el objeto 0 es la lámpara. Es
 ; lo que hace la plantilla oficial; esta aventura puede llevarlo en otro sitio.
@@ -399,6 +428,17 @@ const v3LoopBody = `
 /PRO 1
 
 > _       _     PROCESS 4
+
+; La ventana vuelve a ser la nuestra antes de preguntar, porque las tablas de
+; la aventura cambian de ventana y no todas la devuelven. La Aventura Original
+; deja puesta la 5 —"WINDOW 5 / WINAT 0 5 / WINSIZE 25 36"— y el prompt salía
+; en ella: en la columna 5 y en la fila 0, encima de la primera línea de la
+; descripción, que se perdía entera.
+;
+; Sin WINAT ni WINSIZE a propósito. Cada ventana lleva su propio cursor, así
+; que seleccionarla basta para seguir donde la descripción lo dejó; fijarla
+; otra vez lo devolvería a 0,0, que es exactamente el defecto que esto arregla.
+> _       _     WINDOW  1
 
 ; Una frase sin verbo deja fVerb a un valor que las entradas comodín de una
 ; tabla de respuestas de DAAD 1 toman por una dirección, porque comprueban
@@ -447,9 +487,23 @@ const v3LoopBody = `
 
 /PRO 6
 
+; La ventana gráfica se queda sin superficie, porque aquí no hay ilustraciones:
+; la versión 3 no dibuja vectoriales, que es lo único que trae una aventura de
+; Spectrum de 1989. Sin esto, la ventana 0 conserva el tamaño que le da el
+; intérprete y encima de la nuestra, así que un "WINDOW 0 / CLS" de la aventura
+; —La Aventura Original lo hace al entrar en la depresión de 7 metros— borra la
+; primera línea de la descripción que acabamos de escribir.
+;
+; La plantilla oficial no lo padece porque pone su texto en "WINAT 14 0", debajo
+; del hueco de la imagen. Nosotros no podemos permitírnoslo: serían 14 filas de
+; 24 perdidas para una imagen que no va a existir.
+> _       _     WINDOW  0
+                WINAT   0 0
+                WINSIZE 0 0
+
 > _       _     WINDOW  1
                 WINAT   0 0
-                WINSIZE 25 128
+                WINSIZE @VENTANA@
                 CLS
                 SET     255
 

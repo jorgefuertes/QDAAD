@@ -73,20 +73,32 @@ func TestTheImageIsADiskAnEmulatorRecognises(t *testing.T) {
 	require.Equal(t, byte(plus3FirstSectorID+plus3SectorsTrack-1), track[0x18+8*8+2])
 }
 
-// The first track belongs to nobody and has to be there anyway.
+// The directory is in the first sector of track 0, and that is the one thing
+// about this format worth a test of its own.
 //
-// CP/M's OFF says the data area starts at track 1, so a disk whose first track
-// held data would have every block one track out. Writing it as a formatted
-// empty track rather than leaving it out is what keeps the image the length a
-// +3 disk is.
-func TestTheReservedTrackIsFormattedAndEmpty(t *testing.T) {
+// Nothing in CP/M makes it obvious: a PCW reserves a track before its data
+// area and an AMSDOS disk reserves two, so one reserved track is the natural
+// guess and it is wrong. A disk written that way formats perfectly, passes
+// every structural check, is read back correctly by our own reader — which
+// looks for the directory on tracks 0, 1 and 2 — and CATs as empty on a +3,
+// because the machine looks at track 0, finds the 0xE5 of a freshly formatted
+// disk, and believes it.
+//
+// The number comes off a disk known to work: DAAD's own +3 disk has
+// "PART1   SDG" 512 bytes into the image, which is track 0's first sector.
+func TestTheDirectoryIsInTheFirstSectorOfTrackZero(t *testing.T) {
 	image, err := Plus3Disk([]File{{Name: "DISK", Data: []byte("loader")}})
 	require.NoError(t, err)
 
-	first := image[dskHeaderSize+dskTrackHeader:][:plus3SectorsTrack*plus3SectorSize]
-	for i, b := range first {
-		require.Equal(t, byte(plus3Filler), b, "byte %d of the reserved track was written to", i)
-	}
+	entry := image[dskHeaderSize+dskTrackHeader:]
+
+	require.Equal(t, byte(0), entry[0], "user zero")
+	require.Equal(t, "DISK    ", string(entry[1:9]))
+	require.Equal(t, "   ", string(entry[9:12]))
+
+	// Block 2, because the directory itself takes blocks 0 and 1.
+	require.Equal(t, byte(plus3DirBlocks), entry[16],
+		"the first file was put somewhere other than straight after the directory")
 }
 
 // Names a CP/M directory cannot hold are refused rather than cut down.

@@ -47,6 +47,30 @@ type MachineData struct {
 	// method instead of reading this field.
 	baseAddress uint16
 
+	// textRows and textCols are how much text the screen holds, which is what
+	// a game loop has to tell the interpreter when it sets up its window.
+	//
+	// They are the screen in pixels divided by the font, and the font is not a
+	// guess: DAAD's charsets are eight rows tall and six pixels wide, and the
+	// six can be measured rather than read anywhere. The letters of every
+	// charset in the corpus — ours, DAAD's own for the Amiga, La Aventura
+	// Original's, El Jabato's for the PC — use bits 7 down to 2 and never the
+	// two lowest.
+	//
+	// Two machines confirm the arithmetic from opposite directions. A Spectrum
+	// is 256 by 192, which gives 42 by 24, and 42 by 24 is exactly what its
+	// interpreter clamps a window to at 0x76F7. A PC is 320 by 200, which
+	// gives 53 by 25, and 53 by 25 is what the research notes record for it.
+	//
+	// Zero means we have not established them for that machine, and a caller
+	// then has to fall back on asking for more than the screen holds and
+	// trusting the interpreter to clamp. That is what every DAAD source does —
+	// "WINSIZE 25 127", with a comment saying maximum size — and it works
+	// because the interpreters do clamp. It is still a bet, and a declared
+	// height of 25 on a 24-row screen is the kind of bet that comes back as
+	// text wrapping to the top of the window instead of scrolling.
+	textRows, textCols uint8
+
 	// bigEndian reports that DDB words are stored high byte first. Only the
 	// 68000 machines.
 	bigEndian bool
@@ -67,8 +91,8 @@ type MachineData struct {
 }
 
 var machines = map[Machine]MachineData{
-	PC:    {name: "PC", baseAddress: 0x0000, wordAligned: true, bits: 16},
-	ZX:    {name: "ZX", baseAddress: 0x8400, bits: 8},
+	PC:    {name: "PC", baseAddress: 0x0000, wordAligned: true, bits: 16, textRows: 25, textCols: 53},
+	ZX:    {name: "ZX", baseAddress: 0x8400, bits: 8, textRows: 24, textCols: 42},
 	C64:   {name: "C64", baseAddress: 0x3880, bits: 8},
 	CPC:   {name: "CPC", baseAddress: 0x2880, bits: 8},
 	MSX:   {name: "MSX", baseAddress: 0x0100, bits: 8},
@@ -144,6 +168,25 @@ func (m Machine) String() string {
 
 // BaseAddress returns the load address in the machine's address space.
 //
+// TextSize is how much text the screen holds, and whether we know.
+//
+// A game loop has to tell the interpreter how big its text window is, and the
+// idiom every DAAD source uses is to ask for more than the screen holds and let
+// the interpreter clamp — "WINSIZE 25 127", with a comment saying maximum size.
+// The interpreters do clamp, so it works, and it is still worth not doing: a
+// window declared 25 rows tall on a 24-row Spectrum puts its first line on a
+// row that is not there, and the lines after it wrap round to the top. What
+// that looks like is an adventure whose descriptions start in the middle of a
+// sentence.
+func (m Machine) TextSize() (rows, cols int, known bool) {
+	data, found := machines[m]
+	if !found || data.textRows == 0 || data.textCols == 0 {
+		return 0, 0, false
+	}
+
+	return int(data.textRows), int(data.textCols), true
+}
+
 // The subtarget only matters for ZX81, the sole machine whose base depends on
 // it: SD81B loads at 0x8400 and 16K at 0x0000. Every other machine ignores it.
 func (m Machine) BaseAddress(subtarget string) uint16 {

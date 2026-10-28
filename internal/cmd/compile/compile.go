@@ -130,7 +130,7 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	db, err := legacy.Analyze(source, opts)
+	db, read, err := legacy.Compile(source, opts)
 	if err != nil {
 		return err
 	}
@@ -158,10 +158,19 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		out += "." + format
 	}
 
+	// The flag wins over what the source says about itself. The source's own
+	// answer is the right one nearly always — the font is part of the
+	// adventure, not an opinion about the build — but "nearly" is why there is
+	// a flag, and an override that can be overridden is no override.
+	charsetPath := cmd.String("charset")
+	if charsetPath == "" {
+		charsetPath = read.Settings.Charset
+	}
+
 	var charset []byte
 
-	if path := cmd.String("charset"); path != "" {
-		if charset, err = os.ReadFile(path); err != nil {
+	if charsetPath != "" {
+		if charset, err = os.ReadFile(charsetPath); err != nil {
 			return err
 		}
 	}
