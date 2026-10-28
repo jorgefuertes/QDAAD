@@ -405,7 +405,7 @@ func decompileOne(db database, outputDir string, opts Options) error {
 
 			// Where the adventure's own font will land, so that the source can
 			// say so and a rebuild needs no flag. See internal/front/legacy/settings.go.
-			main := writeMain(r, db.source, names, charsetPath(db))
+			main := writeMain(r, db.source, names, charsetPath(db, opts))
 			if err := os.WriteFile(filepath.Join(outputDir, mainFile), []byte(main), 0o644); err != nil {
 				return fmt.Errorf("writing %s: %w", mainFile, err)
 			}
@@ -512,20 +512,41 @@ func banner(r *ddbfile.Reader, source string) string {
 }
 
 // charsetPath is where this database's own character set is written, relative
-// to the source, or empty when it has none.
+// to the source, or empty when there is none to point at.
 //
-// It mirrors the condition in writeVectorAssets rather than being told by it,
-// because the source file is written before the assets are. Getting the two out
-// of step would put a path in the source that nothing wrote — which is a build
-// that stops, and so is the kind of mistake that does not survive a test run.
-func charsetPath(db database) string {
+// The font travels in one of two places, and both are the adventure's own. On
+// the eight-bit machines it is inside the database, in the same block as the
+// drawings, and comes out as gfx/chr/udg.chr. On the sixteen-bit ones it
+// shipped as a file beside the database — PART1.CHR — and is kept as it came.
+//
+// It mirrors the conditions in writeVectorAssets and keepOriginal rather than
+// being told by them, because the source file is written before the assets
+// are. Getting them out of step would name a file nothing wrote, which is a
+// build that stops rather than one that is quietly wrong — so the mistake, if
+// it happens, is the loud kind.
+func charsetPath(db database, opts Options) string {
 	const charsetSize = 256 * 8
 
-	if db.vectors == nil || len(db.vectors.graphics) < charsetSize {
+	if db.vectors != nil && len(db.vectors.graphics) >= charsetSize {
+		return path.Join(graphicsDir, fontsDir, "udg.chr")
+	}
+
+	// Kept only when the originals are being kept at all, so that --no-binaries
+	// does not leave the source pointing at a file it asked not to have.
+	if !opts.Binaries {
 		return ""
 	}
 
-	return path.Join(graphicsDir, fontsDir, "udg.chr")
+	for _, a := range db.assets {
+		// .CHR is the font the interpreter loads. An Atari ST part carries a
+		// .CH0 as well, which is the same glyphs for its other screen mode and
+		// not what a build wants.
+		if strings.EqualFold(filepath.Ext(a.name), ".CHR") {
+			return path.Join(graphicsDir, originalsDir, filepath.Base(a.name))
+		}
+	}
+
+	return ""
 }
 
 func writeMain(r *ddbfile.Reader, source string, includes []string, charset string) string {
