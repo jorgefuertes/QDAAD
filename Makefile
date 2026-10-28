@@ -1,4 +1,4 @@
-.PHONY: dist build test doc decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker
+.PHONY: dist build test doc packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker
 
 VERSION=$$(git describe --tags --abbrev=0)
 
@@ -12,6 +12,10 @@ build:
 	@go build -o build/qdaad cmd/qdaad/qdaad.go
 	@echo "Building qundaad decompiler..."
 	@go build -o build/qundaad cmd/qundaad/qundaad.go
+	@echo "Building qpack packager..."
+	@go build -o build/qpack ./cmd/qpack
+	@echo "Building qrun interpreter..."
+	@go build -o build/qrun ./cmd/qrun
 
 dist: lint test
 	@rm -rf dist
@@ -20,7 +24,12 @@ dist: lint test
 	@make compiler
 	@echo "Building qundaad decompiler..."
 	@make decompiler
+	@echo "Building qpack packager..."
+	@make packager
 
+
+packager:
+	@go build -o dist/qpack ./cmd/qpack
 
 decompiler:
 	@go build -o dist/qundaad cmd/qundaad/qundaad.go

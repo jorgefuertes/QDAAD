@@ -214,7 +214,7 @@ compare_one() {
 		return 2
 	fi
 
-	if ! "${QDAAD}" compile "${ours_args[@]}" -l spanish -v 3 \
+	if ! "${QDAAD}" compile "${ours_args[@]}" -l spanish -v 3 -f ddb \
 		-i "${main}" -o "${ours}" >"${work}/compile.log" 2>&1; then
 		red "FAIL ${name} ${machine}: we would not link it"
 		sed -e 's/^/       /' "${work}/compile.log"

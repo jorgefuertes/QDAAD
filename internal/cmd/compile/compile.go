@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"github.com/jorgefuertes/QDAAD/internal/back"
+	"github.com/jorgefuertes/QDAAD/internal/build"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
 	"github.com/jorgefuertes/QDAAD/internal/front/legacy"
-	"github.com/jorgefuertes/QDAAD/internal/pack"
 	"github.com/urfave/cli/v3"
 )
 
@@ -22,20 +22,20 @@ import (
 // boot from.
 const (
 	formatDDB = "ddb"
-	formatTAP = "tap"
+	// formatBuild is the directory qpack reads: the database, what it was
+	// built for, and the font if the adventure has one of its own. It is what
+	// the compiler writes now that packaging is a tool of its own.
+	formatBuild = "build"
 	// formatQRun is the database in a container that states what the readers
 	// of the old formats have to guess: where it was laid and which way round
 	// its words go. See internal/pack/qrun.go.
-	formatQRun = "qrun"
 	// formatDSK is a disk image the machine boots from, which on a Spectrum
 	// means a 180K +3 disk. See internal/media/plus3disk.go.
-	formatDSK = "dsk"
 	// formatDir is everything the machine needs, as files in a directory.
 	//
 	// It is the one format every machine can have, because it is the recipe
 	// rather than a container for it — and a machine whose release really is
 	// one file gets a directory with that file in it. See internal/pack/release.go.
-	formatDir = "dir"
 )
 
 func Command() *cli.Command {
@@ -91,6 +91,13 @@ func Command() *cli.Command {
 				Aliases:  []string{"o"},
 				Usage:    "Output file for the compiled database, without extension.",
 			},
+			&cli.UintFlag{
+				Name:     "part",
+				Category: "compiler flags",
+				Value:    1,
+				Usage: "Which part of the adventure this is. A two-part release names " +
+					"its files by part, and nothing in a database says which one it is.",
+			},
 			&cli.StringFlag{
 				Name:     "charset",
 				Category: "files",
@@ -102,13 +109,10 @@ func Command() *cli.Command {
 				Name:     "format",
 				Category: "files",
 				Aliases:  []string{"f"},
-				Value:    formatDDB,
-				Usage: "What to write: " + formatDDB + " for the database alone, " +
-					formatTAP + " for a tape that boots it, " + formatDSK +
-					" for a disk that does, " + formatDir +
-					" for a directory holding everything the machine needs, or " +
-					formatQRun + " for one our own interpreter reads without guessing " +
-					"at anything.",
+				Value:    formatBuild,
+				Usage: "What to write: " + formatBuild + " for a directory qpack can " +
+					"package, or " + formatDDB + " for the database on its own. " +
+					"Tapes, disks and the rest are qpack's job now.",
 			},
 		},
 		Action: compileAction,
@@ -152,12 +156,6 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		out = strings.TrimSuffix(source, path.Ext(source))
 	}
 
-	// A directory is named, not suffixed. Everything else gets the format for
-	// an extension when none was given.
-	if path.Ext(out) == "" && format != formatDir {
-		out += "." + format
-	}
-
 	// The flag wins over what the source says about itself. The source's own
 	// answer is the right one nearly always — the font is part of the
 	// adventure, not an opinion about the build — but "nearly" is why there is
@@ -175,138 +173,47 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	// The name the ROM shows while loading is the one the file was given,
-	// which is what the reference does too and the only name there is to use.
-	release, err := assemble(format, image, opts, name(out), charset, layout)
-	if err != nil {
-		return err
-	}
+	switch format {
+	case formatDDB:
+		if path.Ext(out) == "" {
+			out += "." + formatDDB
+		}
 
-	if format == formatDir {
-		if err := release.WriteDir(out); err != nil {
+		if err := os.WriteFile(out, image, 0o644); err != nil {
 			return err
 		}
 
-		files := "files"
-		if len(release.Files()) == 1 {
-			files = "file"
-		}
-
-		fmt.Printf("%s: %d %s, %d bytes in all\n%s", out,
-			len(release.Files()), files, release.Total(), release.Listing())
-
-		return nil
-	}
-
-	file, err := release.Single()
-	if err != nil {
-		return fmt.Errorf("%s: %w\n\tbuild it as --format %s instead", format, err, formatDir)
-	}
-
-	if err := os.WriteFile(out, file.Body, 0o644); err != nil {
-		return err
-	}
-
-	// A container says its own size as well as the database's, because the two
-	// are different numbers and the one that matters depends on what you are
-	// about to do with it: a tape has to fit in a machine, a disk on a disk.
-	if format == formatTAP || format == formatDSK {
-		fmt.Printf("%s: %d bytes of %s, %d of database laid at 0x%04X\n",
-			out, len(file.Body), format, len(image),
+		fmt.Printf("%s: %d bytes, laid at 0x%04X\n", out, len(image),
 			opts.Machine.BaseAddress(opts.Subtarget))
 
 		return nil
-	}
 
-	fmt.Printf("%s: %d bytes, laid at 0x%04X\n", out, len(image),
-		opts.Machine.BaseAddress(opts.Subtarget))
-
-	return nil
-}
-
-// assemble gathers what the asked-for format needs, as a release.
-//
-// Everything comes back as a release even when it is one file, so that the
-// caller has one thing to write and --format dir works for every format
-// without each one knowing about it. A database on its own is a release of one;
-// so is a tape, which only looks like a container because the gluing happened
-// inside it.
-//
-// Only the Spectrum is packaged so far. The other machines refuse rather than
-// quietly writing the database under a .tap extension, which would load on
-// nothing and say so nowhere.
-func assemble(format string, image []byte, opts legacy.Options, name string, charset []byte,
-	layout back.Layout,
-) (*pack.Release, error) {
-	switch format {
-	case formatDDB:
-		return pack.NewRelease(pack.File{
-			Name: name + ".ddb", Body: image,
-			Note: fmt.Sprintf("database, laid at 0x%04X",
-				opts.Machine.BaseAddress(opts.Subtarget)),
-		}), nil
-
-	case formatQRun:
-		body, err := pack.QRun(image, int(opts.Machine.BaseAddress(opts.Subtarget)),
-			opts.Machine.IsBigEndian(), layout)
-		if err != nil {
-			return nil, err
+	case formatBuild:
+		b := build.Build{
+			Machine:   opts.Machine,
+			Subtarget: opts.Subtarget,
+			Language:  opts.Language,
+			Version:   opts.Version,
+			Part:      int(cmd.Uint("part")),
+			Tokens:    layout.Tokens,
+			Database:  image,
+			Charset:   charset,
 		}
 
-		return pack.NewRelease(pack.File{
-			Name: name + ".qrun", Body: body,
-			Note: "database in our own container, for qrun",
-		}), nil
-
-	case formatDir, formatTAP:
-		packOpts := pack.Options{Language: opts.Language, Name: name, Charset: charset}
-
-		switch opts.Machine {
-		case arch.ZX:
-			return pack.ZXRelease(image, opts.Subtarget, packOpts)
-		case arch.CPC:
-			return pack.CPCRelease(image, packOpts)
-		default:
-			return nil, fmt.Errorf("only the Spectrum and the CPC are packaged so far, not the %s",
-				opts.Machine)
+		if err := b.Write(out); err != nil {
+			return err
 		}
 
-	case formatDSK:
-		packOpts := pack.Options{Language: opts.Language, Name: name, Charset: charset}
+		fmt.Printf("%s: part %d for a %s, %d bytes of database laid at 0x%04X\n",
+			out, b.Part, opts.Machine, len(image),
+			opts.Machine.BaseAddress(opts.Subtarget))
 
-		var (
-			body []byte
-			note string
-			err  error
-		)
-
-		switch opts.Machine {
-		case arch.ZX:
-			body, err = pack.ZXDisk(image, opts.Subtarget, packOpts)
-			note = "180K +3 disk, bootable from the +3's own menu"
-		case arch.CPC:
-			body, err = pack.CPCDisk(image, packOpts)
-			note = "180K CPC disk in DATA format: RUN\"" + name + "\""
-		default:
-			return nil, fmt.Errorf("only the Spectrum and the CPC are packaged so far, not the %s",
-				opts.Machine)
-		}
-
-		if err != nil {
-			return nil, err
-		}
-
-		return pack.NewRelease(pack.File{Name: name + ".dsk", Body: body, Note: note}), nil
+		return nil
 
 	default:
-		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s, %s or %s",
-			format, formatDDB, formatTAP, formatDSK, formatDir, formatQRun)
+		return fmt.Errorf("%q is not a format: it is %s or %s, and the rest is qpack's",
+			format, formatBuild, formatDDB)
 	}
-}
-
-// name is the output file's own name, without its directory or extension.
-func name(out string) string {
-	return strings.TrimSuffix(path.Base(out), path.Ext(out))
 }
 
 // options turns the flags into what the front end needs to know.

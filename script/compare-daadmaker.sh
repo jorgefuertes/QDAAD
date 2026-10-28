@@ -36,6 +36,7 @@ readonly SOURCE="${DRC_DIR}/src/daadmaker.pas"
 readonly PAGER="work/daad-ready/TOOLS/DRC/pager48k.php"
 readonly DAADMAKER="${BUILD_DIR}/daadmaker"
 readonly QDAAD="${BUILD_DIR}/qdaad"
+readonly QPACK="${BUILD_DIR}/qpack"
 
 readonly WHEN="${WHEN:-2026-01-01}"
 
@@ -79,6 +80,7 @@ fi
 mkdir -p "${BUILD_DIR}"
 
 go build -o "${QDAAD}" ./cmd/qdaad || exit 1
+go build -o "${QPACK}" ./cmd/qpack || exit 1
 
 # daadmaker is built once and left in tmp/. Its source is Pascal and untouched;
 # fpc insists on writing its output beside the source, so it is copied first.
@@ -206,7 +208,7 @@ compare_one() {
 	theirs="${work}/theirs/GAME.TAP"
 	ours="${work}/ours/GAME.tap"
 
-	if ! "${QDAAD}" compile -m zx -s 48k -l "${lang}" -v 3 \
+	if ! "${QDAAD}" compile -m zx -s 48k -l "${lang}" -v 3 -f ddb \
 		-i "${main}" -o "${ddb}" >"${work}/link.log" 2>&1; then
 		# An adventure too big for a Spectrum's address space has no tape on
 		# either side — daadmaker refuses it too, with 'DDB exceedes RAM size'
@@ -223,8 +225,17 @@ compare_one() {
 		return 1
 	fi
 
-	if ! "${QDAAD}" compile -m zx -s 48k -l "${lang}" -v 3 -f tap \
-		-i "${main}" -o "${ours}" >"${work}/pack.log" 2>&1; then
+	# Two commands now that compiling and packaging are two tools: qdaad writes
+	# a build directory and qpack turns it into the tape.
+	if ! "${QDAAD}" compile -m zx -s 48k -l "${lang}" -v 3 \
+		-i "${main}" -o "${work}/build" >"${work}/compile.log" 2>&1; then
+		red "FAIL ${name}: we would not compile it"
+		sed -e 's/^/       /' "${work}/compile.log"
+		return 1
+	fi
+
+	if ! "${QPACK}" -f tap --name "$(basename "${ours}" .tap)" \
+		-o "${ours}" "${work}/build" >"${work}/pack.log" 2>&1; then
 		red "FAIL ${name}: we would not pack it"
 		sed -e 's/^/       /' "${work}/pack.log"
 		return 1
