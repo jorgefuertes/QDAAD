@@ -163,7 +163,7 @@ var condacts = map[byte]func(*Machine, []byte){
 	},
 
 	// ---- the turn and the game ----
-	22:  func(m *Machine, _ []byte) { m.did(); m.pop() },                                  // DONE
+	22:  func(m *Machine, _ []byte) { m.doneOrLoop() },                                    // DONE
 	23:  func(m *Machine, _ []byte) { m.say(m.texts.system, 15, true); m.did(); m.pop() }, // OK
 	103: func(m *Machine, _ []byte) { m.done = false; m.pop() },                           // NOTDONE
 	108: func(m *Machine, _ []byte) { m.redo() },                                          // REDO
@@ -556,6 +556,25 @@ func (m *Machine) skip(by int) {
 
 // doallNext is what a DOALL does with the end of its table: go round again
 // with the next object, or give up and let the process return.
+// doneOrLoop is DONE, which ends the process — except inside a DOALL, where it
+// is how one turn of the loop finishes and the next one begins.
+//
+// That exception is the whole of why "dejar todo" dropped one object. DOALL
+// sets the loop up and the entry that does the work ends with DONE, so taking
+// DONE at face value pops the process after the first object and the other
+// nine stay where they are. Nothing complains: one object really was dropped.
+//
+// See do_DONE, daad_condacts.c:2389, which tries the loop first and falls
+// through to the ordinary pop only when the objects are exhausted.
+func (m *Machine) doneOrLoop() {
+	if f := m.top(); f.doallCondact >= 0 && m.doallNext() {
+		return
+	}
+
+	m.did()
+	m.pop()
+}
+
 func (m *Machine) doallNext() bool {
 	if m.doallSearch() {
 		return true
