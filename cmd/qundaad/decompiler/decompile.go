@@ -2,13 +2,14 @@ package decompiler
 
 import (
 	"fmt"
-	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 
 	"github.com/jorgefuertes/QDAAD/internal/console"
 	"github.com/jorgefuertes/QDAAD/internal/ddb"

@@ -77,7 +77,7 @@ const (
 func DataDisk(files []File) ([]byte, error) {
 	// The data area, as a run of blocks. The directory lives in the first two
 	// and starts out empty, which on a CP/M disk means filled with 0xE5.
-	dataBlocks := (dataTracks-dataReserved)*dataSectorsTrack*dataSectorSize/dataBlockSize
+	dataBlocks := (dataTracks - dataReserved) * dataSectorsTrack * dataSectorSize / dataBlockSize
 	data := make([]byte, dataBlocks*dataBlockSize)
 
 	for i := range data {

@@ -185,6 +185,7 @@ func TestWalkingAroundLaAventuraOriginal(t *testing.T) {
 //     initialisation. The cave then asks for EQ 1 5 — exactly five objects in
 //     hand — which is unreachable if anything has overridden the adventure's
 //     own answer.
+//
 // It is played on both layouts. The Spectrum build is the one that goes on a
 // tape, and until this ran twice the published one rested on tests that read
 // every section of it and answered nothing about whether it could be won.

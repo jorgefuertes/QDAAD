@@ -1,10 +1,11 @@
 package decompiler
 
 import (
-	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
-	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"os"
 	"testing"
+
+	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
+	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 
 	"github.com/stretchr/testify/require"
 )
