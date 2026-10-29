@@ -87,6 +87,41 @@ func TestParseOneAsksNobodyAnything(t *testing.T) {
 	require.Equal(t, byte(106), m.flags[FlagNoun1], "SIGUEME did not reach the sentence")
 }
 
+// Five letters, counted as letters.
+//
+// The rule is the machine's and it is older than UTF-8: a word is known by its
+// first five characters, because the vocabulary stores five. On a Spectrum a
+// character was a byte and the two readings agreed. Our sources are UTF-8 and
+// they stop agreeing at the first eñe — "BAÑAR" is six bytes — so cutting by
+// byte handed the vocabulary four letters and half an eñe, and the only
+// accented word in La Aventura Original's second part could not be typed.
+func TestAWordIsKnownByFiveLettersAndNotFiveBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name, stored, typed string
+		found               bool
+	}{
+		{name: "plain ascii", stored: "COGER", typed: "COGER", found: true},
+		{name: "the sixth letter does not count", stored: "LLAVE", typed: "LLAVES", found: true},
+		{name: "five letters with an eñe in them", stored: "BAÑAR", typed: "BAÑAR", found: true},
+		{name: "and cut down to those five", stored: "BAÑAR", typed: "BAÑARSE", found: true},
+		{
+			// Not a regression: the machine would not have matched it either,
+			// since the accent is a character of its own and the fifth letter
+			// of "PÁJARO" is an R where the vocabulary has none. It is here
+			// because a solution script typed it and lost the adventure.
+			name:   "an accent the vocabulary does not carry is a different word",
+			stored: "PAJAR", typed: "PÁJARO", found: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Machine{vocab: vocabularyOf(tc.stored, 76, ddbKindNoun)}
+
+			_, _, found := m.lookup(tc.typed)
+			require.Equal(t, tc.found, found)
+		})
+	}
+}
+
 // vocabularyOf is a one-word vocabulary, padded to five characters the way the
 // database stores them so that the trimming is exercised too.
 func vocabularyOf(word string, value, kind byte) []ddbfile.VocabularyEntry {

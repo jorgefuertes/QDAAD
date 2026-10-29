@@ -1,6 +1,9 @@
 package vm
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // The parser, which turns a line the player typed into the handful of flags an
 // entry matches against.
@@ -148,9 +151,15 @@ const (
 )
 
 // lookup finds a word in the vocabulary by its first five letters.
+//
+// Five letters and not five bytes. The machine this came from counted
+// characters because a character was a byte, and our sources are UTF-8 — so
+// cutting the line's words by byte takes "BAÑAR" down to four letters, which
+// no longer matches the "BAÑAR" the vocabulary holds. It also leaves half an
+// eñe at the end of the string, which is no word in any encoding.
 func (m *Machine) lookup(word string) (value, kind byte, found bool) {
-	if len(word) > wordLength {
-		word = word[:wordLength]
+	if utf8.RuneCountInString(word) > wordLength {
+		word = string([]rune(word)[:wordLength])
 	}
 
 	for _, entry := range m.vocab {
