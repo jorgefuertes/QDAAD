@@ -326,8 +326,22 @@ var condacts = map[byte]func(*Machine, []byte){
 func nothing(_ *Machine, _ []byte) {}
 
 // at is whether an object is in a given place.
+//
+// Location 255 is not a location: it is "wherever the player is standing", and
+// an object lying on that floor holds the room's own number rather than 255.
+// So asking for it has to compare against the player's flag as well, which is
+// what do_ISAT does — daad_condacts.c:376 — and what being strict about it
+// cost: "ISNOTAT 13 255", the pillow not being here, was true with the pillow
+// at the player's feet, and the china vase broke every time it was put down on
+// it.
 func (m *Machine) at(object int, where byte) bool {
-	return object >= 0 && object < len(m.objects) && m.objects[object].location == where
+	if object < 0 || object >= len(m.objects) {
+		return false
+	}
+
+	at := m.objects[object].location
+
+	return at == where || (where == LocHere && at == m.flags[FlagPlayer])
 }
 
 // present is whether an object is somewhere the player can reach: carried,

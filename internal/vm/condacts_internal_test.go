@@ -50,6 +50,45 @@ func TestFlagArithmeticStopsAtTheEnds(t *testing.T) {
 	})
 }
 
+// Asking for an object "here", which is a question about the player and not
+// only about the object.
+//
+// 255 stands where a location would, and the object lying on that floor does
+// not hold 255: it holds the room's number. Comparing the two as they come
+// answers no to every ISAT 255 there is. See at, and do_ISAT at
+// daad_condacts.c:376.
+func TestHereMeansWhereThePlayerIs(t *testing.T) {
+	const room = 19
+
+	for _, c := range []struct {
+		name  string
+		where byte
+		want  bool
+	}{
+		{"lying in the room the player is in", room, true},
+		{"lying in another room", room + 1, false},
+		{"carried", LocCarried, false},
+		{"not created", LocNotCreated, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := &Machine{objects: []object{{location: c.where}}}
+			m.flags[FlagPlayer] = room
+
+			require.Equal(t, c.want, m.at(0, LocHere))
+		})
+	}
+
+	// And the other places are still themselves: the new reading is an extra
+	// way to be somewhere, not a looser comparison.
+	t.Run("carried is still carried and nothing else", func(t *testing.T) {
+		m := &Machine{objects: []object{{location: LocCarried}}}
+		m.flags[FlagPlayer] = room
+
+		require.True(t, m.at(0, LocCarried))
+		require.False(t, m.at(0, room))
+	})
+}
+
 // The snake, which is the bug this was found as.
 //
 // Flag 104 of La Aventura Original's second part is the snake in the elf
