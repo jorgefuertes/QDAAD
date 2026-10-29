@@ -541,6 +541,75 @@ func (s *screen) picture() image.Image {
 	return img
 }
 
+// The screen as the machine held it: 6144 bytes of pixels and 768 of
+// attributes, which is what a .SCR is and what every tool that takes a
+// Spectrum picture expects.
+const (
+	scrPixels     = 6144
+	scrAttributes = 768
+	scrSize       = scrPixels + scrAttributes
+	scrRows       = 24 // character rows in a full screen, against our 22
+	scrBytesWide  = canvasWidth / cellSize
+)
+
+// scr writes the two planes out in the machine's own order.
+//
+// A .SCR is a dump of video memory and video memory is not laid out the way
+// the screen reads. The display is three banks of 64 lines; within a bank the
+// pixel row of the character comes first and the character row second, so
+// consecutive lines of a drawing are 256 bytes apart and the eighth of them
+// jumps back. Attributes are the easy half: one byte per cell, left to right
+// and top to bottom.
+//
+// The canvas is 176 lines and a screen is 192, and the difference is not
+// padding to be trimmed later: the kit's tools take 6912 bytes exactly and the
+// adventure draws its text over the lower rows anyway. So the drawing goes at
+// the top and the rest is left as the background attribute over empty pixels,
+// which is what the machine showed there.
+func (s *screen) scr() []byte {
+	out := make([]byte, scrSize)
+
+	for y := range canvasHeight {
+		bank, pixelRow, charRow := y>>6, y&7, (y>>3)&7
+		line := bank*2048 + pixelRow*256 + charRow*scrBytesWide
+
+		for x := range canvasWidth {
+			if s.pixels[y*canvasWidth+x] {
+				out[line+x/cellSize] |= 0x80 >> (x % cellSize)
+			}
+		}
+	}
+
+	for row := range scrRows {
+		for column := range cellsAcross {
+			cell := s.background
+			if row < cellsDown {
+				if c := s.cells[row*cellsAcross+column]; c.set {
+					cell = c
+				}
+			}
+
+			out[scrPixels+row*cellsAcross+column] = cell.byte()
+		}
+	}
+
+	return out
+}
+
+// byte is the attribute as the hardware stores it: ink in the low three bits,
+// paper in the next three, bright above them. FLASH is not something any of
+// these drawings sets.
+func (a attribute) byte() byte {
+	const bright = 0x40
+
+	out := a.ink&7 | (a.paper&7)<<3
+	if a.bright {
+		out |= bright
+	}
+
+	return out
+}
+
 // inherited is the state a called drawing starts from: whose call it came out
 // of, and the pen as that caller had left it. It is written into the listing as
 // an INHERIT order so the file says where it stands without anyone having to go
@@ -645,7 +714,7 @@ func boolToInt(v bool) int {
 	return 0
 }
 
-// draw renders one drawing of the set.
+// render traces one drawing of the set.
 //
 // A drawing somebody calls does not begin from nothing: it inherits the pen
 // where its caller left it, and the ink and paper in force at that moment. Drawn
@@ -653,7 +722,12 @@ func boolToInt(v bool) int {
 // then the caller really is running and sets the state itself — which is why the
 // INHERIT order is used on a picture of one and ignored on a picture of the
 // other.
-func (v vectors) draw(number int, callers map[int][]int) image.Image {
+//
+// It returns the screen rather than the picture because a picture is only one
+// of the two things worth having out of a drawing: the other is the screen
+// itself, byte for byte as the machine held it, which is what a packager
+// needs. Both come out of the same tracing.
+func (v vectors) render(number int, callers map[int][]int) *screen {
 	s := v.blankScreen(number)
 
 	if from, ok := v.inheritedBy(number, callers, 0); ok {
@@ -662,9 +736,7 @@ func (v vectors) draw(number int, callers map[int][]int) image.Image {
 
 	v.trace(s, number, 0, 0, 0, nil)
 
-	// The whole canvas, not the rows the record declares: see windowRows for why
-	// that is a text window and not a frame around the picture.
-	return s.picture()
+	return s
 }
 
 // enlarge scales an image by a whole number, pixel for pixel, so that what

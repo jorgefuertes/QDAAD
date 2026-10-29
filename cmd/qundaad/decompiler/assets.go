@@ -23,6 +23,7 @@ const (
 
 	picturesDir  = "png"  // what we drew
 	listingsDir  = "plot" // what we read
+	screensDir   = "scr"  // what we drew, as the machine held it
 	fontsDir     = "chr"  // character sets, theirs and ours
 	originalsDir = "raw"  // the bytes as they shipped
 )

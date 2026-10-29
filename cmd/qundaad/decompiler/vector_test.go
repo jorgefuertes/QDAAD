@@ -1,6 +1,7 @@
 package decompiler
 
 import (
+	"math/bits"
 	"os"
 	"strings"
 	"testing"
@@ -398,6 +399,70 @@ func TestThePenModeDecidesWhatAPixelDoes(t *testing.T) {
 			require.Equal(t, tc.want, s.lit(10, 20))
 		})
 	}
+}
+
+// The drawing as the machine held it, which is the only shape in which any of
+// these can reach a build we make: version 3 has no vector engine.
+//
+// Video memory is not laid out the way the screen reads, and getting that
+// wrong does not fail loudly — it draws something, sliced into thirds and
+// interleaved. So the addresses are pinned one at a time: the start of the
+// screen, the next line down, the next character row, and the next third.
+func TestTheScreenComesOutInTheMachinesOwnOrder(t *testing.T) {
+	t.Run("it is a screen's worth of bytes", func(t *testing.T) {
+		require.Len(t, (&screen{}).scr(), 6912)
+	})
+
+	for _, tc := range []struct {
+		name string
+		x, y int
+		at   int
+		bit  byte
+	}{
+		{"the top left corner is the first byte", 0, 0, 0, 0x80},
+		{"and the pixel beside it is the same byte", 1, 0, 0, 0x40},
+		{"the eighth pixel across is the next byte", 8, 0, 1, 0x80},
+		{"one line down is 256 bytes on", 0, 1, 256, 0x80},
+		{"one character row down is 32 bytes on", 0, 8, 32, 0x80},
+		{"and the next third of the screen is 2048", 0, 64, 2048, 0x80},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &screen{}
+			s.pixels[tc.y*canvasWidth+tc.x] = true
+
+			out := s.scr()
+			require.Equal(t, tc.bit, out[tc.at], "the pixel is not where the hardware reads it")
+
+			var lit int
+
+			for _, b := range out[:scrPixels] {
+				lit += bits.OnesCount8(b)
+			}
+
+			require.Equal(t, 1, lit, "one pixel in, one pixel out")
+		})
+	}
+
+	t.Run("the attributes", func(t *testing.T) {
+		s := &screen{background: attribute{ink: 7, paper: 0}}
+		s.cells[0] = attribute{ink: 6, paper: 1, bright: true, set: true}
+
+		out := s.scr()
+		require.EqualValues(t, 6|1<<3|0x40, out[scrPixels], "ink, paper and bright of the first cell")
+		require.EqualValues(t, 7, out[scrPixels+1], "a cell nothing touched shows the background")
+	})
+
+	// The canvas is 176 lines and a screen is 192. The two rows of difference
+	// are not left as whatever the struct happened to hold.
+	t.Run("the rows below the canvas carry the background", func(t *testing.T) {
+		s := &screen{background: attribute{ink: 5, paper: 2}}
+
+		out := s.scr()
+		for row := cellsDown; row < scrRows; row++ {
+			require.EqualValues(t, 5|2<<3, out[scrPixels+row*cellsAcross],
+				"row %d is not the background", row)
+		}
+	})
 }
 
 func TestAPlotFileSaysWhereItCameFrom(t *testing.T) {

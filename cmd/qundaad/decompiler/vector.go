@@ -738,8 +738,19 @@ func writeVectors(v vectors, gfx string, opts Options) (int, error) {
 		// The listing drawn back into a picture, at the size the machine had
 		// it. An enlargement goes beside it when one was asked for, under a
 		// name saying so, rather than in place of it.
-		picture := v.draw(d.number, callers)
+		drawn := v.render(d.number, callers)
+
+		picture := drawn.picture()
 		if err := writePNGInto(gfx, picturesDir, numbered(d.number, ".png"), picture); err != nil {
+			return 0, err
+		}
+
+		// And the same drawing as the machine held it. The PNG is for a person
+		// and the screen is for a packager: version 3 has no vector engine, so
+		// the only way any of these drawings reaches a build we make is as a
+		// bitmap, and this is the bitmap — not a conversion of the picture,
+		// but the planes the tracing already filled in.
+		if err := writeInto(gfx, screensDir, numbered(d.number, ".scr"), drawn.scr()); err != nil {
 			return 0, err
 		}
 
