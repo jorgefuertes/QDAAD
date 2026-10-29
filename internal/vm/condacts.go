@@ -26,6 +26,39 @@ func (m *Machine) fail() { m.continuing = false }
 // did records that this entry acted, which is what ISDONE reports.
 func (m *Machine) did() { m.done = true }
 
+// plus and minus are the arithmetic the flags are counted with, which stops at
+// each end of the byte instead of going round it.
+//
+// Go's own addition wraps, and the difference is not academic. A flag is as
+// often a switch as a counter, and the way an adventure latches one on for good
+// is SET — which is 255 — while the same flag is read by a process that adds
+// one to it every turn. Wrapping turns 255 into 0 on the very next turn, so the
+// switch silently goes off and whatever it was holding back comes back.
+//
+// La Aventura Original's second part is exactly that: flag 104 is the snake in
+// the elf kings' chamber, SET by letting the bird out, and with a wrapping PLUS
+// the snake returned the turn after it fled, bit the player, and the poison
+// killed them seven turns later.
+//
+// The manual leaves no room — "if the result exceeds 255 the flag is set to
+// 255", "if the result is negative the flag is set to 0" — and the reference
+// does it with the carry by hand: do_PLUS, daad_condacts.c:1445.
+func plus(flag, value byte) byte {
+	if sum := flag + value; sum >= flag {
+		return sum
+	}
+
+	return 255
+}
+
+func minus(flag, value byte) byte {
+	if value > flag {
+		return 0
+	}
+
+	return flag - value
+}
+
 // need is a condition: it fails the entry unless the test holds.
 func (m *Machine) need(ok bool) {
 	if !ok {
@@ -118,16 +151,16 @@ var condacts = map[byte]func(*Machine, []byte){
 	115: func(m *Machine, _ []byte) { m.need(!m.done) },                        // ISNDONE
 
 	// ---- flags ----
-	47:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), 255); m.did() },                         // SET
-	48:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), 0); m.did() },                           // CLEAR
-	49:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), m.flags[a[0]]+a[1]); m.did() },          // PLUS
-	50:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), m.flags[a[0]]-a[1]); m.did() },          // MINUS
-	51:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), a[1]); m.did() },                        // LET
-	71:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), m.flags[a[1]]+m.flags[a[0]]); m.did() }, // ADD
-	72:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), m.flags[a[1]]-m.flags[a[0]]); m.did() }, // SUB
-	95:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), byte(rand.Intn(100)+1)); m.did() },      //nolint:gosec // RANDOM
-	125: func(m *Machine, a []byte) { m.setFlag(int(a[1]), m.flags[a[0]]); m.did() },               // COPYFF
-	126: func(m *Machine, a []byte) { m.setFlag(int(a[1]), 255-m.flags[a[0]]); m.did() },           // COPYBF
+	47:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), 255); m.did() },                                 // SET
+	48:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), 0); m.did() },                                   // CLEAR
+	49:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), plus(m.flags[a[0]], a[1])); m.did() },           // PLUS
+	50:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), minus(m.flags[a[0]], a[1])); m.did() },          // MINUS
+	51:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), a[1]); m.did() },                                // LET
+	71:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), plus(m.flags[a[1]], m.flags[a[0]])); m.did() },  // ADD
+	72:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), minus(m.flags[a[1]], m.flags[a[0]])); m.did() }, // SUB
+	95:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), byte(rand.Intn(100)+1)); m.did() },              //nolint:gosec // RANDOM
+	125: func(m *Machine, a []byte) { m.setFlag(int(a[1]), m.flags[a[0]]); m.did() },                       // COPYFF
+	126: func(m *Machine, a []byte) { m.setFlag(int(a[1]), 255-m.flags[a[0]]); m.did() },                   // COPYBF
 
 	// ---- where things are ----
 	37: func(m *Machine, a []byte) { m.setFlag(FlagPlayer, a[0]); m.did() },         // GOTO
@@ -182,9 +215,9 @@ var condacts = map[byte]func(*Machine, []byte){
 	// they put in quotes. A format 1 database carries no operand at all, and
 	// the decompiler's version 3 conversion writes the 1 — see parseOperand in
 	// cmd/qundaad/decompiler.
-	73: func(m *Machine, a []byte) { m.need(m.parse(arg(a, 0))) }, // PARSE
-	92:  func(m *Machine, _ []byte) {},                            // NEWTEXT: nothing to flush here
-	127: func(m *Machine, _ []byte) { m.resetObjects(); m.did() }, // RESET
+	73:  func(m *Machine, a []byte) { m.need(m.parse(arg(a, 0))) }, // PARSE
+	92:  func(m *Machine, _ []byte) {},                             // NEWTEXT: nothing to flush here
+	127: func(m *Machine, _ []byte) { m.resetObjects(); m.did() },  // RESET
 
 	58:  func(m *Machine, a []byte) { m.need(m.hasBit(a[0])) },  // HASAT
 	59:  func(m *Machine, a []byte) { m.need(!m.hasBit(a[0])) }, // HASNAT
