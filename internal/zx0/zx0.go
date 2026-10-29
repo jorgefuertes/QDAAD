@@ -57,13 +57,20 @@ import (
 const endMarkerBits = 8
 
 // Compress encodes data as a ZX0 stream of literals.
+//
+// Nothing at all has no stream and comes back as nothing. The decoder's first
+// act is to read a length and copy that many literals, and the shortest length
+// Elias gamma can say is one, so "no literals here" is not a thing the format
+// can express. Nobody asks for it either: the blocks that come through here
+// are cut out of a screen and always hold bytes.
 func Compress(data []byte) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+
 	w := &writer{}
 
-	// Even nothing at all is a block of literals, because a block of literals
-	// is the first thing the decoder reads. Its length is coded as one more
-	// than it is, which is why an empty one is a 1.
-	w.elias(len(data) + 1)
+	w.elias(len(data))
 	w.bytes(data)
 	w.end()
 
@@ -157,7 +164,13 @@ func Decompress(src []byte) ([]byte, error) {
 			return nil, err
 		}
 
-		for range length - 1 {
+		// ldir, with BC holding what the Elias run gave: that many bytes, not
+		// one fewer. Writing it with an adjustment here and the matching
+		// adjustment in the coder is how a stream that this read back
+		// perfectly came out a byte long for the Z80 — which copies what the
+		// length says and then reads the rest as a stream it is no longer in
+		// step with.
+		for range length {
 			b, err := r.byteAt()
 			if err != nil {
 				return nil, err

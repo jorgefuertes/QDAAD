@@ -21,7 +21,6 @@ func TestWhatIsWrittenIsWhatComesBack(t *testing.T) {
 		name string
 		data []byte
 	}{
-		{"nothing at all", []byte{}},
 		{"one byte", []byte{0x42}},
 		{"a byte that is all ones", []byte{0xFF}},
 		{"eight bytes, which is where a group of bits ends", bytes.Repeat([]byte{0xA5}, 8)},
@@ -40,7 +39,7 @@ func TestWhatIsWrittenIsWhatComesBack(t *testing.T) {
 		r := rand.New(rand.NewSource(1)) //nolint:gosec // a fixed seed, so a failure repeats
 
 		for range 1000 {
-			data := make([]byte, r.Intn(2000))
+			data := make([]byte, 1+r.Intn(2000))
 			r.Read(data) //nolint:staticcheck // never fails on a rand source
 
 			back, err := Decompress(Compress(data))
@@ -73,6 +72,13 @@ func TestTheAdventuresOwnScreensSurviveTheRoundTrip(t *testing.T) {
 			require.Equal(t, screen, back)
 		})
 	}
+}
+
+// Nothing at all has no stream: the format cannot say "no literals here",
+// because the shortest length Elias gamma writes is one.
+func TestAnEmptyBlockHasNoStream(t *testing.T) {
+	require.Nil(t, Compress(nil))
+	require.Nil(t, Compress([]byte{}))
 }
 
 // Literals cost almost nothing to carry, which is the one thing that makes
