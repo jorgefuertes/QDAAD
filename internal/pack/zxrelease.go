@@ -93,6 +93,11 @@ const (
 	plus3Interpreter = "DAAD.BIN"
 	plus3Database    = "PART1.DDB"
 	plus3Graphics    = "PART1.SDG"
+	// plus3Pictures is page zero, and it is a file only when the adventure has
+	// pictures. DAAD's own +3 releases buffer theirs into a DAAD.GRA instead,
+	// which is a different scheme for a machine with more memory to put it in;
+	// this carries what the 48K build carries, to the same address.
+	plus3Pictures = "PART1.PAG"
 )
 
 // zxPlus3 gathers a +3 release: a loader, an interpreter, a database and the
@@ -121,15 +126,20 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 	// The +3's interpreter is its own and not the 48K one, but it is pinned to
 	// the same 0x6000: both start with a JP into a 0x6000-based image, and both
 	// hold a JP 0x6032 eight bytes in.
-	interpreter, top, topOrigin, err := zxBlocks(runtime.ZXPlus3, database, opts)
+	built, err := zxBlocks(runtime.ZXPlus3, database, opts)
 	if err != nil {
 		return nil, err
+	}
+
+	named := []string{plus3Interpreter, plus3Database, plus3Graphics}
+	if len(built.page.body) > 0 {
+		named = append(named, plus3Pictures)
 	}
 
 	var loader media.BASIC
 
 	loader.Clear(interpreterOrigin - 1)
-	loader.LoadNamed(plus3Interpreter, plus3Database, plus3Graphics)
+	loader.LoadNamed(named...)
 	loader.RandomizeUSR(interpreterOrigin)
 
 	boot, err := media.Plus3Program(media.FirstLine, loader.Bytes())
@@ -142,15 +152,25 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 		Note: "BASIC loader: the +3 boot menu runs this",
 	})
 
-	for _, part := range []struct {
+	parts := []struct {
 		name, note string
 		at         int
 		body       []byte
 	}{
-		{plus3Interpreter, "interpreter", interpreterOrigin, interpreter},
+		{plus3Interpreter, "interpreter", interpreterOrigin, built.interpreter},
 		{plus3Database, "the adventure", int(arch.ZX.BaseAddress("")), database},
-		{plus3Graphics, "image index, graphics stub and font", topOrigin, top},
-	} {
+		{plus3Graphics, "image index, graphics stub and font", built.topOrigin, built.top},
+	}
+
+	if len(built.page.body) > 0 {
+		parts = append(parts, struct {
+			name, note string
+			at         int
+			body       []byte
+		}{plus3Pictures, "the pictures", built.page.at, built.page.body})
+	}
+
+	for _, part := range parts {
 		body, err := media.Plus3Code(part.at, part.body)
 		if err != nil {
 			return nil, err

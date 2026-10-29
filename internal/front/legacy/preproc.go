@@ -77,6 +77,10 @@ type Settings struct {
 	Classic bool
 	// Debug asks for an interpreter that can be stepped.
 	Debug bool
+	// Images is the directory the pictures live in, named the same way and for
+	// the same reason: which drawings an adventure has is the adventure's, not
+	// the builder's. One file per picture, named by its number.
+	Images string
 	// Charset is the font to build with, which the source names in a header
 	// comment because it is a property of the adventure rather than a choice
 	// the person compiling makes. See settings.go.

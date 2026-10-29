@@ -59,6 +59,10 @@ func Compile(filename string, opts Options) (*ddb.DDB, *Result, error) {
 		res.Settings.Charset = header.Charset
 	}
 
+	if header.Images != "" {
+		res.Settings.Images = header.Images
+	}
+
 	db, err := Parse(res, opts)
 	if err != nil {
 		return nil, nil, err

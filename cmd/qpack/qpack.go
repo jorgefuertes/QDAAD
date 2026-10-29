@@ -120,7 +120,11 @@ func run(_ context.Context, cmd *cli.Command) error {
 // is one thing to write and --format dir works for every format without each
 // one knowing about it.
 func assemble(format string, b build.Build, name string) (*pack.Release, error) {
-	opts := pack.Options{Language: b.Language, Name: name, Charset: b.Charset}
+	opts := pack.Options{
+		Language: b.Language, Name: name,
+		Charset: b.Charset, Images: b.Images,
+		Note: func(said string) { fmt.Println(said) },
+	}
 
 	switch format {
 	case formatQRun:

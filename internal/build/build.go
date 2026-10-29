@@ -38,6 +38,11 @@ const (
 	manifestFile = "build.toml"
 	databaseFile = "database.ddb"
 	charsetFile  = "charset.chr"
+	// imagesDir holds the pictures, one file per picture, named by the number
+	// a PICTURE names it with. What is in them is whatever the target machine
+	// takes — a Spectrum screen for a Spectrum — because converting between
+	// machines is the compiler's business and not the packager's.
+	imagesDir = "images"
 )
 
 // Build is one compiled part, ready to be packaged.
@@ -58,6 +63,10 @@ type Build struct {
 	Database []byte
 	// Charset is the adventure's own font, or empty to use the built-in one.
 	Charset []byte
+	// Images are the pictures, by the number that shows them. A build with
+	// none is the usual case: most of the corpus illustrates with nothing, or
+	// with vectors that version 3 cannot draw.
+	Images map[int][]byte
 }
 
 // Write lays the build out in a directory, making it if it is not there.
@@ -74,11 +83,59 @@ func (b Build) Write(dir string) error {
 		return err
 	}
 
-	if len(b.Charset) == 0 {
+	if len(b.Charset) > 0 {
+		if err := os.WriteFile(filepath.Join(dir, charsetFile), b.Charset, 0o644); err != nil {
+			return err
+		}
+	}
+
+	return b.writeImages(dir)
+}
+
+// writeImages puts the pictures in a directory of their own, one file each,
+// named by number so that the directory reads like the index it becomes.
+func (b Build) writeImages(dir string) error {
+	if len(b.Images) == 0 {
 		return nil
 	}
 
-	return os.WriteFile(filepath.Join(dir, charsetFile), b.Charset, 0o644)
+	into := filepath.Join(dir, imagesDir)
+	if err := os.MkdirAll(into, 0o755); err != nil {
+		return err
+	}
+
+	for number, body := range b.Images {
+		name := fmt.Sprintf("%03d.scr", number)
+		if err := os.WriteFile(filepath.Join(into, name), body, 0o644); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// readImages takes them back out. A directory that is not there is a build
+// with no pictures, which is not a problem.
+func readImages(dir string) (map[int][]byte, error) {
+	names, err := filepath.Glob(filepath.Join(dir, imagesDir, "*.scr"))
+	if err != nil || len(names) == 0 {
+		return nil, err
+	}
+
+	out := make(map[int][]byte, len(names))
+
+	for _, name := range names {
+		number, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(name), ".scr"))
+		if err != nil {
+			return nil, fmt.Errorf("%s: a picture is named by its number: %w", name, err)
+		}
+
+		if out[number], err = os.ReadFile(name); err != nil {
+			return nil, err
+		}
+	}
+
+	return out, nil
 }
 
 // manifest is the file written beside the database, saying what it was built
@@ -126,6 +183,10 @@ func Read(dir string) (Build, error) {
 	if err == nil {
 		out.Charset = charset
 	} else if !os.IsNotExist(err) {
+		return Build{}, err
+	}
+
+	if out.Images, err = readImages(dir); err != nil {
 		return Build{}, err
 	}
 

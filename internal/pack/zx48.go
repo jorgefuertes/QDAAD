@@ -15,6 +15,7 @@ package pack
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
@@ -97,6 +98,17 @@ type Options struct {
 	// built-in AD8x6.CHR, which is what every ZX build of DAAD READY passes;
 	// the stub's own font is never what anybody sees.
 	Charset []byte
+	// Images are the pictures, by the number a PICTURE names them with, each
+	// one a whole Spectrum screen of 6912 bytes. What is carried is the top of
+	// each — see imageLines — compressed and indexed; what will not fit is
+	// left out and said so through Note.
+	Images map[int][]byte
+	// Note is told anything the person packaging should know but that is not
+	// an error — which so far is one thing, and it is the one thing a
+	// packager must never do quietly: pictures left out for want of room. A
+	// build that silently carries four of forty-one looks like a build that
+	// carries them all until somebody plays it.
+	Note func(string)
 }
 
 // ZX48 builds a .TAP for a 48K Spectrum.
@@ -108,29 +120,26 @@ type Options struct {
 // zxBlocks is the three blocks a Spectrum build is made of, wherever they are
 // going to be put.
 //
-// A tape and a +3 disk carry the same three things to the same three addresses
-// and differ only in who assembles them, so this is what they share: the
-// interpreter for the target asked for, the index and graphics stub as one
-// block, where that block begins, and the two checks that say whether any of it
-// fits.
-func zxBlocks(target runtime.Target, database []byte, opts Options) (
-	interpreter, top []byte, topOrigin int, err error,
-) {
-	_, interpreter, err = runtime.Interpreter(target, opts.Language)
+// A tape and a +3 disk carry the same things to the same addresses and differ
+// only in who assembles them, so this is what they share: the interpreter for
+// the target asked for, page zero with the pictures in it, the index and
+// graphics stub as one block, and the checks that say whether any of it fits.
+func zxBlocks(target runtime.Target, database []byte, opts Options) (zxParts, error) {
+	_, interpreter, err := runtime.Interpreter(target, opts.Language)
 	if err != nil {
-		return nil, nil, 0, err
+		return zxParts{}, err
 	}
 
 	// The stub and the font come from the 48K set whatever the target: they are
 	// data rather than code, and every ZX interpreter reads the same two.
 	companions, err := runtime.Companions(runtime.ZX48)
 	if err != nil {
-		return nil, nil, 0, err
+		return zxParts{}, err
 	}
 
 	stub, carried := companions["DAAD.SDG"]
 	if !carried {
-		return nil, nil, 0, fmt.Errorf("the built-in graphics stub is missing")
+		return zxParts{}, fmt.Errorf("the built-in graphics stub is missing")
 	}
 
 	// Read from the machine rather than written here, so that the address the
@@ -138,9 +147,14 @@ func zxBlocks(target runtime.Target, database []byte, opts Options) (
 	// drift apart. A Spectrum's base does not depend on its subtarget.
 	databaseOrigin := int(arch.ZX.BaseAddress(""))
 
+	page, dropped, err := zxPictures(opts.Images, databaseOrigin+len(database), len(stub))
+	if err != nil {
+		return zxParts{}, err
+	}
+
 	// The index and the stub are one block, index first, ending on the last
 	// byte of RAM.
-	top = append(imageIndex(databaseOrigin+len(database)), stub...)
+	top := append(imageIndex(page), stub...)
 
 	charset := opts.Charset
 	if len(charset) == 0 {
@@ -148,13 +162,24 @@ func zxBlocks(target runtime.Target, database []byte, opts Options) (
 	}
 
 	if err := replaceCharset(top, charset); err != nil {
-		return nil, nil, 0, err
+		return zxParts{}, err
 	}
 
-	topOrigin = topOfMemory - len(top)
+	if len(dropped) > 0 && opts.Note != nil {
+		opts.Note(fmt.Sprintf("%d of the %d pictures did not fit and are not on this build: %s",
+			len(dropped), len(opts.Images), numberList(dropped)))
+	}
+
+	out := zxParts{
+		interpreter: interpreter,
+		page:        page,
+		top:         top,
+		topOrigin:   topOfMemory - len(top),
+		dropped:     dropped,
+	}
 
 	if end := interpreterOrigin + len(interpreter); end > databaseOrigin {
-		return nil, nil, 0, fmt.Errorf(
+		return zxParts{}, fmt.Errorf(
 			"the interpreter ends at 0x%04X and the database starts at 0x%04X", end, databaseOrigin)
 	}
 
@@ -162,17 +187,57 @@ func zxBlocks(target runtime.Target, database []byte, opts Options) (
 	// and nothing to move out of the way: the database has to fit between the
 	// interpreter's workspace and the stub, and if it does not, the build is
 	// for a bigger machine.
-	if end := databaseOrigin + len(database); end > topOrigin {
-		return nil, nil, 0, fmt.Errorf(
+	if end := databaseOrigin + len(database); end > out.topOrigin {
+		return zxParts{}, fmt.Errorf(
 			"the database is %d bytes and %d is all there is between 0x%04X and the graphics stub at 0x%04X",
-			len(database), topOrigin-databaseOrigin, databaseOrigin, topOrigin)
+			len(database), out.topOrigin-databaseOrigin, databaseOrigin, out.topOrigin)
 	}
 
-	return interpreter, top, topOrigin, nil
+	return out, nil
+}
+
+// zxParts is what a Spectrum build is made of, wherever it is going to be put.
+type zxParts struct {
+	interpreter []byte
+	// page is page zero: the pictures, at the address it says.
+	page imagePage
+	// top is the image index and the graphics stub, as one block ending on the
+	// last byte of RAM.
+	top       []byte
+	topOrigin int
+	// dropped is the pictures there was no room for, in number order.
+	dropped []int
+}
+
+// zxPictures lays the pictures out between the database and the stub.
+//
+// Where they go is not a choice either: 0xC000, or straight after the database
+// when the database has already run past that, which is what pager48k.php
+// works out and what the interpreter assumes. What is left over for them is
+// everything up to the stub.
+func zxPictures(images map[int][]byte, databaseEnd, stub int) (imagePage, []int, error) {
+	const pictureData = 0xC000
+
+	at := pictureData
+	if databaseEnd >= pictureData {
+		at = databaseEnd + 1
+	}
+
+	if len(images) == 0 {
+		return imagePage{at: at, starts: map[int]int{}}, nil, nil
+	}
+
+	// The index grows downwards from the stub, so the room for pictures is
+	// what is left once the stub and the index's own fixed part are out of it.
+	const indexFixed = 6
+
+	room := topOfMemory - at - stub - indexFixed
+
+	return buildImagePage(images, imageLines, at, room)
 }
 
 func ZX48(database []byte, opts Options) ([]byte, error) {
-	interpreter, top, topOrigin, err := zxBlocks(runtime.ZX48, database, opts)
+	built, err := zxBlocks(runtime.ZX48, database, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -187,9 +252,19 @@ func ZX48(database []byte, opts Options) ([]byte, error) {
 		at     int
 		body   []byte
 	}{
-		{'I', interpreterOrigin, interpreter},
+		{'I', interpreterOrigin, built.interpreter},
 		{'D', databaseOrigin, database},
-		{'G', topOrigin, top},
+		{'G', built.topOrigin, built.top},
+	}
+
+	// P for the pictures, which are a block only when there are some. It
+	// loads after the database and before the stub, which is where it lives.
+	if len(built.page.body) > 0 {
+		parts = append(parts, struct {
+			letter byte
+			at     int
+			body   []byte
+		}{'P', built.page.at, built.page.body})
 	}
 
 	var loader media.BASIC
@@ -291,30 +366,36 @@ func replaceCharset(top, charset []byte) error {
 // Both words are read most significant byte first, which is the other way round
 // from everything else on this machine and follows from the reversal.
 //
-// Pictures are not written yet, so page zero is empty and the table is the two
-// end markers and nothing between them. The address is still worked out the way
-// the reference works it out, so that it is already right when there is
-// something to point at: picture data goes at 0xC000, or straight after the
-// database when the database has already run past that.
-func imageIndex(databaseEnd int) []byte {
-	const pictureData = 0xC000
-
-	at := pictureData
-	if databaseEnd >= pictureData {
-		at = databaseEnd + 1
-	}
-
+// A build with no pictures writes the two end markers and nothing between
+// them, which is the case that has to keep working: most of the corpus has no
+// bitmaps at all.
+func imageIndex(page imagePage) []byte {
 	const (
 		noMorePages    = 0xFF
 		noMorePictures = 0xFF
 	)
 
 	forwards := []byte{
-		byte(at >> 8), byte(at),
-		0, 0, // the size of page zero, which holds no pictures
+		byte(page.at >> 8), byte(page.at),
+		byte(len(page.body) >> 8), byte(len(page.body)),
 		noMorePages,
-		noMorePictures,
 	}
+
+	// Three bytes a picture, in number order so that two builds of the same
+	// adventure come out the same file.
+	numbers := make([]int, 0, len(page.starts))
+	for n := range page.starts {
+		numbers = append(numbers, n)
+	}
+
+	sort.Ints(numbers)
+
+	for _, n := range numbers {
+		at := page.starts[n]
+		forwards = append(forwards, byte(n), byte(at>>8), byte(at))
+	}
+
+	forwards = append(forwards, noMorePictures)
 
 	backwards := make([]byte, len(forwards))
 	for i, b := range forwards {

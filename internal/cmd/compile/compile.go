@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/jorgefuertes/QDAAD/internal/back"
@@ -173,6 +175,11 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
+	images, err := readPictures(read.Settings.Images)
+	if err != nil {
+		return err
+	}
+
 	switch format {
 	case formatDDB:
 		if path.Ext(out) == "" {
@@ -198,15 +205,22 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 			Tokens:    layout.Tokens,
 			Database:  image,
 			Charset:   charset,
+			Images:    images,
 		}
 
 		if err := b.Write(out); err != nil {
 			return err
 		}
 
-		fmt.Printf("%s: part %d for a %s, %d bytes of database laid at 0x%04X\n",
+		fmt.Printf("%s: part %d for a %s, %d bytes of database laid at 0x%04X",
 			out, b.Part, opts.Machine, len(image),
 			opts.Machine.BaseAddress(opts.Subtarget))
+
+		if len(images) > 0 {
+			fmt.Printf(", %d pictures", len(images))
+		}
+
+		fmt.Println()
 
 		return nil
 
@@ -241,4 +255,41 @@ func options(cmd *cli.Command) (legacy.Options, error) {
 	}
 
 	return opts, opts.Validate()
+}
+
+// readPictures loads the adventure's pictures out of the directory the source
+// names, one file per picture, numbered.
+//
+// A source that names no directory has no pictures, which is nearly all of
+// them: the eight-bit editions in the corpus illustrate with vector drawings
+// that version 3 has no engine for, and the decompiler writes those out as
+// screens precisely so that a build can carry them as bitmaps instead.
+func readPictures(dir string) (map[int][]byte, error) {
+	if dir == "" {
+		return nil, nil
+	}
+
+	names, err := filepath.Glob(filepath.Join(dir, "*.scr"))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(names) == 0 {
+		return nil, fmt.Errorf("%s holds no pictures: they are named 000.scr and upwards", dir)
+	}
+
+	out := make(map[int][]byte, len(names))
+
+	for _, name := range names {
+		number, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(name), ".scr"))
+		if err != nil {
+			return nil, fmt.Errorf("%s: a picture is named by its number: %w", name, err)
+		}
+
+		if out[number], err = os.ReadFile(name); err != nil {
+			return nil, err
+		}
+	}
+
+	return out, nil
 }
