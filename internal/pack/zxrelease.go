@@ -2,6 +2,7 @@ package pack
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
@@ -48,7 +49,31 @@ func ZXDisk(database []byte, subtarget string, opts Options) ([]byte, error) {
 		files = append(files, media.File{Name: f.Name, Data: f.Body})
 	}
 
-	return media.DataDisk(files)
+	// A disk that will not hold every picture is an ordinary outcome: they
+	// are the only part that can be left out and still leave an adventure
+	// anybody can play. The last come off until the rest fit, and what came
+	// off is said out loud.
+	var dropped []string
+
+	for {
+		image, err := media.DataDisk(files)
+		if err == nil {
+			if len(dropped) > 0 && opts.Note != nil {
+				opts.Note(fmt.Sprintf("%d pictures did not fit on the disk and are not on it: %s",
+					len(dropped), strings.Join(dropped, ", ")))
+			}
+
+			return image, nil
+		}
+
+		last := len(files) - 1
+		if last < 0 || !strings.HasSuffix(files[last].Name, plus3PictureSuffix) {
+			return nil, err
+		}
+
+		dropped = append(dropped, files[last].Name)
+		files = files[:last]
+	}
 }
 
 // ZXRelease gathers what a Spectrum build needs, for the Spectrum it is built
@@ -126,7 +151,13 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 	// The +3's interpreter is its own and not the 48K one, but it is pinned to
 	// the same 0x6000: both start with a JP into a 0x6000-based image, and both
 	// hold a JP 0x6032 eight bytes in.
-	built, err := zxBlocks(runtime.ZXPlus3, database, opts)
+	// Built with no pictures in them: a 48K carries its pictures in memory
+	// and the index says where each landed, but here they are files on the
+	// disk, so the index stays empty and the interpreter goes and opens one.
+	inMemory := opts
+	inMemory.Images = nil
+
+	built, err := zxBlocks(runtime.ZXPlus3, database, inMemory)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +208,24 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 		}
 
 		release.Add(part.name, fmt.Sprintf("%s, loads at 0x%04X", part.note, part.at), body)
+	}
+
+	// And the pictures, each its own file: the interpreter opens them by name
+	// and reads their own five-byte header first.
+	numbers := make([]int, 0, len(opts.Images))
+	for n := range opts.Images {
+		numbers = append(numbers, n)
+	}
+
+	sort.Ints(numbers)
+
+	for _, number := range numbers {
+		picture, err := plus3Picture(opts.Images[number])
+		if err != nil {
+			return nil, fmt.Errorf("picture %d: %w", number, err)
+		}
+
+		release.Add(plus3PictureName(number), fmt.Sprintf("picture %d", number), picture)
 	}
 
 	return release, nil
