@@ -166,21 +166,53 @@ la imagen en RAM.
 |---|---|
 | ZX 48K | Troceadas por `ZXsplitter.php`, comprimidas con ZX0 y paginadas con `pager48k.php` en `INDEX.BIN` + `PAGE0.TMP` |
 | ZX 128K | Comprimidas con ZX0 y repartidas en bancos por `pager128k.php`; ver el mapa de memoria en §6 |
-| ZX +3 | Igual, más `DAAD.GRA` con las bufferizadas (`plus3cache.php`) |
+| ZX +3 | Ficheros `nnn.128` sueltos en el `.DSK`, más `DAAD.GRA` con las bufferizadas (`plus3cache.php`) |
 | ZX Next, ZX-Uno, esxDOS | Ficheros sueltos en la tarjeta SD |
 | MSX1 / MSX2 | Ficheros `.MS2` / `.IMx` dentro del `.DSK` |
-| CPC | Empaquetadas por `MCRF` en `DAAD.BIN` junto al intérprete y el DDB |
+| CPC | Ficheros `nnn.CPC` sueltos en el `.DSK`, añadidos con `CPCDiskXP` |
 | C64 / Plus4 | Ficheros dentro del `.D64` |
 | PC/DOS | Ficheros `.MSD` sueltos en la carpeta del juego |
 | Amiga / ST | Todo en `PART1.DAT` |
 | HTML | Arrays JavaScript en `images.js` |
 | Experimentales (ADP) | Todo en un `.DAT` generado por `DMG create` |
 
+**Corregido el 2026-10-30, contra `CPC.BAT:69-88` y `ZXPLUS3.BAT:78-152`.** Lo que decía
+antes esta tabla —que el CPC empaqueta sus imágenes dentro del `DAAD.BIN`— es falso: `MCRF`
+recibe siempre `ASSETS\CPC\BLANK.GRA`, el bloque de gráficos vacío, y las imágenes se añaden
+al disco una por fichero. El +3 hace lo mismo con las suyas.
+
+### Formato `.128` del +3
+
+Un fichero por imagen, con tres dígitos y esa extensión: el intérprete lleva el molde del
+nombre dentro —la cadena `UTO.128` en `DSP3S3.BIN`— y escribe el número encima. La tubería
+es `scrcrop` → `zx0` → `SCRMAKER spectrum128`.
+
+Lo que entra en `SCRMAKER` es, en palabras de su propia ayuda, *«a .ZX0 file, which must be
+a 6912 bytes SCR file compressed with zx0»*: **un solo flujo** con la pantalla entera, no
+dos mitades. Lo que `SCRMAKER` le pone delante son **7 bytes** de cabecera, y qué hay en
+ellos está **sin resolver**:
+
+- `plus3cache.php:4-19` los cuenta sin describirlos: *«DataSize: the image file size minus 7
+  bytes for the image file header»*.
+- `SCRMAKER` es un PE32 sin fuente publicado, y no hay ningún `.128` real en el árbol del
+  que medirlos.
+- La cabecera de **6** bytes que sí está documentada —dos palabras de tamaño y dos cuentas
+  de líneas, en `DecompressPicture`, `work/ZXDAAD128/src/ZXDAAD128.bas:398`— **es de otro
+  intérprete**: ZXDAAD128 descomprime dos flujos, los píxeles con `dzx0_standard_dcp`, que
+  convierte direcciones lineales a direcciones de pantalla, y los atributos con el decoder
+  normal. Esa rutina de conversión no aparece en ninguno de los doce intérpretes que
+  embebemos, así que el formato de ZXDAAD128 no es el nuestro. Escribirlo cuelga la máquina:
+  pasa la presentación y se reinicia al primer `PICTURE`.
+
+Hace falta un `.128` auténtico, o el fuente de `SCRMAKER`, antes de intentarlo otra vez.
+
 ### Formato `.GRA` del +3
 
-Documentado en `TOOLS/plus3cache/plus3cache.php:4-19`. Se carga en `C000h + 512 + 6912`:
-2 bytes de longitud, tabla de 5 bytes por imagen (`localidad 1 B`, `offset 2 B LE`,
-`tamaño 2 B LE`), terminador `localidad = 255`, y después los datos.
+Documentado en `TOOLS/plus3cache/plus3cache.php:4-19`. No es donde viven las imágenes: es una
+caché de las más usadas, de 8,75K como mucho, y el resto se leen del disco. Se carga en
+`C000h + 512 + 6912`: 2 bytes de longitud, tabla de 5 bytes por imagen (`localidad 1 B`,
+`offset 2 B LE`, `tamaño 2 B LE`), terminador `localidad = 255`, y después los ficheros
+`.128` enteros, con sus 7 bytes de cabecera incluidos.
 
 ### Formato `.NX2` / `.NXI` del Spectrum Next
 
