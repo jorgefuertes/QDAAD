@@ -2,6 +2,7 @@ package zx0
 
 import (
 	"bytes"
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -108,4 +109,54 @@ func everyByte() []byte {
 	}
 
 	return out
+}
+
+// Every offset the format can express, and every length that is coded a
+// different way.
+//
+// This is the part that could not be written before. An offset is the one
+// thing in the stream whose coding does not read off the decoder at a glance:
+// its halves are built in different registers, the low bit of the low byte is
+// shifted out to become the first bit of the length, and the carry riding
+// into that rotate decides what the whole thing means. So rather than trust
+// the reasoning, this walks all of it — 32,640 offsets, each at the lengths
+// that take a different path through the coder.
+func TestEveryOffsetAndLengthComesBack(t *testing.T) {
+	// A source with no repeats of its own, so that the only copy in the
+	// stream is the one being asked for.
+	source := make([]byte, maxOffset+64)
+	for i := range source {
+		source[i] = byte(i*7 + i/251)
+	}
+
+	for _, length := range []int{2, 3, 4, 5, 8, 17, 64, 255, 256, 257} {
+		t.Run(fmt.Sprintf("length %d", length), func(t *testing.T) {
+			for offset := 1; offset <= maxOffset; offset++ {
+				w := &writer{}
+
+				// Literals enough to copy from, then the copy.
+				w.elias(offset)
+				w.bytes(source[:offset])
+				w.bit(1)
+				w.match(offset, length)
+				w.end()
+
+				back, err := Decompress(w.out)
+				if err != nil {
+					t.Fatalf("offset %d: %v", offset, err)
+				}
+
+				want := make([]byte, 0, offset+length)
+				want = append(want, source[:offset]...)
+
+				for range length {
+					want = append(want, want[len(want)-offset])
+				}
+
+				if !bytes.Equal(want, back) {
+					t.Fatalf("offset %d, length %d: came back as %d bytes", offset, length, len(back))
+				}
+			}
+		})
+	}
 }
