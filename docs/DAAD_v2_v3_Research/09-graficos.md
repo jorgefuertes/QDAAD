@@ -206,6 +206,23 @@ ellos está **sin resolver**:
 
 Hace falta un `.128` auténtico, o el fuente de `SCRMAKER`, antes de intentarlo otra vez.
 
+#### Lo que sí quedó establecido probando contra el emulador
+
+Cuatro intentos, cuatro síntomas, y cada uno descarta algo. Vale la pena que estén escritos
+para que nadie los repita:
+
+| Lo que se escribió | Lo que hizo la máquina | Lo que descarta |
+|---|---|---|
+| Página en memoria, como el 48K | nada | el +3 no mira ahí: abre ficheros |
+| 2 flujos, píxeles en orden de vídeo | trece líneas de basura **seguidas** | el intérprete destuerce las direcciones él mismo: una tirada escrita a 0x4000 saldría repartida en tercios |
+| 2 flujos, píxeles lineales, cabecera de 6 | ruido en toda la pantalla, cuelgue antes de imprimir | no es un flujo que se tuerce y para: escribe más allá de la pantalla, y eso es leer desde un sitio que no es |
+| Lo mismo con cabecera de 7 | idéntico | ni 6 ni 7 |
+
+Y lo que se sabe con certeza: **el fichero se encuentra y se lee** — el emulador enciende la luz
+de la disquetera—, así que el nombre `nnn.128` y el sitio son correctos. Lo que no se entiende
+es lo de dentro. Quedan dos cosas por saber y ninguna se deduce desde fuera: cuántos bytes
+salta y si descomprime uno o dos flujos.
+
 ### Formato `.GRA` del +3
 
 Documentado en `TOOLS/plus3cache/plus3cache.php:4-19`. No es donde viven las imágenes: es una
