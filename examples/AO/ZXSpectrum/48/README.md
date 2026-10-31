@@ -1,70 +1,70 @@
-# La Aventura Original para un Spectrum de 48K
+# La Aventura Original for a 48K Spectrum
 
-Dos cintas, una por parte. Cada una lleva su cargador BASIC, la pantalla de
-presentación, el intérprete, la base de datos, los gráficos y el stub, todo en
-un flujo.
+Two tapes, one per part. Each carries its BASIC loader, the loading screen, the
+interpreter, the database, the pictures and the stub, all in one stream.
 
-Lo de aquí supone que `qdaad` y `qpack` están en el PATH. Para la procedencia
-de los fuentes y qué llevan corregido a mano, [el README de arriba](../../README.md).
+What follows assumes `qdaad` and `qpack` are on the PATH. For where the sources
+come from and what they carry corrected by hand, see
+[the README above](../../README.md).
 
-## Construir
+## Building
 
 ```sh
-# Parte 1
+# Part 1
 qdaad compile -i part1/game.sce -o build/48-part1 -f build -m zx -s 48k -v 3 --part 1
 qpack -f tap -o AO1 --name AO1 build/48-part1     # AO1.tap
 qpack -f tzx -o AO1 --name AO1 build/48-part1     # AO1.tzx
 
-# Parte 2
+# Part 2
 qdaad compile -i part2/game.sce -o build/48-part2 -f build -m zx -s 48k -v 3 --part 2
 qpack -f tap -o AO2 --name AO2 build/48-part2     # AO2.tap
 qpack -f tzx -o AO2 --name AO2 build/48-part2     # AO2.tzx
 ```
 
-El `tap` y el `tzx` llevan los mismos bloques: el segundo es el primero con una
-firma y una pausa de un segundo detrás de cada bloque. Carga igual y pesa 46
-bytes más.
+The `tap` and the `tzx` carry the same blocks: the second is the first with a
+signature and a one-second pause after each block. It loads the same and weighs
+46 bytes more.
 
-## Qué hace el cargador
+## What the loader does
 
-```
+```text
 10 CLEAR VAL "24575"
 20 BORDER 0: PAPER 0: INK 7: CLS
-30 LOAD ""CODE                                      la pantalla, a 16384
-40 POKE PEEK 23633+256*PEEK 23634,VAL "111"         calla a la ROM
-50 LOAD ""CODE:LOAD ""CODE:LOAD ""CODE:LOAD ""CODE  interprete, base, stub, imagenes
-60 RANDOMIZE USR VAL "24576"                        y arranca
+30 LOAD ""CODE                                      the screen, to 16384
+40 POKE PEEK 23633+256*PEEK 23634,VAL "111"         quiet the ROM
+50 LOAD ""CODE:LOAD ""CODE:LOAD ""CODE:LOAD ""CODE  interpreter, database, stub, pictures
+60 RANDOMIZE USR VAL "24576"                        and away
 ```
 
-La pantalla va a memoria de vídeo, así que se pinta sola según entra y no hace
-falta ni rutina ni copia. El cargador de 1989 la metía en 30000 y la volcaba
-con un `RANDOMIZE USR 30000`; esto es lo mismo con menos pasos. El `POKE` es el
-truco de siempre para que la ROM no escriba «Bytes:» encima de la imagen, con
-la dirección sacada de `CURCHL` en vez de escrita a mano, igual que hacía el
-original en su línea 200.
+The screen goes to video memory, so it paints itself as it arrives and needs
+neither a routine nor a copy. The loader of 1989 put it at 30000 and blitted it
+with a `RANDOMIZE USR 30000`; this is the same thing with fewer steps. The
+`POKE` is the usual trick to stop the ROM writing "Bytes:" over the picture,
+with the address read out of `CURCHL` rather than written down, which is how
+the original does it in its line 200.
 
-Al cargar el último bloque arranca la aventura, sin tecla de por medio.
+Loading the last block starts the adventure, with no key in between.
 
-## Las imágenes
+## The pictures
 
-En una cinta de 48K no caben las 41 de la primera parte ni las 69 de la
-segunda: entran unas 10. Así que cada parte lleva sólo las que hacen falta para
-que el juego se entienda, y de las demás se encarga la genérica.
+A 48K tape has room for neither part one's 41 nor part two's 69: about ten fit.
+So each part carries only what the game needs to make sense, and the generic
+picture covers everything else.
 
-| Parte 1 | | Parte 2 | |
+| Part 1 | | Part 2 | |
 |---|---|---|---|
-| `003` | la cabaña del bosque | `001` | la presentación, que es también la primera localidad |
-| `027` | la genérica | `095` | la genérica |
-| `029` | la lápida, al morir | `092` | la lápida |
-| `044` | el marco de la presentación | | |
+| `003` | the brick cabin in the wood | `001` | the title screen, which is also the first location |
+| `027` | the generic one | `095` | the generic one |
+| `029` | the gravestone, on dying | `092` | the gravestone |
+| `044` | the frame around the credits | | |
 
-Que la genérica valga para el resto no es un apaño nuestro: es lo que hace la
-aventura, y lo decide con la bandera 40 —«esta localidad tiene dibujo»— que el
-bucle repone. Si quieres más imágenes, añade sus `.scr` a `partN/gfx/scr/` y
-vuelve a empaquetar: `qpack` avisa por su cuenta de las que no quepan y no
-corta ninguna por la mitad.
+The generic picture standing in for the rest is not a shortcut of ours: it is
+what the adventure does, and it decides with flag 40 — "this location has a
+drawing" — which the loop puts back. To carry more, drop their `.scr` into
+`partN/gfx/scr/` and package again: `qpack` says by itself which ones did not
+fit, and never cuts one short.
 
-## La parte 2 pide clave
+## Part two asks for a password
 
-Es del original: al empezar pregunta «¿Clave de acceso?», y la palabra la daba
-la primera parte al terminarla.
+That is the original's doing: it opens with "¿Clave de acceso?", and the word
+was what finishing part one gave you.

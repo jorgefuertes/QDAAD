@@ -1,47 +1,57 @@
-# La Aventura Original para un Spectrum +3
+# La Aventura Original for a Spectrum +3
 
-Dos discos, uno por parte, arrancables desde el menú del propio +3. Cada uno
-lleva el cargador, el intérprete, la base de datos y las imágenes como ficheros
-sueltos.
+Two disks, one per part, bootable from the +3's own menu. Each carries the
+loader, the interpreter, the database and the pictures as separate files.
 
-Lo de aquí supone que `qdaad` y `qpack` están en el PATH. Para la procedencia
-de los fuentes y qué llevan corregido a mano, [el README de arriba](../../README.md).
+A disk here is 40 tracks and **one side**, which is what the +3's built-in
+drive reads. That is why there is a disk per part rather than a part per side:
+a second side is one the machine cannot reach without somebody turning the disk
+over.
 
-## Construir
+What follows assumes `qdaad` and `qpack` are on the PATH. For where the sources
+come from and what they carry corrected by hand, see
+[the README above](../../README.md).
+
+## Building
 
 ```sh
-# Parte 1
+# Part 1
 qdaad compile -i part1/game.sce -o build/p3-part1 -f build -m zx -s plus3 -v 3 --part 1
 qpack -f dsk -o AO1 --name AO1 build/p3-part1     # AO1.dsk
 
-# Parte 2
+# Part 2
 qdaad compile -i part2/game.sce -o build/p3-part2 -f build -m zx -s plus3 -v 3 --part 2
 qpack -f dsk -o AO2 --name AO2 build/p3-part2     # AO2.dsk
 ```
 
-El cargador tiene que llamarse `DISK` y sin extensión, que es lo que el +3
-busca al arrancar un disco desde su menú. De eso se encarga `qpack`.
+The loader has to be called `DISK`, with no extension, which is what a +3 looks
+for when it boots a disk from its menu. `qpack` sees to that.
 
-## Las imágenes
+## The pictures
 
-Aquí caben todas: **41** en la primera parte y **69** en la segunda. Cada una
-viaja como un `.128` propio —cinco bytes de geometría y la pantalla comprimida
-con ZX0— y se corta por su última fila con píxeles, no por una altura fija,
-que es lo que dejaba sin barra inferior al marco de la presentación.
+Part one's 41 all fit. Part two's 69 do not: nine are left out, and the reason
+is not room. A +3DOS directory holds **64 entries** and part two's release is
+73 files, so there are 81 KB of disk going spare with nowhere to name them.
+`qpack` says which nine and never cuts one short.
 
-## La pantalla de presentación
+Each picture travels as a `.128` of its own — five bytes of geometry and the
+screen compressed with ZX0 — cut to its own last row with a pixel in it rather
+than to a fixed height, which is what used to leave the title frame without its
+bottom bar.
 
-Está en `partN/gfx/loading.scr` y **todavía no viaja en el disco**: la lleva el
-cargador BASIC en la cinta de 48K y aquí está por hacer.
+## The loading screen
 
-## Lo que viene
+It is in `partN/gfx/loading.scr` and **does not travel on the disk yet**: the
+BASIC loader carries it on the 48K tape, and here it is still to do.
 
-Este es el árbol donde el +3 se separa de la cinta. La idea es traerle las
-descripciones largas de las ediciones de Amiga y de CPC, que en el Spectrum no
-cabían y aquí sí. Hoy los fuentes son los mismos que los de 48K salvo en
-cuántas imágenes lleva cada uno.
+## What is coming
 
-## La parte 2 pide clave
+This is the tree where the +3 parts company with the tape. The idea is to bring
+it the long descriptions from the Amiga and CPC editions, which would not fit
+on a Spectrum. Today the sources are the same as the 48K ones bar how many
+pictures each carries.
 
-Es del original: al empezar pregunta «¿Clave de acceso?», y la palabra la daba
-la primera parte al terminarla.
+## Part two asks for a password
+
+That is the original's doing: it opens with "¿Clave de acceso?", and the word
+was what finishing part one gave you.
