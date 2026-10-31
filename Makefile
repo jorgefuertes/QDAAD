@@ -1,4 +1,4 @@
-.PHONY: dist build test doc packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker
+.PHONY: dist build test doc packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker example-ao example-ao-48 example-ao-p3
 
 VERSION=$$(git describe --tags --abbrev=0)
 
@@ -118,3 +118,17 @@ decomp-ao:
 	@rm -rf $(AO_OUT)
 	@go run cmd/qundaad/qundaad.go decompile --input $(AO_PC)/PART1.DDB --output $(AO_OUT)/part1
 	@go run cmd/qundaad/qundaad.go decompile --input $(AO_PC)/PART2.DDB --output $(AO_OUT)/part2
+
+# The ported La Aventura Original, built for each of its two machines. The
+# sources are in the repository and need nothing from work/, so these run on a
+# fresh checkout. See examples/AO/README.md for what is hand-corrected in them.
+AO_EX := examples/AO/ZXSpectrum
+example-ao-48:
+	@go run cmd/qdaad/qdaad.go compile -i $(AO_EX)/48/game.sce -o tmp/example-ao-48 -f build -m zx -s 48k -v 3
+	@go run cmd/qpack/qpack.go -f tap -o tmp/AO48 --name AO tmp/example-ao-48
+
+example-ao-p3:
+	@go run cmd/qdaad/qdaad.go compile -i $(AO_EX)/+3/game.sce -o tmp/example-ao-p3 -f build -m zx -s plus3 -v 3
+	@go run cmd/qpack/qpack.go -f dsk -o tmp/AOP3 --name AO tmp/example-ao-p3
+
+example-ao: example-ao-48 example-ao-p3
