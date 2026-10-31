@@ -2,7 +2,6 @@ package pack
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
@@ -210,16 +209,28 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 		release.Add(part.name, fmt.Sprintf("%s, loads at 0x%04X", part.note, part.at), body)
 	}
 
-	// And the pictures, each its own file: the interpreter opens them by name
-	// and reads their own five-byte header first.
-	numbers := make([]int, 0, len(opts.Images))
-	for n := range opts.Images {
-		numbers = append(numbers, n)
+	// The pictures, in two places. As many as page one holds go into DAAD.GRA,
+	// which the interpreter reads once at start-up and keeps; the rest are
+	// files of their own, opened by name when a PICTURE names them.
+	//
+	// The split is not about speed, although the buffered ones are faster for
+	// nothing. It is about the directory: a +3DOS one has 64 entries, and an
+	// adventure with 69 pictures and four other files has more names than
+	// that however empty the disk is. See zxplus3cache.go.
+	cached, loose, err := chooseCached(opts.Images)
+	if err != nil {
+		return nil, err
 	}
 
-	sort.Ints(numbers)
+	if buffer, err := plus3Cache(cached); err != nil {
+		return nil, err
+	} else if len(buffer) > 0 {
+		release.Add(plus3CacheName,
+			fmt.Sprintf("%d pictures, read into page one at start-up", len(cached)),
+			buffer)
+	}
 
-	for _, number := range numbers {
+	for _, number := range loose {
 		picture, err := plus3Picture(opts.Images[number])
 		if err != nil {
 			return nil, fmt.Errorf("picture %d: %w", number, err)

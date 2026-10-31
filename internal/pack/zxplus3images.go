@@ -39,6 +39,12 @@ const (
 	// plus3PictureSuffix is the extension the interpreter builds its
 	// filenames with: three digits and this.
 	plus3PictureSuffix = ".128"
+	// plus3PictureHeader is the geometry in front of the compressed screen:
+	// width in characters, height, width in columns, and the fixed X and Y.
+	// The interpreter reads exactly this much before the data, whether the
+	// picture came out of a file of its own or out of the buffer — see
+	// ZXFileHeader in PLUS3.ASM.
+	plus3PictureHeader = 5
 	// plus3TopOfScreen is the Y every picture here is pinned to. The
 	// alternative is to let it float — any Y at or past the height of the
 	// screen means "wherever the window happens to be" — and floating puts

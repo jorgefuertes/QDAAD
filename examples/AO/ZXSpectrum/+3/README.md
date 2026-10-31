@@ -29,13 +29,23 @@ for when it boots a disk from its menu. `qpack` sees to that.
 
 ## The pictures
 
-Part one's 41 all fit. Part two's 69 do not: nine are left out, and the reason
-is not room. A +3DOS directory holds **64 entries** and part two's release is
-73 files, so there are 81 KB of disk going spare with nowhere to name them.
-`qpack` says which nine and never cuts one short.
+Every one of them fits: 41 on part one's disk and 69 on part two's.
 
-Each picture travels as a `.128` of its own — five bytes of geometry and the
-screen compressed with ZX0 — cut to its own last row with a pixel in it rather
+They used not to. A picture is a file of its own, opened by name when a
+`PICTURE` names it, and a +3DOS directory holds **64 entries** — so part two's
+73 files had nine with nowhere to be named, on a disk with 81 KB going spare.
+What ran out was names, not room.
+
+The way round it is the interpreter's own and we were not using it. At start-up
+it looks for a **`DAAD.GRA`**, and if it is there it reads the whole file into
+page 1 and keeps it; every `PICTURE` then looks in there before going near the
+disk. So the pictures that fit in that page — 16 on part one, 25 on part two —
+cost one directory entry between them, and draw with no disk access at all. The
+smallest go in, because the point is to take as many names as possible out of
+the directory.
+
+Each of the rest travels as a `.128` of its own: five bytes of geometry and the
+screen compressed with ZX0, cut to its own last row with a pixel in it rather
 than to a fixed height, which is what used to leave the title frame without its
 bottom bar.
 

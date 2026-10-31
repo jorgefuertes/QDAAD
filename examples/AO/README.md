@@ -82,13 +82,13 @@ Today the only difference is **how many drawings each one carries**.
 |---|---|---|
 | Drawings it has | 41 | 69 |
 | On the 48K tape | 4 | 3 |
-| On the +3 disk | 41 | 60 of 69 |
+| On the +3 disk | 41 | 69 |
 
 About ten fit on a tape, so each part carries the ones the game needs to make
 sense and the generic picture covers the rest, which is what the adventure
-itself does. On part two's disk nine are left out — not for want of room, but
-because a +3DOS directory holds 64 entries and the release is 73 files.
-`qpack` says which ones and never cuts one short.
+itself does. On a disk they all fit, which they did not until the pictures that
+have room went into a `DAAD.GRA` instead of a file each: a +3DOS directory
+holds 64 entries, and what part two ran out of was names rather than room.
 
 ## What is still not right
 
