@@ -500,6 +500,185 @@ lo lleva puesto —`14 1B 15 FF`—, así que el último condacto no es terminal
 
 Portar la aventura pide, pues, **insertar un `END` detrás de cada `QUIT`**.
 
+#### Y ese `0` es un fallo de la aventura, de un dígito
+
+El `0` sobrevivió a la inserción del `END`, porque el otro `DPRINT 21` de la aventura no lleva
+`QUIT` delante: está al final de la tabla 1, es la pantalla de muerte, y el fuente original lo dice
+igual (`PART1.SCE:1978`, y la muerte llega por `/PRO 5` → `GOTO 29` / `DESC 255`).
+
+```
+_       _               AT      29
+                        CLS
+                        DPRINT  21
+```
+
+**Lo zanja el intérprete de 1989.** `AD.EXE` viene en el mismo directorio que los 2 DDB de la AO y
+cuenta los turnos en una instrucción, una vez por turno, en el `0x16b` de su segmento de código:
+
+```asm
+16b: ff 06 49 01    inc word [0x0149]
+```
+
+Sus banderas empiezan en `DS:0x12a` —la indirección del `0x264` carga esa dirección—, luego el
+`0x0149` es la bandera 31 y la palabra es la pareja 31/32. La rutina de fin de partida la lee para
+el informe, con singular y plural, y de paso la puntuación:
+
+```asm
+466: 8b 3e 49 01    mov di,[0x0149]   ; el contador
+46a: e8 85 11       call 0x15f2       ; impreso como numero de 2 bytes
+46d: 8b 0e 49 01    mov cx,[0x0149]
+474: 49             dec cx            ; un turno, o mas de uno
+48f: a0 48 01       mov al,[0x0148]   ; y la bandera 30 es la puntuacion
+```
+
+Y las banderas **21 y 22 no se referencian en ningún sitio del binario**, mientras la 30, la 31 y la
+32 sí. O sea que la pareja del contador nunca se mudó entre versiones: aquel `DPRINT 21` es una
+errata de un dígito.
+
+En 1989 casi no se notaba, y conviene separar los 2 caminos. El del `QUIT` **no llegaba a correr
+nunca**, porque el `QUIT` de v1 acababa la partida ahí mismo: era código muerto, y lo que el jugador
+veía era el informe del intérprete —«Has dado 5 ordenes.», comprobado sobre la cinta original—. El
+de la muerte sí corre, porque está en la tabla de cada turno y no lleva `QUIT` delante. Bajo v3 el
+`END` que se inserta deja el primero muerto otra vez, y el segundo es el que sacaba el `0`.
+
+Las 2 aventuras de 1989 traen la errata —5 veces entre las 2, y ninguna escribe nunca la 21 ni la
+22— y las 3 posteriores de la misma casa, ya en v2, escriben `DPRINT 31` en el mismo sitio:
+
+| Aventura | DAAD | `DPRINT` |
+|---|---|---|
+| La Aventura Original | v1 | 21 |
+| El Jabato | v1 | 21 |
+| Cozumel | v2 | **31** |
+| Chichén Itzá | v2 | **31** |
+| Los Templos Sagrados | v2 | **31** |
+
+La conversión a v3 lo repara, y es **la única diferencia con el original que el binario no pide**:
+el resto de §11 dice en términos de v3 lo que la base ya decía. La reja que lo hace seguro es que
+sólo dispara cuando **nada más en la base nombra la pareja**, ni para escribirla ni para leerla,
+porque en v1 esas banderas son del autor: una aventura que lleve de verdad un número suyo en la
+21/22 nombra esas banderas en los condactos que lo cuentan, y entonces su `DPRINT` se queda como
+está. El contador lo rellena el bucle que se escribe para el port, que lleva el acarreo de 16 bits
+—`EQ 31 255` / `PLUS 32 1` / `CLEAR 31`, y si no, `PLUS 31 1`—.
+
+#### Y lo que se imprimía ahí era una frase, no un número
+
+El jugador de 1989 no leía un número suelto: leía «Has dado 5 ordenes.», y la montaba el intérprete
+en la misma rutina de arriba, con 4 mensajes de sistema de la propia aventura —el 17 «Has dado », el
+18 « orden», el 19 «es» y el 20 «.»— y el singular elegido contando hacia atrás desde el total
+(`474: dec cx` / `475: je`). El intérprete v3 no lo hace, así que hay que escribirlo.
+
+Va en **una tabla propia que la conversión añade detrás de las de la aventura**, de modo que no se
+renumera ninguna. Tiene que ser una tabla y no unos condactos en línea porque el plural es una
+condición, y en DAAD una condición es una entrada: `SKIP` salta entradas enteras, no condactos, así
+que dentro de un bloque no se bifurca.
+
+```
+/PRO 21
+
+> _        _        SYSMESS 17
+                    DPRINT 31
+
+> _        _        EQ 32 0
+                    EQ 31 1
+                    SYSMESS 18
+                    SYSMESS 20
+                    SKIP 1
+
+> _        _        SYSMESS 18
+                    SYSMESS 19
+                    SYSMESS 20
+```
+
+Donde estaba el `DPRINT` muerto va ahora un `PROCESS` a ella. Y en el caso del `QUIT` los 2 van
+juntos, porque el informe tiene que imprimirse **antes** del `END`: lo que sale es
+`QUIT / PROCESS 21 / END`, y en pantalla el orden del original —la cuenta, y después «¿Hace otra
+partidita?»—.
+
+La mitad de la puntuación de aquella rutina no está aquí: lee la bandera 30, que estas aventuras no
+escriben nunca, y la imprime entre 2 mensajes de sistema que La Aventura Original deja vacíos.
+
+### 11.4.1 `PICTURE` dibujaba, y ahora sólo prepara
+
+En v3 `PICTURE` busca la imagen y la deja lista, y **quien la pinta es `DISPLAY 0`**
+(`daad_condacts.c:2609` y `2631`). En DAAD 1 dibujaba él. Así que una base de 1989 pide imágenes que
+no llega a pintar nadie.
+
+Que la vieja dibujaba lo prueba la propia aventura: La Aventura Original tiene **5 `PICTURE` y ni un
+solo `DISPLAY`**, y las 5 van encerradas entre un `WINDOW 0` y un `WINDOW 1` —entrar a la ventana
+gráfica y salir—, luego el dibujado pasaba ahí mismo:
+
+```
+_       _               AT      26
+                        EQ      14 0
+                        WINDOW  0
+                        PICTURE 46
+                        WINDOW  1
+                        MES     53
+                        MES     55            ; " cerrada con un candado"
+```
+
+Y lo que se pierde al convertirlas literalmente se ve bien en esas 5. La 44 es **el marco** que rodea
+el texto de presentación, así que la intro sale desnuda. Y la 46, la 47 y la 48 son la reja de la
+localidad 26, **una por estado del candado** según la bandera 14 —cerrada, con el candado abierto,
+sin él, y la reja abierta—, así que el candado no se abre nunca en pantalla. Las 3 hacen
+`CALL 26,0,0` antes de su detalle, o sea que arrastran su propia base y no hay nada que aplanar: lo
+que faltaba era pintarlas.
+
+La conversión mete, pues, **un `DISPLAY 0` detrás de cada `PICTURE`**, justo donde estaba. Con una
+diferencia que se lleva puesta: el `PICTURE` de v3 es una condición y **falla si no existe la
+imagen**, llevándose por delante el resto de la entrada, donde el viejo habría seguido. Las 5 de la
+AO existen.
+
+### 11.4.2 El flag 40: «esta localidad tiene dibujo»
+
+Pintar los `PICTURE` destapó lo que tapaba no pintarlos. En la primera localidad salía la cabaña y
+acto seguido la borraba una imagen genérica —el logotipo de AD entre los árboles, que es el dibujo
+27—, y la captura del juego de 1989 dice que ahí se queda la cabaña.
+
+Viene de 2 bloques de la tabla 1 de la AO que no están en la edición de PC:
+
+```
+> _       _     NEWLINE
+                ZERO 0
+                ABSENT 0
+                LISTOBJ
+                ZERO 40
+                WINDOW 0
+                PICTURE 27          ; la generica
+                WINDOW 1
+```
+
+**La bandera 40 no la escribe nunca ninguna de las 2 aventuras: sólo la leen.** La ponía el
+intérprete del Spectrum, y lo que significa lo dicen las 2 a la vez. La AO pinta su genérica cuando
+vale 0, y El Jabato, en la misma posición de su tabla, hace esto:
+
+```
+> _       _     SET 92
+                NOTZERO 40
+                CLEAR 92
+
+> _       _     ZERO 40
+                WINDOW 0
+                CLS
+                WINDOW 1
+```
+
+O sea: **distinta de cero, la localidad tiene dibujo; cero, no lo tiene**, y entonces una pone la
+genérica y la otra limpia la ventana gráfica. Ninguna otra lectura casa con las 2.
+
+Y eso contesta de paso qué se veía en las localidades sin dibujo. En la parte 1 hay **8 entradas de
+la tabla de dibujos que son un solo `RET`** —la 0, la 1, la 6, la 8, la 9, la 12, la 17 y la 43—, y
+no son detalles sin base ni hay nada que aplanar: son localidades sin ilustración, y el jugador de
+1989 veía allí la genérica. El sitio donde eso se decide es el flag.
+
+El bucle del port tiene que reponerlo, porque el intérprete v3 no lo hace: **`CLEAR 40` al limpiar
+la pantalla y `SET 40` detrás del `DISPLAY 0`**, que sólo se alcanza si el `PICTURE` encontró la
+imagen. Sin eso el `ZERO 40` se cumple siempre y la genérica tapa todas las localidades.
+
+**Ojo con el choque**: en v2 y v3 las banderas 39 y 40 son `fO2Att`, los atributos del objeto 2, y
+las escribe el intérprete al resolver un segundo nombre. Por eso el `SET 40` va en el bucle, que
+corre cada turno justo antes de la tabla que lo lee.
+
 ### 11.5 Una frase sin verbo deja `fVerb` a cero, no a 255
 
 Las entradas comodín del final de una tabla de respuestas de DAAD 1 dan por hecho que `fVerb` trae

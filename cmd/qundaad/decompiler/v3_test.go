@@ -76,18 +76,123 @@ func TestTheBareDescBecomesARestart(t *testing.T) {
 func TestQuitGetsTheEndItNeverNeeded(t *testing.T) {
 	c := &v3Conversion{tables: 21, sysmess: map[int]int{}}
 
-	got := c.convertCondacts([]ddbfile.Condact{{Opcode: opQUIT}, {Opcode: 27, Params: []byte{21}}})
-
-	require.Equal(t, []ddbfile.Condact{
-		{Opcode: opQUIT},
-		{Opcode: opEND},
-		{Opcode: 27, Params: []byte{21}},
-	}, got)
+	require.Equal(t,
+		[]ddbfile.Condact{{Opcode: opQUIT}, {Opcode: opEND}},
+		c.convertCondacts([]ddbfile.Condact{{Opcode: opQUIT}}))
 
 	// One that already does the version 3 thing is left as it is, so that
 	// converting something twice is not a different answer.
 	already := []ddbfile.Condact{{Opcode: opQUIT}, {Opcode: opEND}}
 	require.Equal(t, already, c.convertCondacts(already))
+
+	// And the shape both adventures of 1989 really have, which is QUIT with
+	// the endgame report after it. The report has to print before END, because
+	// END ends the game and nothing after it runs.
+	withReport := &v3Conversion{tables: 22, report: 21, sysmess: map[int]int{}}
+
+	require.Equal(t, []ddbfile.Condact{
+		{Opcode: opQUIT},
+		{Opcode: opPROCESS, Params: []byte{21}},
+		{Opcode: opEND},
+	}, withReport.convertCondacts([]ddbfile.Condact{
+		{Opcode: opQUIT},
+		{Opcode: opDPRINT, Params: []byte{21}},
+	}))
+}
+
+// PICTURE drew in DAAD 1. In version 3 it only gets the image ready and
+// DISPLAY 0 draws it, so a database of 1989 asks for pictures nobody paints.
+func TestEveryPictureGetsTheDisplayThatDrawsIt(t *testing.T) {
+	c := &v3Conversion{tables: 21, sysmess: map[int]int{}}
+
+	got := c.convertCondacts([]ddbfile.Condact{{Opcode: opPICTURE, Params: []byte{44}}})
+
+	require.Equal(t, []ddbfile.Condact{
+		{Opcode: opPICTURE, Params: []byte{44}},
+		{Opcode: opDISPLAY, Params: []byte{0}},
+	}, got)
+
+	// One that already draws is left as it is, so that converting something
+	// twice is not a different answer.
+	already := []ddbfile.Condact{
+		{Opcode: opPICTURE, Params: []byte{44}},
+		{Opcode: opDISPLAY, Params: []byte{0}},
+	}
+	require.Equal(t, already, c.convertCondacts(already))
+}
+
+// La Aventura Original and El Jabato both print the pair 21/22 at the end of
+// the game and neither ever writes it, so what reached the screen was a zero.
+// What it meant is the endgame report, which the version 1 interpreter printed
+// by itself: the turn count, in a sentence.
+func TestADeadDPRINTGetsTheTurnCounter(t *testing.T) {
+	dprint21 := []ddbfile.Condact{{Opcode: opDPRINT, Params: []byte{21}}}
+
+	t.Run("a pair nobody fills becomes the report", func(t *testing.T) {
+		c := &v3Conversion{tables: 22, report: 21, sysmess: map[int]int{}}
+
+		require.Equal(t,
+			[]ddbfile.Condact{{Opcode: opPROCESS, Params: []byte{21}}},
+			c.convertCondacts(dprint21))
+	})
+
+	// The report itself: the count, and the noun with its plural or without.
+	t.Run("the report counts in Spanish", func(t *testing.T) {
+		report := endgameReport()
+		require.Len(t, report, 3)
+
+		require.Equal(t, []ddbfile.Condact{
+			{Opcode: opSYSMESS, Params: []byte{sysTurnsBefore}},
+			{Opcode: opDPRINT, Params: []byte{turnCounter}},
+		}, report[0].Condacts)
+
+		// One turn is both halves of the pair saying so, and it skips the
+		// entry that would have added the "es".
+		require.Equal(t, []ddbfile.Condact{
+			{Opcode: opEQ, Params: []byte{turnCounter + 1, 0}},
+			{Opcode: opEQ, Params: []byte{turnCounter, 1}},
+			{Opcode: opSYSMESS, Params: []byte{sysTurnsNoun}},
+			{Opcode: opSYSMESS, Params: []byte{sysTurnsAfter}},
+			{Opcode: opSKIP, Params: []byte{1}},
+		}, report[1].Condacts)
+
+		require.Equal(t, []ddbfile.Condact{
+			{Opcode: opSYSMESS, Params: []byte{sysTurnsNoun}},
+			{Opcode: opSYSMESS, Params: []byte{sysTurnsPlural}},
+			{Opcode: opSYSMESS, Params: []byte{sysTurnsAfter}},
+		}, report[2].Condacts)
+	})
+
+	// The guard, which is the whole reason this is not a blind substitution.
+	// Version 1 leaves those flags to the author, so an adventure keeping a
+	// number of its own in them keeps its DPRINT.
+	for _, named := range []ddbfile.Condact{
+		{Opcode: 49, Params: []byte{21, 1}},              // PLUS 21 1, the low half
+		{Opcode: 49, Params: []byte{22, 1}},              // PLUS 22 1, the high half
+		{Opcode: 48, Params: []byte{21}},                 // CLEAR 21
+		{Opcode: 12, Params: []byte{22}},                 // NOTZERO 22, which only reads it
+		{Opcode: 53, Indirect: true, Params: []byte{21}}, // PRINT @21
+	} {
+		t.Run("left alone when something names the pair", func(t *testing.T) {
+			c := &v3Conversion{tables: 22, report: 21, sysmess: map[int]int{}}
+			c.convertProcesses([][]ddbfile.Entry{{
+				{Condacts: []ddbfile.Condact{named}},
+				{Condacts: dprint21},
+			}})
+
+			require.Equal(t, dprint21, c.convertCondacts(dprint21),
+				"%v names the pair, so the DPRINT means something", named)
+		})
+	}
+
+	// And one that already names the turn counter is not touched, so converting
+	// twice is not a different answer.
+	t.Run("the turn counter itself is left as it is", func(t *testing.T) {
+		c := &v3Conversion{tables: 22, report: 21, sysmess: map[int]int{}}
+		already := []ddbfile.Condact{{Opcode: opDPRINT, Params: []byte{turnCounter}}}
+
+		require.Equal(t, already, c.convertCondacts(already))
+	})
 }
 
 // Some system messages are not the adventure's: a version 3 interpreter prints
@@ -163,14 +268,18 @@ func TestConvertingTheVersionOneAdventures(t *testing.T) {
 			after, err := r.Processes()
 			require.NoError(t, err)
 
-			require.Len(t, after, len(before)+len(v3Reserved),
-				"the loop needs four tables of its own")
+			// Four tables for the loop, and a fifth for the endgame report,
+			// which both adventures need because both print the dead pair.
+			require.Positive(t, plan.report, "both adventures end with a report")
+			require.Len(t, after, len(before)+len(v3Reserved)+1,
+				"the loop needs four tables of its own, and the report one more")
+			require.Equal(t, endgameReport(), after[plan.report])
 
 			for _, n := range v3Reserved {
 				require.Empty(t, after[n], "table %d is the loop's and is written separately", n)
 			}
 
-			var quits, bare, restarts int
+			var quits, bare, restarts, dprints, pictures int
 
 			for number, entries := range after {
 				for _, e := range entries {
@@ -183,8 +292,24 @@ func TestConvertingTheVersionOneAdventures(t *testing.T) {
 						case c.Opcode == opQUIT:
 							quits++
 
-							require.True(t, followedBy(e.Condacts, i, opEND),
+							// The END comes right after, or one past the
+							// report these adventures print before it.
+							require.True(t,
+								followedBy(e.Condacts, i, opEND) ||
+									(followedBy(e.Condacts, i, opPROCESS) &&
+										followedBy(e.Condacts, i+1, opEND)),
 								"table %d: a QUIT with no END ends nothing", number)
+						case c.Opcode == opPICTURE:
+							pictures++
+
+							require.True(t, followedBy(e.Condacts, i, opDISPLAY),
+								"table %d: a PICTURE with no DISPLAY draws nothing", number)
+						case c.Opcode == opDPRINT && !c.Indirect:
+							dprints++
+
+							require.Equal(t, []byte{turnCounter}, c.Params,
+								"table %d: a DPRINT of anything these adventures never fill "+
+									"prints a zero", number)
 						}
 
 						// Every PROCESS has to name a table that exists, and
@@ -202,6 +327,8 @@ func TestConvertingTheVersionOneAdventures(t *testing.T) {
 			require.Zero(t, bare, "a bare DESC means the same as nothing under version 3")
 			require.Positive(t, restarts, "both adventures describe the player's location")
 			require.Positive(t, quits, "both adventures let the player give up")
+			require.Positive(t, dprints, "both adventures print a number at the end")
+			require.Positive(t, pictures, "both adventures draw pictures of their own")
 
 			// The system messages the interpreter reserves are now what it
 			// expects to print, and whatever the adventure had there is

@@ -172,21 +172,21 @@ Referencias: `msx2daad/include/daad.h:215-257`, `PCDAAD/flags.pas:9-46`,
 | 1 | `fNOCarr` | Número de objetos llevados (no vestidos) |
 | 2–3 | `fWork1`, `fWork2` / `fFULL` | Trabajo interno del sistema |
 | 20 | `fMALUVA` | Resultado y errores de Maluva. **Solo real en ZXDAAD128**; PCDAAD lo declara con el comentario "not really used" |
-| 21 | `FSOUND` | **Solo PCDAAD**: control del motor de sonido. bit 0 SFX activo, bit 1 OPL activo, bit 2 SFX en bucle, bit 3 OPL en bucle, bit 4 SFX sonando, bit 5 OPL sonando |
+| 21 | `FSOUND` | **Solo PCDAAD**: control del motor de sonido. bit 0 SFX activo, bit 1 OPL activo, bit 2 SFX en bucle, bit 3 OPL en bucle, bit 4 SFX sonando, bit 5 OPL sonando. En v1 el intérprete no la toca: `AD.EXE` no referencia ni la 21 ni la 22, así que ahí son del autor |
 | 23 | `fEMPTY` | Base de la pila de DAAD |
 | 24 | `fStack` | Pila pequeña: 10 apilamientos de 2 bytes |
 | 25 / 26 / 27 | `fO2Num` / `fO2Con` / `fO2Loc` | Objeto 2, resuelto desde nombre2 y adjetivo2 |
 | 28 | `fDarkF` | Lo usa la plantilla, no el intérprete |
 | 29 | `fGFlags` | bit 7 gráficos, bit 0 ratón. Ver §5 |
 | 30 | `fScore` | Puntuación (convención, opcional) |
-| 31–32 | `fTurns` | Número de turnos, 2 bytes little-endian |
+| 31–32 | `fTurns` | Número de turnos, 2 bytes little-endian. **La pareja es la misma desde v1**: `AD.EXE`, el intérprete de 1989, hace `inc word [0x0149]` una vez por turno, y su base de banderas es `DS:0x12a`. Ver [07-daad-v3.md](07-daad-v3.md) §11.4 |
 | 33 | `fVerb` | Verbo de la frase lógica actual |
 | 34 | `fNoun1` | Primer nombre |
 | 35 | `fAdject1` | Adjetivo del primer nombre |
 | 36 | `fAdverb` | Adverbio |
 | 37 | `fMaxCarr` | Máximo de objetos transportables (`ABILITY`), inicialmente 4 |
 | 38 | `fPlayer` | Localidad actual del jugador |
-| 39–40 | `fO2Att` | Atributos del objeto 2 |
+| 39–40 | `fO2Att` | Atributos del objeto 2. **Choca con v1 en el Spectrum**: allí la 40 valía «esta localidad tiene dibujo», la ponía el intérprete y las aventuras sólo la leen. Ver [07-daad-v3.md](07-daad-v3.md) §11.4.2 |
 | 41 | `fInStream` | Stream de entrada; se usa módulo 8 |
 | 42 | `fPrompt` | Mensaje de sistema usado como prompt; 0 elige uno de 4 al azar |
 | 43 | `fPrep` | Preposición |

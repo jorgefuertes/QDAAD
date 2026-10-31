@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jorgefuertes/QDAAD/internal/ddb"
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 )
@@ -32,21 +33,53 @@ import (
 
 // Opcodes this conversion has to know by name.
 const (
+	opEQ      = 13
 	opDESC    = 19
 	opQUIT    = 20
 	opEND     = 21
 	opCLS     = 29
 	opDISPLAY = 28
+	opDPRINT  = 27
 	opSYSMESS = 54
 	opPARSE   = 73
 	opPICTURE = 84
 	opPROCESS = 75
+	opSKIP    = 116
 	opRESTART = 117
+)
+
+// The system messages the endgame report is built out of. They are the
+// adventure's own, in the slots AD.EXE named when it printed the report itself:
+// 17 before the number, then 18, 19 for the plural and 20 to close. In La
+// Aventura Original they hold "Has dado ", " orden", "es" and ".".
+const (
+	sysTurnsBefore = 17
+	sysTurnsNoun   = 18
+	sysTurnsPlural = 19
+	sysTurnsAfter  = 20
 )
 
 // parseLiteral is the operand that makes PARSE read the phrase the player put
 // in quotes rather than ask for a new line.
 const parseLiteral = 1
+
+// turnCounter is the low half of the pair the interpreter counts turns in, and
+// it is the same pair in every version. AD.EXE — the interpreter shipped beside
+// the two databases of La Aventura Original — does it in one instruction, once
+// per turn, at 0x16b of its code segment:
+//
+//	16b: ff 06 49 01    inc word [0x0149]
+//
+// Its flags start at DS:0x12a (the indirection at 0x264 loads that address), so
+// 0x0149 is flag 31 and the word is the pair 31/32. The same routine reads it
+// back to print the endgame report, with the singular and the plural:
+//
+//	466: 8b 3e 49 01    mov di,[0x0149]   the count
+//	46a: e8 85 11       call 0x15f2       printed as a 16-bit number
+//	46d: 8b 0e 49 01    mov cx,[0x0149]
+//	474: 49             dec cx            one turn or more than one
+//	48f: a0 48 01       mov al,[0x0148]   and flag 30 is the score
+const turnCounter = 31
 
 // Where version 3 expects the loop to live. Tables 0, 1 and 2 are the loop
 // itself and the parser's replies; 6 is the initialisation. The adventure's own
@@ -89,6 +122,13 @@ type v3Conversion struct {
 	// sysmess maps a system message the interpreter reserves to the free slot
 	// its text was moved to. Empty when the adventure used none of them.
 	sysmess map[int]int
+	// named is every flag the database mentions anywhere outside a DPRINT, which
+	// is what says whether a DPRINT's operand holds anything. Filled from the
+	// old tables before any of them is rewritten.
+	named map[byte]bool
+	// report is the table holding the endgame report, added after the
+	// adventure's own. Zero when the database has nothing that needs it.
+	report int
 }
 
 // reservedSysmess are the system messages a version 3 interpreter prints by
@@ -102,13 +142,28 @@ type v3Conversion struct {
 // looking like anything but a system message.
 var reservedSysmess = []int{2, 3, 4, 5}
 
-// freeSysmess are slots the official template leaves empty in every language,
-// which makes them the only safe places to move a reserved message's text to.
+// freeSysmess are the slots the official template leaves empty, which makes
+// them the only safe places to move a reserved message's text to.
 //
-// Picking merely "a slot this adventure leaves empty" is not enough: the
+// There are three, and they are not a guess: the template marks them itself.
+// Every other slot it leaves blank carries a comment saying what the
+// interpreter keeps there, and both the version 1 Spanish template
+// (daad/Deprecated/SCE/SPANISH.SCE) and the version 3 one
+// (daad-ready/ASSETS/TEMPLATES/BLANK_ES.DSF) agree on which three:
+//
+//	/11 ;*Libre      /17 ;*Has jugado    /20 ;*.[CR]
+//	/14 ;*Libre      /18 ;*\sturno       /21 ;*Ha resuelto un
+//	/34 ;*Libre      /19 ;*s             /22 ;*%[CR]
+//
+// Three are not always enough — the PC edition of La Aventura Original fills
+// all four reserved slots — so the two the report does not use follow them.
+// Never 17 to 20: those four are the report this conversion writes, and text
+// moved there would come out in the middle of "Has dado 5 ordenes.".
+//
+// Picking merely "a slot this adventure leaves empty" is not enough either: the
 // template fills 29 with "Ya llevo puesto _.", so moving text there would trade
 // one message appearing uninvited for another.
-var freeSysmess = []int{34, 22, 21, 20, 19, 18, 17, 14, 11}
+var freeSysmess = []int{34, 11, 14, 22, 21}
 
 // planV3 works out what this database needs converting.
 func planV3(r *ddbfile.Reader) (*v3Conversion, error) {
@@ -117,9 +172,19 @@ func planV3(r *ddbfile.Reader) (*v3Conversion, error) {
 		return nil, err
 	}
 
+	named := flagsNamed(all)
+
 	plan := &v3Conversion{
 		tables:  len(all) + len(v3Reserved),
 		sysmess: map[int]int{},
+		named:   named,
+	}
+
+	// The endgame report needs a table of its own, and it goes after every
+	// table the adventure has so that none of theirs is renumbered.
+	if hasDeadDPRINT(all, named) {
+		plan.report = plan.tables
+		plan.tables++
 	}
 
 	texts, err := r.SystemMessages()
@@ -187,6 +252,13 @@ func (c *v3Conversion) SystemMessages(texts []string) []string { return c.conver
 // convertProcesses moves every table to where version 3 expects it and rewrites
 // the condacts that do not mean the same thing any more.
 func (c *v3Conversion) convertProcesses(old [][]ddbfile.Entry) [][]ddbfile.Entry {
+	// Before anything is rewritten, because what a DPRINT means depends on what
+	// the rest of the tables do with the flag it names. planV3 has worked this
+	// out already; a conversion built by hand, as the tests do, has not.
+	if c.named == nil {
+		c.named = flagsNamed(old)
+	}
+
 	out := make([][]ddbfile.Entry, c.tables)
 
 	for number, entries := range old {
@@ -202,15 +274,182 @@ func (c *v3Conversion) convertProcesses(old [][]ddbfile.Entry) [][]ddbfile.Entry
 		out[movedTable(number)] = moved
 	}
 
+	if c.report > 0 {
+		out[c.report] = endgameReport()
+	}
+
 	return out
+}
+
+// flagsNamed is every flag number the tables mention, except the ones a DPRINT
+// names. The exception is the point of it: a DPRINT is the only condact here
+// whose operand is being judged, so counting its own mention would make every
+// flag look used.
+//
+// Both ways a condact can name a flag are counted. The declared kind is one,
+// and the indirection is the other: bit 7 of the opcode makes the first operand
+// a flag number whatever the table says that operand is.
+func flagsNamed(all [][]ddbfile.Entry) map[byte]bool {
+	named := map[byte]bool{}
+
+	for _, entries := range all {
+		for _, e := range entries {
+			for _, condact := range e.Condacts {
+				if condact.Opcode == opDPRINT {
+					continue
+				}
+
+				if condact.Indirect && len(condact.Params) > 0 {
+					named[condact.Params[0]] = true
+				}
+
+				def, found := ddb.LookupCondact(ddb.Opcode(condact.Opcode))
+				if !found {
+					continue
+				}
+
+				for i, kind := range def.Params {
+					if kind == ddb.ParamFlag && i < len(condact.Params) {
+						named[condact.Params[i]] = true
+					}
+				}
+			}
+		}
+	}
+
+	return named
+}
+
+// deadPair says whether a DPRINT of this flag can only ever print a zero:
+// nothing else in the database names either half of the pair, and no
+// interpreter writes them either.
+//
+// That last part is what makes this safe to act on. In version 1 the flags
+// between 4 and 19 and from 21 up to the system block are the author's to use —
+// AD.EXE never once refers to flag 21 or 22, the way it refers to 30, 31 and 32
+// — so a version 1 adventure counting something of its own in 21/22 is doing
+// nothing wrong, and this leaves it alone because the condacts that count it
+// name the flag.
+func deadPair(named map[byte]bool, flag byte) bool {
+	// The manual says DPRINT 255 is meaningless, and a pair needs a second half.
+	if flag == 255 || flag == turnCounter {
+		return false
+	}
+
+	return !named[flag] && !named[flag+1]
+}
+
+func (c *v3Conversion) deadPair(flag byte) bool { return deadPair(c.named, flag) }
+
+// reportAt says whether this condact of a block is one the endgame report
+// replaces: a DPRINT of a pair nothing fills, in a conversion that has a table
+// to put the report in.
+func (c *v3Conversion) reportAt(block []ddbfile.Condact, at int) bool {
+	if c.report == 0 || at < 0 || at >= len(block) {
+		return false
+	}
+
+	one := block[at]
+
+	return one.Opcode == opDPRINT && len(one.Params) == 1 && !one.Indirect &&
+		c.deadPair(one.Params[0])
+}
+
+// hasDeadDPRINT says whether the database prints a pair nothing fills, which is
+// what decides that a table for the endgame report is worth having.
+func hasDeadDPRINT(all [][]ddbfile.Entry, named map[byte]bool) bool {
+	for _, entries := range all {
+		for _, e := range entries {
+			for _, c := range e.Condacts {
+				if c.Opcode == opDPRINT && len(c.Params) == 1 && !c.Indirect &&
+					deadPair(named, c.Params[0]) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// endgameReport is the report the version 1 interpreter printed by itself and
+// version 3 does not: how many turns the game took, in a sentence.
+//
+// It goes in a table of its own because the plural needs a condition, and a
+// condition inside DAAD is an entry: SKIP steps over whole entries, so there is
+// no branching within one block. The table is added after the adventure's own
+// rather than among them, so that nothing is renumbered.
+//
+// The shape is AD.EXE's, which built the sentence out of four system messages
+// and chose the singular by counting down from the turn count:
+//
+//	466: 8b 3e 49 01    mov di,[0x0149]   the count, printed as 16 bits
+//	471: be 12 00       mov si,0x12       message 18
+//	474: 49             dec cx            one turn, or more than one
+//	475: 74 06          je 0x47d          one: no "es"
+//
+// The score half of that routine is not here: it reads flag 30, which these
+// adventures never set, and prints it between two system messages that La
+// Aventura Original leaves empty.
+func endgameReport() []ddbfile.Entry {
+	sysmess := func(n byte) ddbfile.Condact {
+		return ddbfile.Condact{Opcode: opSYSMESS, Params: []byte{n}}
+	}
+
+	return []ddbfile.Entry{
+		{
+			Verb: ddbfile.NoWord, Noun: ddbfile.NoWord,
+			Condacts: []ddbfile.Condact{
+				sysmess(sysTurnsBefore),
+				{Opcode: opDPRINT, Params: []byte{turnCounter}},
+			},
+		},
+		// One turn exactly: both halves of the pair say so, and the noun goes
+		// in without its plural.
+		{
+			Verb: ddbfile.NoWord, Noun: ddbfile.NoWord,
+			Condacts: []ddbfile.Condact{
+				{Opcode: opEQ, Params: []byte{turnCounter + 1, 0}},
+				{Opcode: opEQ, Params: []byte{turnCounter, 1}},
+				sysmess(sysTurnsNoun),
+				sysmess(sysTurnsAfter),
+				{Opcode: opSKIP, Params: []byte{1}},
+			},
+		},
+		{
+			Verb: ddbfile.NoWord, Noun: ddbfile.NoWord,
+			Condacts: []ddbfile.Condact{
+				sysmess(sysTurnsNoun),
+				sysmess(sysTurnsPlural),
+				sysmess(sysTurnsAfter),
+			},
+		},
+	}
 }
 
 // convertCondacts rewrites one block.
 func (c *v3Conversion) convertCondacts(in []ddbfile.Condact) []ddbfile.Condact {
 	out := make([]ddbfile.Condact, 0, len(in))
+	eaten := -1
 
 	for i, condact := range in {
+		if i == eaten {
+			continue
+		}
+
 		switch {
+		// QUIT with the report right after it, which is how both adventures of
+		// 1989 end: the report has to print before END, because END ends the
+		// game and nothing after it runs. Taken as a pair so that the order
+		// comes out the way the player of 1989 saw it — the count, and then
+		// "¿Hace otra partidita?".
+		case condact.Opcode == opQUIT && c.reportAt(in, i+1):
+			out = append(out,
+				ddbfile.Condact{Opcode: opQUIT},
+				ddbfile.Condact{Opcode: opPROCESS, Params: []byte{byte(c.report)}},
+				ddbfile.Condact{Opcode: opEND})
+
+			eaten = i + 1
 		// A PROCESS names a table, and the tables have moved.
 		case condact.Opcode == opPROCESS && len(condact.Params) == 1 && !condact.Indirect:
 			out = append(out, ddbfile.Condact{
@@ -272,6 +511,62 @@ func (c *v3Conversion) convertCondacts(in []ddbfile.Condact) []ddbfile.Condact {
 			out = append(out,
 				ddbfile.Condact{Opcode: opQUIT},
 				ddbfile.Condact{Opcode: opEND})
+
+		// PICTURE drew in DAAD 1. In version 3 it only finds the image and gets
+		// it ready, and DISPLAY 0 is what puts it on the screen.
+		//
+		// So a version 1 database asks for pictures that never arrive. La
+		// Aventura Original has five PICTUREs and not one DISPLAY, which is the
+		// proof that the old one drew: the frame around its opening text is
+		// picture 44, and the grating at location 26 is pictures 46, 47 and 48,
+		// one per state of the padlock as it opens. Converted literally, the
+		// opening text comes up bare and the padlock never changes.
+		//
+		// The adventure's own shape says where the DISPLAY goes. Every one of
+		// the five sits between a WINDOW 0 and a WINDOW 1 — into the graphics
+		// window and straight back out — so the drawing happened there and then,
+		// and that is where this puts it.
+		//
+		// One difference comes with it: version 3's PICTURE is a condition and
+		// fails when there is no such image, taking the rest of the entry with
+		// it, where the old one would have carried on. All five of these exist.
+		case condact.Opcode == opPICTURE && !followedBy(in, i, opDISPLAY):
+			out = append(out,
+				condact,
+				ddbfile.Condact{Opcode: opDISPLAY, Params: []byte{0}})
+
+		// A DPRINT of a pair nothing fills prints a zero, and what it meant was
+		// the endgame report.
+		//
+		// This one is a repair and not a translation, so it is worth separating
+		// what is measured from what is judged. Measured: La Aventura Original
+		// and El Jabato both say DPRINT 21, five times between them, and neither
+		// ever writes flag 21 or 22 anywhere. Their interpreter does not write
+		// them either — see turnCounter above, where AD.EXE counts turns in the
+		// pair 31/32 and never once refers to 0x13f or 0x140. So that DPRINT
+		// printed a bare zero in 1989 exactly as it does now: the adventures
+		// have a typo, one digit wide, and the three later version 2 adventures
+		// of the same house — Cozumel, Chichén Itzá and Los Templos Sagrados —
+		// write DPRINT 31 in the same place, which is the flag they all meant.
+		//
+		// Measured too: what the player of 1989 read there was not a number on
+		// its own but a sentence, "Has dado 5 ordenes.", and the interpreter
+		// built it. Version 3's does not, so the report goes into a table of
+		// the conversion's own — see endgameReport — and this calls it.
+		//
+		// Judged: that the sentence is better than the bare zero the typo gave.
+		// It is a deliberate difference from the original and the only one here
+		// that the binary does not ask for.
+		//
+		// The guard is what keeps it from being a blind substitution. In version
+		// 1 those flags belong to the author, so an adventure that really does
+		// keep a 16-bit number of its own in 21/22 names them in the condacts
+		// that count it, and then this leaves the DPRINT alone.
+		case c.reportAt(in, i):
+			out = append(out, ddbfile.Condact{
+				Opcode: opPROCESS,
+				Params: []byte{byte(c.report)},
+			})
 
 		default:
 			out = append(out, condact)
