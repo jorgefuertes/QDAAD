@@ -100,8 +100,9 @@ type Options struct {
 	Charset []byte
 	// Images are the pictures, by the number a PICTURE names them with, each
 	// one a whole Spectrum screen of 6912 bytes. What is carried is the top of
-	// each — see imageLines — compressed and indexed; what will not fit is
-	// left out and said so through Note.
+	// each, down to its own last row with a pixel in it — see pictureLines —
+	// compressed and indexed; what will not fit is left out and said so
+	// through Note.
 	Images map[int][]byte
 	// Note is told anything the person packaging should know but that is not
 	// an error — which so far is one thing, and it is the one thing a
@@ -233,7 +234,7 @@ func zxPictures(images map[int][]byte, databaseEnd, stub int) (imagePage, []int,
 
 	room := topOfMemory - at - stub - indexFixed
 
-	return buildImagePage(images, imageLines, at, room)
+	return buildImagePage(images, at, room)
 }
 
 func ZX48(database []byte, opts Options) ([]byte, error) {

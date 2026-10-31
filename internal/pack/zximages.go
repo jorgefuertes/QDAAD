@@ -2,6 +2,7 @@ package pack
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,11 +32,55 @@ const (
 	screenSize = 6912
 	// bytesWide is a row of character cells.
 	bytesWide = 32
-	// imageLines is how much of a screen a picture occupies. It is DAAD's
-	// IMGLINES, whose default is 96 and which every build in the kit leaves
-	// alone; below it the adventure prints.
+	// imageLines is DAAD's IMGLINES: how much of a screen a picture occupies,
+	// one height for every picture in the build, default 96 and left alone by
+	// every build in the kit.
+	//
+	// Nothing here imposes it any more — each picture is cut to its own height,
+	// see pictureLines — but it is still what the official tooling means by a
+	// picture, and the height the tests use for one.
 	imageLines = 96
 )
+
+// pictureLines is how tall a picture really is: down to the last character row
+// that has a pixel in it.
+//
+// DAAD's own answer is IMGLINES, one number for every picture in the build, and
+// it is the wrong one for an adventure of 1989. The engine of the period did not
+// impose a height — each drawing declares its own in byte 3 of its record, and
+// that only says where the interpreter writes afterwards, not where the drawing
+// may paint (09-graficos.md §9.6). La Aventura Original has drawings of three
+// heights, and the tallest are the ones that suffer: cut to IMGLINES's 96 lines,
+// drawing 44 — the frame around the opening credits, which paints 22 rows —
+// loses its bottom bar.
+//
+// The pixels are what is measured and not the attributes, because the
+// attributes are set across the whole canvas whether the drawing touched a cell
+// or not: an untouched one shows the attribute of the drawing's record, so by
+// that measure every picture would be the full screen.
+//
+// A picture with nothing in it still gets one row, because that is the least
+// the format can carry.
+func pictureLines(screen []byte) int {
+	const cellSize = 8
+
+	rows := (screenSize - scrAttributes) / bytesWide / cellSize
+	last := 0
+
+	for row := range rows {
+		for y := row * cellSize; y < (row+1)*cellSize; y++ {
+			at := (y>>6)*2048 + (y&7)*256 + ((y>>3)&7)*bytesWide
+
+			if slices.ContainsFunc(screen[at:at+bytesWide], func(b byte) bool { return b != 0 }) {
+				last = row + 1
+
+				break
+			}
+		}
+	}
+
+	return max(last, 1) * cellSize
+}
 
 // imageBlock is one run of a screen: where it goes and what goes there.
 type imageBlock struct {
@@ -131,7 +176,10 @@ type imagePage struct {
 // A picture that does not fit is left out rather than cut short, and the
 // caller is told which, because a 48K Spectrum running out of room for the
 // last few pictures is an ordinary outcome and not a failure of the build.
-func buildImagePage(images map[int][]byte, lines, at, room int) (imagePage, []int, error) {
+// Each picture is cut to its own height, which the self-describing blocks make
+// free: a block carries where it goes and how long it is, so nothing downstream
+// has to know that two pictures are different sizes.
+func buildImagePage(images map[int][]byte, at, room int) (imagePage, []int, error) {
 	page := imagePage{at: at, starts: map[int]int{}}
 
 	numbers := make([]int, 0, len(images))
@@ -144,7 +192,7 @@ func buildImagePage(images map[int][]byte, lines, at, room int) (imagePage, []in
 	var dropped []int
 
 	for _, n := range numbers {
-		blocks, err := cutScreen(images[n], lines)
+		blocks, err := cutScreen(images[n], pictureLines(images[n]))
 		if err != nil {
 			return imagePage{}, nil, fmt.Errorf("picture %d: %w", n, err)
 		}

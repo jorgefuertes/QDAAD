@@ -53,6 +53,11 @@ func plus3Picture(screen []byte) ([]byte, error) {
 		return nil, fmt.Errorf("a Spectrum screen is %d bytes, not %d", screenSize, len(screen))
 	}
 
+	// How tall this one is, rather than DAAD's one height for all of them: the
+	// drawings of 1989 are not all the same size and the tallest lose their
+	// bottom to a fixed crop. See pictureLines.
+	lines := pictureLines(screen)
+
 	// Everything below the picture area is wiped first, which is what scrcrop
 	// does in the reference pipeline and why it still hands over 6912 bytes:
 	// the adventure writes its text down there, and a blank half costs almost
@@ -60,17 +65,17 @@ func plus3Picture(screen []byte) ([]byte, error) {
 	cropped := make([]byte, screenSize)
 	copy(cropped, screen)
 
-	for y := imageLines; y < 192; y++ {
+	for y := lines; y < 192; y++ {
 		at := (y>>6)*2048 + (y&7)*256 + ((y>>3)&7)*bytesWide
 		clear(cropped[at : at+bytesWide])
 	}
 
-	clear(cropped[screenSize-scrAttributes+imageLines/8*bytesWide:])
+	clear(cropped[screenSize-scrAttributes+lines/8*bytesWide:])
 
 	out := []byte{
-		canvasWidth / 8, // width in 8x8 characters
-		imageLines / 8,  // height in 8x8 characters
-		canvasWidth / 6, // width in 6x8 columns, which is the text font
+		canvasWidth / 8,  // width in 8x8 characters
+		byte(lines / 8),  // height in 8x8 characters
+		canvasWidth / 6,  // width in 6x8 columns, which is the text font
 		0,                // fixed X: every picture is as wide as the screen
 		plus3TopOfScreen, // pinned to the top, with the text below it
 	}

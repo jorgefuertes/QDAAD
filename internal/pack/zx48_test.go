@@ -182,6 +182,46 @@ func split(t *testing.T, tape []byte) [][]byte {
 //
 // This is the whole chain in one test, because every link of it is a place to
 // get an address wrong and none of them fails loudly: the screen is cut into
+// A picture is as tall as it is, not as tall as DAAD's one-size IMGLINES. The
+// drawings of La Aventura Original come in three heights, and cutting them all
+// to 96 lines takes the bottom bar off the frame around its opening credits.
+func TestAPictureIsCutToItsOwnHeight(t *testing.T) {
+	// One pixel in a character row is what makes that row part of the picture.
+	ink := func(row int) []byte {
+		screen := make([]byte, screenSize)
+		y := row * 8
+		screen[(y>>6)*2048+(y&7)*256+((y>>3)&7)*bytesWide] = 1
+
+		return screen
+	}
+
+	for _, tc := range []struct {
+		name string
+		row  int
+		want int
+	}{
+		{"a scene of twelve rows", 11, 96},
+		{"most of them, fourteen", 13, 112},
+		{"the frame, which paints twenty-two", 21, 176},
+		{"the very last row of the screen", 23, 192},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, pictureLines(ink(tc.row)))
+		})
+	}
+
+	// Attributes do not make a row part of the picture. Every cell has one,
+	// touched or not — it is what an untouched cell shows — so counting them
+	// would make every picture the whole screen.
+	attributes := make([]byte, screenSize)
+	for cell := range scrAttributes {
+		attributes[screenSize-scrAttributes+cell] = 0x38
+	}
+
+	require.Equal(t, 8, pictureLines(attributes),
+		"a screen with no pixels still gets the one row the format needs")
+}
+
 // runs of video memory, each run is compressed, the runs are laid out in page
 // zero, and the index says where each picture's runs begin. A tape that gets
 // any of that wrong is a tape that loads and draws rubbish.

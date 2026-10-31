@@ -88,6 +88,25 @@ Un rango invertido (`1-0`) significa "no apliques ninguna paleta".
 La variable `IMGLINES` de `CONFIG.BAT` fija la **altura útil** de las imágenes y afecta a todos
 los targets. El valor por defecto es 96.
 
+**Nuestro empaquetador no la impone**, y es a propósito: una altura única para todas no sirve para
+una aventura de 1989, cuyos dibujos no miden todos lo mismo. Los de la parte 1 de La Aventura
+Original vienen en 3 alturas —12, 14 y 22 filas— y recortar a las 96 líneas de `IMGLINES` le quita
+la barra de abajo al dibujo 44, el marco de la presentación. Así que cada imagen se corta por su
+**última fila con píxeles** (`internal/pack/zximages.go`, `pictureLines`).
+
+Se miden los píxeles y no los atributos: una celda que el dibujo no toca enseña el atributo de su
+registro (§9.6), luego todas las celdas tienen atributo y por ahí toda imagen mediría la pantalla
+entera.
+
+Sale gratis en los dos formatos. En el +3 la altura va en el byte 1 del registro de 5 que lleva cada
+`.128`, y en la cinta de 48K cada bloque ya dice su dirección y su longitud, así que nada río abajo
+necesita saber que dos imágenes miden distinto. Lo que sí cuesta es sitio en la cinta: con las
+alturas de verdad entran 10 de las 41 en vez de 11.
+
+Ojo con no confundir esto con la ventana del registro (§9.6): esa dice **dónde escribe el
+intérprete después**, no hasta dónde puede pintar el dibujo. Son 2 números distintos, y el 44 es
+justamente el que lo demuestra, porque declara 14 filas y pinta 22.
+
 ---
 
 ## 4. Los cuatro conversores
