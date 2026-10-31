@@ -29,6 +29,7 @@ import (
 //
 //	; qdaad: charset=gfx/chr/udg.chr
 //	; qdaad: images=gfx/scr
+//	; qdaad: loading=gfx/loading.scr
 //
 // Only the header is read — everything before the first directive line — so
 // that a setting cannot hide a thousand lines into the tables, and so that
@@ -129,8 +130,11 @@ func (s *Settings) set(body, dir string) error {
 		s.Charset = resolve(value, dir)
 	case "images":
 		s.Images = resolve(value, dir)
+	case "loading":
+		s.Loading = resolve(value, dir)
 	default:
-		return fmt.Errorf("%q is not a setting this knows; it knows charset and images", name)
+		return fmt.Errorf(
+			"%q is not a setting this knows; it knows charset, images and loading", name)
 	}
 
 	return nil

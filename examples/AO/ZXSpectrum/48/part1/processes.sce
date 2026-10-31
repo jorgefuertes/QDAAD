@@ -841,7 +841,7 @@
                     COPYFF 33 200
                     PLUS 200 100
                     MES @200
-                    SYSMESS 22
+                    SYSMESS 11
                     PROCESS 17
 
 ; TABLE 6 is the game loop, in v3-loop.sce

@@ -21,6 +21,7 @@
 
 ; qdaad: charset=gfx/chr/udg.chr
 ; qdaad: images=gfx/scr
+; qdaad: loading=gfx/loading.scr
 
 /CTL
 _

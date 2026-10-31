@@ -26,11 +26,17 @@ type BASIC struct {
 // which is why a BASIC program cannot hold those bytes as text.
 const (
 	tokVAL       = 0xB0
+	tokPEEK      = 0xBE
 	tokCODE      = 0xAF
 	tokUSR       = 0xC0
 	tokLOAD      = 0xEF
 	tokRANDOMIZE = 0xF9
 	tokCLEAR     = 0xFD
+	tokPOKE      = 0xF4
+	tokBORDER    = 0xDD
+	tokPAPER     = 0xD9
+	tokINK       = 0xD8
+	tokCLS       = 0xFB
 )
 
 // lineStep is the gap between line numbers, and 10 only because that is what
@@ -96,6 +102,50 @@ func (b *BASIC) LoadNamed(names ...string) {
 	}
 
 	b.statement(body)
+}
+
+// BlackScreen sets the border, the paper and the ink and clears, so that the
+// loading picture arrives on a screen of one colour instead of over whatever
+// the machine was showing.
+//
+// It is what the loader of La Aventura Original does on its first line, bar
+// the FLASH: "BORDER 0: FLASH 0: PAPER 0: CLS". The ink is white because a
+// black screen with black ink is a screen that cannot report an error.
+func (b *BASIC) BlackScreen() {
+	body := append([]byte{tokBORDER}, number(0)...)
+	body = append(body, ':', tokPAPER)
+	body = append(body, number(0)...)
+	body = append(body, ':', tokINK)
+	body = append(body, number(7)...)
+
+	b.statement(append(body, ':', tokCLS))
+}
+
+// HideLoadingMessages stops the ROM writing "Bytes: name" across the picture
+// as each block goes in.
+//
+// The address poked is the one the current channel prints through, read out of
+// CURCHL at 23633 rather than written down, and 111 sends what would have been
+// printed nowhere. Every loader of the period does this; La Aventura Original
+// does it in a subroutine at line 200 and calls it once the picture is up:
+//
+//	200 POKE PEEK VAL "23633"+VAL "256"*PEEK VAL "23634",VAL "111": RETURN
+//
+// So it belongs after the picture has loaded and before anything else does.
+// Called earlier it would also hide the picture's own block message, which
+// the picture covers anyway, and called later it hides nothing.
+func (b *BASIC) HideLoadingMessages() {
+	const curchl = 23633
+
+	body := []byte{tokPOKE, tokPEEK}
+	body = append(body, number(curchl)...)
+	body = append(body, '+')
+	body = append(body, number(256)...)
+	body = append(body, '*', tokPEEK)
+	body = append(body, number(curchl+1)...)
+	body = append(body, ',')
+
+	b.statement(append(body, number(111)...))
 }
 
 // RandomizeUSR calls machine code at an address, which is how BASIC hands over

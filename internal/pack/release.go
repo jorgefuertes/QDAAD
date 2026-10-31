@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/jorgefuertes/QDAAD/internal/media"
 )
 
 // A release is what a machine needs in order to play, which is almost never
@@ -53,6 +55,30 @@ func NewRelease(files ...File) *Release {
 // Add puts one more file at the end.
 func (r *Release) Add(name, note string, body []byte) {
 	r.files = append(r.files, File{Name: name, Body: body, Note: note})
+}
+
+// AsTZX turns a one-tape release into the same tape as a TZX.
+//
+// It is a conversion and not a second way of building, so the blocks are the
+// ones already assembled and the two files load the same. A release of more
+// than one file is not a tape and says so.
+func (r *Release) AsTZX() (*Release, error) {
+	if len(r.files) != 1 {
+		return nil, fmt.Errorf(
+			"a TZX is one tape and this release has %d files: it is not a tape build",
+			len(r.files))
+	}
+
+	body, err := media.TZX(r.files[0].Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewRelease(File{
+		Name: strings.TrimSuffix(r.files[0].Name, ".tap") + ".tzx",
+		Body: body,
+		Note: r.files[0].Note + ", as a TZX",
+	}), nil
 }
 
 // Files is what the release holds, in order.

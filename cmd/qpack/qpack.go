@@ -33,6 +33,7 @@ import (
 const (
 	formatDir  = "dir"
 	formatTAP  = "tap"
+	formatTZX  = "tzx"
 	formatDSK  = "dsk"
 	formatQRun = "qrun"
 )
@@ -48,9 +49,10 @@ func main() {
 				Aliases: []string{"f"},
 				Value:   formatDir,
 				Usage: "What to write: " + formatDir + " for everything the machine " +
-					"needs as files, " + formatTAP + " for a tape, " + formatDSK +
-					" for a disk, or " + formatQRun + " for a container our own " +
-					"interpreter reads without guessing at anything.",
+					"needs as files, " + formatTAP + " or " + formatTZX +
+					" for a tape, " + formatDSK + " for a disk, or " + formatQRun +
+					" for a container our own interpreter reads without guessing " +
+					"at anything.",
 			},
 			&cli.StringFlag{
 				Name:    "output",
@@ -122,7 +124,7 @@ func run(_ context.Context, cmd *cli.Command) error {
 func assemble(format string, b build.Build, name string) (*pack.Release, error) {
 	opts := pack.Options{
 		Language: b.Language, Name: name,
-		Charset: b.Charset, Images: b.Images,
+		Charset: b.Charset, Images: b.Images, Loading: b.Loading,
 		Note: func(said string) { fmt.Println(said) },
 	}
 
@@ -149,6 +151,22 @@ func assemble(format string, b build.Build, name string) (*pack.Release, error) 
 			return nil, notPackaged(b.Machine)
 		}
 
+	// A TZX is the tape that was going to be written anyway, wrapped. Building
+	// it any other way would be a second assembly of the same blocks and a
+	// second place for them to go wrong.
+	case formatTZX:
+		if b.Machine != arch.ZX {
+			return nil, fmt.Errorf("a TZX is a Spectrum tape, and this build is for a %s",
+				b.Machine)
+		}
+
+		tape, err := pack.ZXRelease(b.Database, b.Subtarget, opts)
+		if err != nil {
+			return nil, err
+		}
+
+		return tape.AsTZX()
+
 	case formatDSK:
 		var (
 			body []byte
@@ -174,8 +192,8 @@ func assemble(format string, b build.Build, name string) (*pack.Release, error) 
 		return pack.NewRelease(pack.File{Name: name + ".dsk", Body: body, Note: note}), nil
 
 	default:
-		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s or %s",
-			format, formatDir, formatTAP, formatDSK, formatQRun)
+		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s, %s or %s",
+			format, formatDir, formatTAP, formatTZX, formatDSK, formatQRun)
 	}
 }
 

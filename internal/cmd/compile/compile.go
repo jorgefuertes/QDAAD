@@ -180,6 +180,14 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	var loading []byte
+
+	if read.Settings.Loading != "" {
+		if loading, err = os.ReadFile(read.Settings.Loading); err != nil {
+			return err
+		}
+	}
+
 	switch format {
 	case formatDDB:
 		if path.Ext(out) == "" {
@@ -205,6 +213,7 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 			Tokens:    layout.Tokens,
 			Database:  image,
 			Charset:   charset,
+			Loading:   loading,
 			Images:    images,
 		}
 

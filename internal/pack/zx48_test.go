@@ -157,6 +157,42 @@ func TestACharsetIsTwoKilobytesWithOrWithoutItsHeader(t *testing.T) {
 	require.ErrorContains(t, replaceCharset(stub, make([]byte, 100)), "and this one is 100")
 }
 
+// The loading picture goes to video memory and goes first, because the point
+// of it is to be looked at while the rest of the tape goes in. Nothing copies
+// it and nothing calls it: a Spectrum keeps the screen at 0x4000, so a block
+// addressed there paints itself as it arrives.
+func TestTheLoadingPictureIsTheFirstBlockAndGoesToTheScreen(t *testing.T) {
+	loading := make([]byte, screenSize)
+	loading[0], loading[screenSize-1] = 0xAA, 0xBB
+
+	tape, err := ZX48(make([]byte, 2000), Options{
+		Language: language.LanguageSpanish,
+		Name:     "prueba",
+		Loading:  loading,
+	})
+	require.NoError(t, err)
+
+	blocks := split(t, tape)
+
+	// Loader, picture, interpreter, database, stub — each a header and a body.
+	require.Len(t, blocks, 10)
+
+	header := blocks[2]
+	require.Equal(t, byte(0), header[0], "a header block")
+	require.Equal(t, byte(3), header[1], "of a CODE block")
+	require.Equal(t, byte('S'), header[11], "the tenth character says which part")
+	require.Equal(t, screenSize, int(header[12])|int(header[13])<<8)
+	require.Equal(t, screenBase, int(header[14])|int(header[15])<<8)
+
+	require.Equal(t, loading, blocks[3][1:len(blocks[3])-1], "byte for byte, uncompressed")
+
+	// And a tape with no picture is the tape it always was: no block for it,
+	// and nothing in the loader about one.
+	plain, err := ZX48(make([]byte, 2000), Options{Language: language.LanguageSpanish})
+	require.NoError(t, err)
+	require.Len(t, split(t, plain), 8)
+}
+
 func split(t *testing.T, tape []byte) [][]byte {
 	t.Helper()
 

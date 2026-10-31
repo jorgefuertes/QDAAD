@@ -104,12 +104,24 @@ type Options struct {
 	// compressed and indexed; what will not fit is left out and said so
 	// through Note.
 	Images map[int][]byte
+	// Loading is the picture the machine shows while the rest goes in: a whole
+	// Spectrum screen of 6912 bytes, sent straight to video memory so that it
+	// paints itself as it arrives. Empty for a tape that shows nothing.
+	Loading []byte
 	// Note is told anything the person packaging should know but that is not
 	// an error — which so far is one thing, and it is the one thing a
 	// packager must never do quietly: pictures left out for want of room. A
 	// build that silently carries four of forty-one looks like a build that
 	// carries them all until somebody plays it.
 	Note func(string)
+}
+
+// tapeBlock is one CODE block of a tape: the letter that tells it apart in the
+// header, where it loads, and what goes there.
+type tapeBlock struct {
+	letter byte
+	at     int
+	body   []byte
 }
 
 // ZX48 builds a .TAP for a 48K Spectrum.
@@ -248,11 +260,7 @@ func ZX48(database []byte, opts Options) ([]byte, error) {
 	// The letter is the tenth character of the name, which is why the name has
 	// nine to itself. I for the interpreter, D for the database, G for the
 	// stub: daadmaker.pas:305-317.
-	parts := []struct {
-		letter byte
-		at     int
-		body   []byte
-	}{
+	game := []tapeBlock{
 		{'I', interpreterOrigin, built.interpreter},
 		{'D', databaseOrigin, database},
 		{'G', built.topOrigin, built.top},
@@ -261,11 +269,7 @@ func ZX48(database []byte, opts Options) ([]byte, error) {
 	// P for the pictures, which are a block only when there are some. It
 	// loads after the database and before the stub, which is where it lives.
 	if len(built.page.body) > 0 {
-		parts = append(parts, struct {
-			letter byte
-			at     int
-			body   []byte
-		}{'P', built.page.at, built.page.body})
+		game = append(game, tapeBlock{'P', built.page.at, built.page.body})
 	}
 
 	var loader media.BASIC
@@ -274,7 +278,27 @@ func ZX48(database []byte, opts Options) ([]byte, error) {
 	// there up belongs to us. CLEAR also empties the variables and resets the
 	// stack, which is why nothing can usefully come before it.
 	loader.Clear(interpreterOrigin - 1)
-	loader.LoadCode(len(parts))
+
+	// S for the screen, and it goes first because the whole point of it is to
+	// be looked at while the rest loads. It needs no routine and no copying:
+	// video memory is where a Spectrum keeps the screen, so a block addressed
+	// there paints itself line by line as it comes off the tape.
+	//
+	// The loader of 1989 did copy — its block is code at 30000 that it calls
+	// with RANDOMIZE USR — which is one way of doing it and not the shorter one.
+	parts := game
+
+	if len(opts.Loading) > 0 {
+		loader.BlackScreen()
+		loader.LoadCode(1)
+		loader.HideLoadingMessages()
+
+		parts = append([]tapeBlock{{'S', screenBase, opts.Loading}}, game...)
+	}
+
+	// The rest on one line, and then the jump: the last block to arrive is the
+	// one that starts the adventure.
+	loader.LoadCode(len(game))
 	loader.RandomizeUSR(interpreterOrigin)
 
 	var tape media.TAP

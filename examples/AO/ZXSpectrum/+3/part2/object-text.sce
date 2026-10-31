@@ -1,0 +1,36 @@
+; Object descriptions. Numbering must stay consecutive from zero.
+; Each text goes whole on its line, between quotes, so nothing in it
+; can be mistaken for the start of the next one. A carriage return
+; inside a text is written #n.
+
+/OTX
+/0 "Una linterna encendida#g#f01#t"
+/1 "Una moneda#g#f23#t"
+/2 "Una linterna apagada#g#f01#t"
+/3 "Una tortilla#g#f?/#t"
+/4 "Una botella#g#f&'#t"
+/5 "Una botella con agua#g#f*+#t"
+/6 "Una llave#g#f,-#t"
+/7 "Una pila#g#f45#t"
+/8 "Una jaula#g#fab#t"
+/9 "Una varita mágica#g#fef#t"
+/10 "Una jaula con pájaro#g#f=~#t"
+/11 "Una botella con aceite#g#f*+#t"
+/12 "Un hueso humano algo chamuscado#g#f89#t"
+/13 "Una almohada#g#f#$#t"
+/14 "Un hacha#g#fut#t"
+/15 "Un canto rodado#g#f:#t"
+/16 "Una pepita de oro#g#f>#t"
+/17 "Un diamante#g#fij#t"
+/18 "Una barra de titanio#g#fpq#t"
+/19 "Una joya#g#frs#t"
+/20 "Unas especias indias#g#f%#t"
+/21 "Una alfombra persa#g#fgh#t"
+/22 "Un tridente marino#g#fvw#t"
+/23 "Una gran perla#g#fx#t"
+/24 "Un huevo de oro#g#fm#t"
+/25 "Una cadena de plata#g#f{}#t"
+/26 "Una pirámide de platino#g#fcd#t"
+/27 "Una esmeralda#g#fkl#t"
+/28 "Un jarrón chino#g#fyz#t"
+/29 "Un garfio de oro#g#fno#t"

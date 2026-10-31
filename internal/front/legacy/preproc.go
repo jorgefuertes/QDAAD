@@ -85,6 +85,11 @@ type Settings struct {
 	// comment because it is a property of the adventure rather than a choice
 	// the person compiling makes. See settings.go.
 	Charset string
+	// Loading is the picture the machine shows while the rest of the tape goes
+	// in: one screen, in whatever the target takes. It is the adventure's in
+	// the same way the font is — a tape of 1989 was known by it — so the
+	// source names it rather than the person compiling.
+	Loading string
 }
 
 type preprocessor struct {

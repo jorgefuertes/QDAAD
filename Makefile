@@ -119,16 +119,25 @@ decomp-ao:
 	@go run cmd/qundaad/qundaad.go decompile --input $(AO_PC)/PART1.DDB --output $(AO_OUT)/part1
 	@go run cmd/qundaad/qundaad.go decompile --input $(AO_PC)/PART2.DDB --output $(AO_OUT)/part2
 
-# The ported La Aventura Original, built for each of its two machines. The
-# sources are in the repository and need nothing from work/, so these run on a
-# fresh checkout. See examples/AO/README.md for what is hand-corrected in them.
+# The ported La Aventura Original, built for each of its two machines and both
+# of its parts. The sources are in the repository and need nothing from work/,
+# so these run on a fresh checkout. See examples/AO/README.md for what is
+# hand-corrected in them, and the README beside each machine for the commands
+# without make in the way.
 AO_EX := examples/AO/ZXSpectrum
 example-ao-48:
-	@go run cmd/qdaad/qdaad.go compile -i $(AO_EX)/48/game.sce -o tmp/example-ao-48 -f build -m zx -s 48k -v 3
-	@go run cmd/qpack/qpack.go -f tap -o tmp/AO48 --name AO tmp/example-ao-48
+	@for part in 1 2; do \
+		go run cmd/qdaad/qdaad.go compile -i $(AO_EX)/48/part$$part/game.sce \
+			-o tmp/ao-48-part$$part -f build -m zx -s 48k -v 3 --part $$part; \
+		go run cmd/qpack/qpack.go -f tap -o tmp/AO$$part --name AO$$part tmp/ao-48-part$$part; \
+		go run cmd/qpack/qpack.go -f tzx -o tmp/AO$$part --name AO$$part tmp/ao-48-part$$part; \
+	done
 
 example-ao-p3:
-	@go run cmd/qdaad/qdaad.go compile -i $(AO_EX)/+3/game.sce -o tmp/example-ao-p3 -f build -m zx -s plus3 -v 3
-	@go run cmd/qpack/qpack.go -f dsk -o tmp/AOP3 --name AO tmp/example-ao-p3
+	@for part in 1 2; do \
+		go run cmd/qdaad/qdaad.go compile -i "$(AO_EX)/+3/part$$part/game.sce" \
+			-o tmp/ao-p3-part$$part -f build -m zx -s plus3 -v 3 --part $$part; \
+		go run cmd/qpack/qpack.go -f dsk -o tmp/AOP3-$$part --name AO$$part tmp/ao-p3-part$$part; \
+	done
 
 example-ao: example-ao-48 example-ao-p3

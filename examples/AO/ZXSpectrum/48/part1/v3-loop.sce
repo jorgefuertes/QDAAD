@@ -22,7 +22,7 @@
 ; imprime por su cuenta como separadores:
 ;
 ;   mensaje 3  ->  34
-;   mensaje 4  ->  22
+;   mensaje 4  ->  11
 ;
 
 /PRO 0
@@ -69,12 +69,12 @@
 ; La indirección es lo que hace que valga para las cuarenta y una: @38 es la
 ; bandera de la localidad, así que cada sitio pide la suya.
 ;
-; El texto baja a la fila 14 porque es lo que miden 32 de las 41 imágenes de
-; esta parte. En 1989 no era una fila fija: cada dibujo declara su alto en el
-; byte 3 de su registro y el intérprete escribía debajo (09-graficos.md §9.6),
-; así que los pocos más bajos dejan aquí un hueco y los 3 de 22 filas se
-; solapan. Lo segundo no se nota: uno es el marco de la intro, que escribe en
-; su propia ventana 5.
+; El texto baja a la fila 14 porque es lo que mide la mayoría de las imágenes
+; de la aventura. En 1989 no era una fila fija: cada dibujo declara su alto en
+; el byte 3 de su registro y el intérprete escribía debajo (09-graficos.md
+; §9.6), así que las más bajas dejan aquí un hueco y las de 22 filas se
+; solapan. Lo segundo apenas se nota: son las pantallas de presentación, que
+; escriben en su propia ventana 5.
 > _       _     NOTAT   0
                 PICTURE @38
                 DISPLAY 0

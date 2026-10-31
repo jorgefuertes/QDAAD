@@ -38,6 +38,11 @@ const (
 	manifestFile = "build.toml"
 	databaseFile = "database.ddb"
 	charsetFile  = "charset.chr"
+	// loadingFile is the picture the machine shows while the rest goes in. It
+	// is one screen in the target's own format, which on a Spectrum is the
+	// 6912 bytes of video memory, so a packager can send it to the screen and
+	// have nothing to work out.
+	loadingFile = "loading.scr"
 	// imagesDir holds the pictures, one file per picture, named by the number
 	// a PICTURE names it with. What is in them is whatever the target machine
 	// takes — a Spectrum screen for a Spectrum — because converting between
@@ -63,6 +68,8 @@ type Build struct {
 	Database []byte
 	// Charset is the adventure's own font, or empty to use the built-in one.
 	Charset []byte
+	// Loading is the picture shown while the rest loads, or empty for none.
+	Loading []byte
 	// Images are the pictures, by the number that shows them. A build with
 	// none is the usual case: most of the corpus illustrates with nothing, or
 	// with vectors that version 3 cannot draw.
@@ -85,6 +92,12 @@ func (b Build) Write(dir string) error {
 
 	if len(b.Charset) > 0 {
 		if err := os.WriteFile(filepath.Join(dir, charsetFile), b.Charset, 0o644); err != nil {
+			return err
+		}
+	}
+
+	if len(b.Loading) > 0 {
+		if err := os.WriteFile(filepath.Join(dir, loadingFile), b.Loading, 0o644); err != nil {
 			return err
 		}
 	}
@@ -182,6 +195,14 @@ func Read(dir string) (Build, error) {
 	charset, err := os.ReadFile(filepath.Join(dir, charsetFile))
 	if err == nil {
 		out.Charset = charset
+	} else if !os.IsNotExist(err) {
+		return Build{}, err
+	}
+
+	// Same for the loading picture: most builds have none.
+	loading, err := os.ReadFile(filepath.Join(dir, loadingFile))
+	if err == nil {
+		out.Loading = loading
 	} else if !os.IsNotExist(err) {
 		return Build{}, err
 	}
