@@ -52,6 +52,45 @@ func TestABuildWithNoFontOfItsOwn(t *testing.T) {
 	require.Equal(t, arch.CPC, got.Machine)
 }
 
+// A build directory is written over rather than made afresh, so what the last
+// build left in it has to go. What a packager reads is the directory, not the
+// source, and a picture that outlives its source file is a picture that goes on
+// being packaged.
+//
+// This is not hypothetical. Drawing 4 was taken out of La Aventura Original's
+// second part — a piece of another drawing that had landed at the number of a
+// location people visit — and it went on turning up on the +3 disk, because the
+// file from the build before was still sitting there.
+func TestABuildDirectoryKeepsNothingFromTheBuildBefore(t *testing.T) {
+	dir := t.TempDir()
+
+	before := Build{
+		Machine: arch.ZX, Subtarget: "plus3", Language: language.LanguageSpanish,
+		Version: 3, Part: 1, Database: []byte("x"),
+		Charset: []byte("a font"),
+		Loading: []byte("a screen"),
+		Images:  map[int][]byte{3: []byte("the cabin"), 4: []byte("a piece")},
+	}
+	require.NoError(t, before.Write(dir))
+
+	after := before
+	after.Images = map[int][]byte{3: []byte("the cabin")}
+	after.Charset = nil
+	after.Loading = nil
+	require.NoError(t, after.Write(dir))
+
+	got, err := Read(dir)
+	require.NoError(t, err)
+
+	require.Equal(t, after.Images, got.Images, "picture 4 outlived its source")
+	require.Empty(t, got.Charset, "the font outlived its source")
+	require.Empty(t, got.Loading, "the loading screen outlived its source")
+
+	require.NoFileExists(t, filepath.Join(dir, imagesDir, "004.scr"))
+	require.NoFileExists(t, filepath.Join(dir, charsetFile))
+	require.NoFileExists(t, filepath.Join(dir, loadingFile))
+}
+
 // Something that is not a build directory says so, naming what it looked for.
 func TestWhatIsNotABuildDirectory(t *testing.T) {
 	_, err := Read(t.TempDir())

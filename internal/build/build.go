@@ -90,29 +90,53 @@ func (b Build) Write(dir string) error {
 		return err
 	}
 
-	if len(b.Charset) > 0 {
-		if err := os.WriteFile(filepath.Join(dir, charsetFile), b.Charset, 0o644); err != nil {
-			return err
-		}
+	if err := replaceFile(filepath.Join(dir, charsetFile), b.Charset); err != nil {
+		return err
 	}
 
-	if len(b.Loading) > 0 {
-		if err := os.WriteFile(filepath.Join(dir, loadingFile), b.Loading, 0o644); err != nil {
-			return err
-		}
+	if err := replaceFile(filepath.Join(dir, loadingFile), b.Loading); err != nil {
+		return err
 	}
 
 	return b.writeImages(dir)
 }
 
+// replaceFile writes a file, or takes away the one that is there when there is
+// nothing to write.
+//
+// The taking away is the point. A build directory is written over rather than
+// made afresh, so anything the last build left behind is still in it, and what
+// a packager reads is the directory and not the source. Drop a picture from an
+// adventure and it would go on being packaged — which is what happened: a
+// Spectrum +3 disk carried a drawing the source had stopped carrying, and the
+// game went on showing it.
+func replaceFile(path string, body []byte) error {
+	if len(body) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+
+		return nil
+	}
+
+	return os.WriteFile(path, body, 0o644)
+}
+
 // writeImages puts the pictures in a directory of their own, one file each,
 // named by number so that the directory reads like the index it becomes.
+//
+// The directory goes first, for the reason in replaceFile: what is not in this
+// build has no business surviving into it.
 func (b Build) writeImages(dir string) error {
+	into := filepath.Join(dir, imagesDir)
+	if err := os.RemoveAll(into); err != nil {
+		return err
+	}
+
 	if len(b.Images) == 0 {
 		return nil
 	}
 
-	into := filepath.Join(dir, imagesDir)
 	if err := os.MkdirAll(into, 0o755); err != nil {
 		return err
 	}
