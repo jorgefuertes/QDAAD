@@ -3,6 +3,7 @@ package decompiler
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -299,6 +300,53 @@ func TestTheTablesTheLoopCallsAreNotCalledDeadCode(t *testing.T) {
 						movedTable(old), role, v3LoopFile),
 					"table %d went to %d", old, movedTable(old))
 			}
+		})
+	}
+}
+
+// The loops in examples carry things this decompiler cannot write yet, and
+// they have to go on carrying them.
+//
+// The loop it generates is still the one for an adventure with no pictures:
+// it takes the surface away from the graphics window, because version 3 draws
+// no vectors and vectors are all a Spectrum adventure of 1989 has. The ported
+// copies draw, and what makes them draw is hand-written.
+//
+// This is here because that hand-written part has now been overwritten twice
+// by somebody regenerating the sources — both times by replacing the file with
+// the decompiler's own output, which is exactly the thing that looks right.
+// The symptom is a long way from the cause: the text comes out on top of the
+// pictures, and nobody thinks of a loop.
+//
+// When the decompiler learns to write these itself, this test is what says so:
+// it will start failing on the generated loop matching the kept one, and the
+// answer then is to delete it.
+func TestTheExampleLoopsKeepWhatTheDecompilerCannotWriteYet(t *testing.T) {
+	kept := []string{
+		"PICTURE @38",  // the location's own picture, by indirection
+		"DISPLAY 0",    // which PICTURE only prepares
+		"CLEAR   40",   // "this location has a drawing", for the generic one
+		"SET     40",   //
+		"WINAT   14 0", // and the text below the picture rather than on it
+		"WINSIZE 24 42",
+	}
+
+	loops, err := filepath.Glob(filepath.Join("..", "..", "..",
+		"examples", "AO", "ZXSpectrum", "*", "part*", v3LoopFile))
+	require.NoError(t, err)
+	require.Len(t, loops, 4, "two machines, two parts")
+
+	for _, path := range loops {
+		t.Run(filepath.Base(filepath.Dir(path)), func(t *testing.T) {
+			body, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			for _, want := range kept {
+				require.Contains(t, string(body), want, path)
+			}
+
+			require.NotContains(t, string(body), "WINSIZE 0 0",
+				"this is the loop for an adventure with no pictures")
 		})
 	}
 }
