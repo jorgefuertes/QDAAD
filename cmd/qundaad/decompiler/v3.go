@@ -689,6 +689,32 @@ func tableRole(n int) string {
 	}
 }
 
+// loopTableRole is the same three roles for the table they have moved to, in
+// the language the decompiled source comments itself in.
+//
+// It exists because counting PROCESS condacts does not find these three. In
+// DAAD 1 the interpreter called them and no condact named them, so the count is
+// zero and the source said so: "no PROCESS condact in this database reaches
+// it: it is either dead code or entered some other way". That is true of the
+// database and false of the conversion — the loop calls all three, every turn —
+// and it was saying it of the response table, which is most of the adventure.
+//
+// The loop is in a file of its own, so no amount of looking at the tables will
+// turn it up. What there is to go on is which table a role moved to, and that
+// is movedTable's to say.
+func loopTableRole(number int) (string, bool) {
+	switch number {
+	case movedTable(0):
+		return "the response table", true
+	case movedTable(1):
+		return "runs after the location description", true
+	case movedTable(2):
+		return "runs once a turn", true
+	default:
+		return "", false
+	}
+}
+
 // v3LoopBody is the loop itself. The flag numbers are the ones every DAAD
 // interpreter fixes — 28 darkness, 31 and 32 the turn counter, 33 the verb, 38
 // the player's location, 49 the timeout flags — so those are not guesses. What

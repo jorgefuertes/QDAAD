@@ -29,7 +29,8 @@ for when it boots a disk from its menu. `qpack` sees to that.
 
 ## The pictures
 
-Every one of them fits: 41 on part one's disk and 69 on part two's.
+They all fit now: 41 on part one's disk, and 68 of part two's 69 — the one
+missing is left out on purpose, see below.
 
 They used not to. A picture is a file of its own, opened by name when a
 `PICTURE` names it, and a +3DOS directory holds **64 entries** — so part two's
@@ -48,6 +49,38 @@ Each of the rest travels as a `.128` of its own: five bytes of geometry and the
 screen compressed with ZX0, cut to its own last row with a pixel in it rather
 than to a fixed height, which is what used to leave the title frame without its
 bottom bar.
+
+### The one that is left out
+
+Part two's drawing 4 is not a scene. It is a **piece** that drawing 107 calls,
+and its listing says so: `INHERIT 107,0,6,1,76,167` — it is entered with the
+pen already at (76,167) and the ink and paper 107 was using. On its own it
+comes out as a grating floating on a flat yellow field.
+
+That would not matter if it sat at an unused number, which is where the rest of
+the pieces are. The drawings table is one drawing per location, so a piece has
+to be parked at a location nobody visits — and the authors did exactly that
+everywhere else:
+
+| | Pieces | At a location with a description |
+|---|---|---|
+| Part 1 | 10 | 0 |
+| Part 2 | 16 | 1 |
+
+The one is drawing 4, and location 4 is "Te arrastras por un pasadizo bajo y
+lleno de cantos rodados". So `004.scr` is not in the tree. Without it the
+loop's `PICTURE @38` fails there, flag 40 stays clear, and the adventure draws
+its own generic picture — which is what that mechanism is for.
+
+**This is a deliberate difference from the original, not a repair.** Everything
+above says the interpreter of 1989 drew by location number and the authors
+worked around it, which means it showed the floating grating too. It has not
+been checked on a real tape: part two opens by asking for the password that
+finishing part one gives you.
+
+Drawings 106 and 107 still have their own `.scr` and still show the grating:
+what is packaged is a trace of the whole canvas, with the `CALL` already
+followed, so the piece is drawn into them.
 
 ## The loading screen
 

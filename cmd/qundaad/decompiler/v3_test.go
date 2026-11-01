@@ -1,7 +1,9 @@
 package decompiler
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
@@ -247,6 +249,56 @@ func TestASpaceNeverStaysInGraphicsMode(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, convertText(tc.in))
+		})
+	}
+}
+
+// The three tables the loop calls are not dead code, and the source has to
+// stop saying they might be.
+//
+// What the comment is written from is a count of PROCESS condacts, and in DAAD
+// 1 these three were the interpreter's: no condact named them, so the count is
+// zero and the source said "either dead code or entered some other way". True
+// of the database, false of the conversion, and it was saying it of the
+// response table — which is most of the adventure.
+func TestTheTablesTheLoopCallsAreNotCalledDeadCode(t *testing.T) {
+	const deadCode = "either dead code"
+
+	for _, db := range databases {
+		t.Run(db.name, func(t *testing.T) {
+			r := openDatabase(t, db.path)
+
+			// Without converting, the count is right and the wording with it:
+			// nothing in the database does reach tables 1 and 2.
+			plain, err := writeProcesses(r)
+			require.NoError(t, err)
+			require.Contains(t, plain, deadCode,
+				"an unconverted source has three tables nothing names")
+
+			_, err = convertToV3(r)
+			require.NoError(t, err)
+
+			converted, err := writeProcesses(r)
+			require.NoError(t, err)
+
+			// Two fewer: the old tables 1 and 2. The old table 0 said MAIN
+			// LOOP rather than dead code, and the sub-processes that really
+			// are unreachable keep saying so, which is the point of the
+			// wording being there at all.
+			require.Equal(t,
+				strings.Count(plain, deadCode)-2,
+				strings.Count(converted, deadCode))
+
+			for old, role := range map[int]string{
+				0: "The response table",
+				1: "Runs after the location description",
+				2: "Runs once a turn",
+			} {
+				require.Contains(t, converted,
+					fmt.Sprintf("; TABLE %d - %s. The game loop calls it, in %s.",
+						movedTable(old), role, v3LoopFile),
+					"table %d went to %d", old, movedTable(old))
+			}
 		})
 	}
 }

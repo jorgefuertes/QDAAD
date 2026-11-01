@@ -82,13 +82,18 @@ Today the only difference is **how many drawings each one carries**.
 |---|---|---|
 | Drawings it has | 41 | 69 |
 | On the 48K tape | 4 | 3 |
-| On the +3 disk | 41 | 69 |
+| On the +3 disk | 41 | 68 |
 
 About ten fit on a tape, so each part carries the ones the game needs to make
 sense and the generic picture covers the rest, which is what the adventure
 itself does. On a disk they all fit, which they did not until the pictures that
 have room went into a `DAAD.GRA` instead of a file each: a +3DOS directory
 holds 64 entries, and what part two ran out of was names rather than room.
+
+Part two's drawing 4 is left out on purpose: it is a piece that drawing 107
+calls rather than a scene, and it happens to sit at the number of a location
+somebody visits, so on its own it came out as a grating floating on nothing.
+The [+3 README](ZXSpectrum/+3/README.md) has the whole of it.
 
 ## What is still not right
 

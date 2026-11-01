@@ -725,7 +725,27 @@ func writeConnections(r *ddbfile.Reader) (string, error) {
 // manual fixes; the rest are sub-processes, and what each one does is a
 // decision of whoever wrote the adventure. Rather than guess at a template,
 // the caller notes which tables reach this one.
-func processRole(number int, calledFrom []int) string {
+func processRole(number int, calledFrom []int, converting bool) string {
+	callers := make([]string, 0, len(calledFrom))
+	for _, c := range calledFrom {
+		callers = append(callers, fmt.Sprint(c))
+	}
+
+	// Three of a converted source's tables are reached from the loop, which is
+	// written into a file of its own and so is nowhere in this count. Saying
+	// they are dead code would be saying it of the response table and of
+	// everything that runs once a turn. See loopTableRole.
+	if role, ok := loopTableRole(number); converting && ok {
+		out := strings.ToUpper(role[:1]) + role[1:] +
+			". The game loop calls it, in " + v3LoopFile + "."
+
+		if len(callers) > 0 {
+			out += "\n; Also called from table " + strings.Join(callers, ", ") + "."
+		}
+
+		return out
+	}
+
 	if number == 0 {
 		return "MAIN LOOP. The interpreter enters here after initialising, with an\n" +
 			"; empty logical sentence. Falling off the end or reaching DONE returns\n" +
@@ -735,11 +755,6 @@ func processRole(number int, calledFrom []int) string {
 	if len(calledFrom) == 0 {
 		return "SUB-PROCESS. No PROCESS condact in this database reaches it: it is\n" +
 			"; either dead code or entered some other way."
-	}
-
-	callers := make([]string, 0, len(calledFrom))
-	for _, c := range calledFrom {
-		callers = append(callers, fmt.Sprint(c))
 	}
 
 	return "SUB-PROCESS, called from table " + strings.Join(callers, ", ") + "."
@@ -806,7 +821,8 @@ func writeProcesses(r *ddbfile.Reader) (string, error) {
 		}
 
 		fmt.Fprintf(&sb, "; %s\n", strings.Repeat("-", 70))
-		fmt.Fprintf(&sb, "; TABLE %d - %s\n", number, processRole(number, from[number]))
+		fmt.Fprintf(&sb, "; TABLE %d - %s\n", number,
+			processRole(number, from[number], r.Converting()))
 		fmt.Fprintf(&sb, "; %s\n", strings.Repeat("-", 70))
 		fmt.Fprintf(&sb, "/PRO %d\n\n", number)
 

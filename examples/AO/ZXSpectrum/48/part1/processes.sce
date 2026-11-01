@@ -11,8 +11,7 @@
 ; TABLE 2 is the game loop, in v3-loop.sce
 
 ; ----------------------------------------------------------------------
-; TABLE 3 - SUB-PROCESS. No PROCESS condact in this database reaches it: it is
-; either dead code or entered some other way.
+; TABLE 3 - Runs after the location description. The game loop calls it, in v3-loop.sce.
 ; ----------------------------------------------------------------------
 /PRO 3
 
@@ -273,8 +272,7 @@
                     PROCESS 21
 
 ; ----------------------------------------------------------------------
-; TABLE 4 - SUB-PROCESS. No PROCESS condact in this database reaches it: it is
-; either dead code or entered some other way.
+; TABLE 4 - Runs once a turn. The game loop calls it, in v3-loop.sce.
 ; ----------------------------------------------------------------------
 /PRO 4
 
@@ -294,8 +292,7 @@
                     DONE
 
 ; ----------------------------------------------------------------------
-; TABLE 5 - SUB-PROCESS. No PROCESS condact in this database reaches it: it is
-; either dead code or entered some other way.
+; TABLE 5 - The response table. The game loop calls it, in v3-loop.sce.
 ; ----------------------------------------------------------------------
 /PRO 5
 
