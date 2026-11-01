@@ -122,6 +122,46 @@ func TestAWordIsKnownByFiveLettersAndNotFiveBytes(t *testing.T) {
 	}
 }
 
+// A sentence with no verb promotes its noun to be one, and the line it draws
+// is at twenty.
+//
+// The manual gives the number outright, in the section on what a sentence is
+// made of: "la mínima frase es un verbo, o un nombre convertible a verbo (los
+// nombres con valor menor de 20 que si no hay verbo en la frase se convertirán
+// en verbo, por ejemplo, NORTE)".
+//
+// It was fourteen here, which is where the directions stop, and a reading that
+// only covers the directions passes every test an adventure's movement can
+// give it. What it does not cover is I and INVEN, nouns of value 14, and the
+// second part of La Aventura Original answers them with an entry keyed on the
+// verb — so INVENTARIO printed nothing whatsoever.
+func TestANounBelowTwentyBecomesTheVerb(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value byte
+		verb  byte
+	}{
+		{name: "a direction", value: 13, verb: 13},
+		{name: "the inventory, which is why this changed", value: 14, verb: 14},
+		{name: "the last one that converts", value: 19, verb: 19},
+		{name: "twenty is a noun and stays one", value: 20, verb: NoWord},
+		{name: "and so is anything above it", value: 76, verb: NoWord},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Machine{
+				watch: NoWatcher{},
+				vocab: vocabularyOf("COSA", tc.value, ddbKindNoun),
+			}
+
+			require.True(t, m.words("cosa"))
+
+			require.Equal(t, tc.verb, m.flags[FlagVerb])
+			require.Equal(t, tc.value, m.flags[FlagNoun1],
+				"converting does not take the word out of the noun")
+		})
+	}
+}
+
 // vocabularyOf is a one-word vocabulary, padded to five characters the way the
 // database stores them so that the trimming is exercised too.
 func vocabularyOf(word string, value, kind byte) []ddbfile.VocabularyEntry {

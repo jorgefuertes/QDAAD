@@ -838,12 +838,19 @@ $limpia
 
 ; CONJETURA: la fuerza y cuánto se puede llevar. Son los valores por defecto de
 ; la plantilla, no los de esta aventura.
+;
+; Sin el "LET 1 0" que la plantilla pone aquí. El flag 1 es cuántos objetos
+; lleva el jugador y lo mantiene el intérprete, así que ponerlo a cero sólo
+; acierta si la aventura empieza con las manos vacías. La plantilla sí, pero
+; la segunda parte de La Aventura Original te entrega la lámpara, una llave y
+; la comida con que acabó la primera, y entonces el primer INVENTARIO de la
+; partida contesta "no llevas nada" con cuatro cosas en la mano. El RESET de
+; la línea de arriba ya deja la cuenta como toca.
 > _       _     RESET
                 LET     52 10
                 LET     37 4
                 SET     46
                 SET     47
-                LET     1 0
 `
 
 // convertText takes the spaces out of a run of graphics mode.

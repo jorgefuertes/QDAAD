@@ -64,11 +64,26 @@ func (m *Machine) words(line string) bool {
 		m.place(value, kind)
 	}
 
-	// A sentence with no verb but a low noun is a movement: "norte" means go
-	// north. Fourteen is where the directions stop, and the manual says the
-	// same thing the other way round when it explains which refusal an
-	// unanswered sentence gets.
-	const firstRealVerb = 14
+	// A sentence with no verb but a low noun becomes that noun: "norte" means
+	// go north, and "i" means take inventory.
+	//
+	// Twenty is the manual's own number, in the section on what a sentence is
+	// made of: "la mínima frase es un verbo, o un nombre convertible a verbo
+	// (los nombres con valor menor de 20 que si no hay verbo en la frase se
+	// convertirán en verbo, por ejemplo, NORTE)" — daad-ready/DOC/doc_es.html.
+	//
+	// It used to be fourteen here, which is where the directions stop, and
+	// that was a guess dressed as a reading. It cost the second part of La
+	// Aventura Original its inventory: I and INVEN are nouns of value 14, its
+	// response table answers them with "> I _ PROCESS 10", and with the lower
+	// number the verb stayed unset and the entry never matched. Nothing was
+	// printed at all, which is a hard symptom to trace back to a constant.
+	//
+	// The two numbers do not contradict each other, which is what made the
+	// guess look right: a noun of twenty or more does not convert, so a bare
+	// "llave" still leaves no verb, and La Aventura Original's own wildcards
+	// go on telling that case apart with EQ 33 255.
+	const firstRealVerb = 20
 
 	if m.flags[FlagVerb] == NoWord && m.flags[FlagNoun1] != NoWord &&
 		m.flags[FlagNoun1] < firstRealVerb {

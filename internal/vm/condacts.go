@@ -413,6 +413,13 @@ func (m *Machine) resetObjects() {
 			m.move(i, o.InitialLocation)
 		}
 	}
+
+	// And the count with them. An adventure may well start the player holding
+	// something — the second part of La Aventura Original hands over the lamp,
+	// a key and the food the first part ended with — and until this was here
+	// the first INVENTARIO of the game answered "no llevas nada" while the
+	// player was holding four things.
+	m.setFlag(FlagCarried, byte(m.carrying()))
 }
 
 // say prints one text of a table, with a new line after it when the condact is

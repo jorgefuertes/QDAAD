@@ -32,7 +32,7 @@
 
 > _       _     WINDOW  1
                 WINAT   0 0
-                WINSIZE 24 42
+                WINSIZE 24 42   ; la pantalla entera de un ZX
 
 ; CONJETURA: que el flag 0 marca la oscuridad y el objeto 0 es la lámpara. Es
 ; lo que hace la plantilla oficial; esta aventura puede llevarlo en otro sitio.
@@ -44,58 +44,6 @@
 > _       _     NOTZERO 28
                 SYSMESS 0
 
-; La pantalla se limpia cada turno, y con ella el dibujo del turno anterior.
-; Sin esto la imagen de la localidad que acabas de dejar se queda puesta y el
-; texto de la nueva se escribe encima.
-;
-; Y de paso el flag 40, que es como el intérprete del Spectrum de 1989 le decía
-; a la aventura si esta localidad tenía dibujo. Lo ponía él y por eso ninguna
-; de las dos aventuras lo escribe nunca: sólo lo leen. La Aventura Original
-; pinta con "ZERO 40" su imagen genérica —el dibujo 27, el logotipo de AD entre
-; los árboles— y El Jabato limpia con él la ventana gráfica. Sin reponerlo, el
-; "ZERO 40" se cumple siempre y la genérica tapa la imagen de cada localidad.
-> _       _     WINDOW  1
-                WINAT   0 0
-                WINSIZE 24 42
-                CLS
-                CLEAR   40
-
-; Y la imagen de donde estés, si la hay. PICTURE no dibuja: busca la imagen y
-; la deja preparada, y además es una condición —así que una localidad sin
-; dibujo se lleva por delante el resto de la entrada, que es justo lo que se
-; quiere—. Quien la pinta es DISPLAY 0. Ver _internal_picture y
-; _internal_display, daad_condacts.c:2609 y 2631.
-;
-; La indirección es lo que hace que valga para las cuarenta y una: @38 es la
-; bandera de la localidad, así que cada sitio pide la suya.
-;
-; El texto baja a la fila 14 porque es lo que mide la mayoría de las imágenes
-; de la aventura. En 1989 no era una fila fija: cada dibujo declara su alto en
-; el byte 3 de su registro y el intérprete escribía debajo (09-graficos.md
-; §9.6), así que las más bajas dejan aquí un hueco y las de 22 filas se
-; solapan. Lo segundo apenas se nota: son las pantallas de presentación, que
-; escriben en su propia ventana 5.
-> _       _     NOTAT   0
-                PICTURE @38
-                DISPLAY 0
-                SET     40
-                WINAT   14 0
-                WINSIZE 10 42
-
-; Y si esta localidad no tiene dibujo propio, la ventana baja igual, porque la
-; aventura va a pintar arriba su imagen genérica —el "ZERO 40" de la tabla 3— y
-; si no, el texto le cae encima. Va en una entrada aparte y no en la de arriba:
-; el DISPLAY tiene que correr con la ventana todavía a pantalla completa.
-;
-; El NOTAT 0 de las dos está por la pantalla de arranque. La localidad 0 no es
-; un sitio: es donde la aventura pregunta antes de empezar, y lo hace con
-; "PRINTAT 11 21" sobre la pantalla entera. Con la ventana ya encogida a las
-; filas 14-23 esa fila 11 no existe y el "?" acababa donde podía.
-> _       _     NOTAT   0
-                ZERO    40
-                WINAT   14 0
-                WINSIZE 10 42
-
 > _       _     ZERO    28
                 DESC    @38
 
@@ -106,6 +54,17 @@
 /PRO 1
 
 > _       _     PROCESS 4
+
+; La ventana vuelve a ser la nuestra antes de preguntar, porque las tablas de
+; la aventura cambian de ventana y no todas la devuelven. La Aventura Original
+; deja puesta la 5 —"WINDOW 5 / WINAT 0 5 / WINSIZE 25 36"— y el prompt salía
+; en ella: en la columna 5 y en la fila 0, encima de la primera línea de la
+; descripción, que se perdía entera.
+;
+; Sin WINAT ni WINSIZE a propósito. Cada ventana lleva su propio cursor, así
+; que seleccionarla basta para seguir donde la descripción lo dejó; fijarla
+; otra vez lo devolvería a 0,0, que es exactamente el defecto que esto arregla.
+> _       _     WINDOW  1
 
 ; Una frase sin verbo deja fVerb a un valor que las entradas comodín de una
 ; tabla de respuestas de DAAD 1 toman por una dirección, porque comprueban
@@ -154,9 +113,23 @@
 
 /PRO 6
 
+; La ventana gráfica se queda sin superficie, porque aquí no hay ilustraciones:
+; la versión 3 no dibuja vectoriales, que es lo único que trae una aventura de
+; Spectrum de 1989. Sin esto, la ventana 0 conserva el tamaño que le da el
+; intérprete y encima de la nuestra, así que un "WINDOW 0 / CLS" de la aventura
+; —La Aventura Original lo hace al entrar en la depresión de 7 metros— borra la
+; primera línea de la descripción que acabamos de escribir.
+;
+; La plantilla oficial no lo padece porque pone su texto en "WINAT 14 0", debajo
+; del hueco de la imagen. Nosotros no podemos permitírnoslo: serían 14 filas de
+; 24 perdidas para una imagen que no va a existir.
+> _       _     WINDOW  0
+                WINAT   0 0
+                WINSIZE 0 0
+
 > _       _     WINDOW  1
                 WINAT   0 0
-                WINSIZE 24 42
+                WINSIZE 24 42   ; la pantalla entera de un ZX
                 CLS
                 SET     255
 
@@ -170,9 +143,16 @@ $limpia
 
 ; CONJETURA: la fuerza y cuánto se puede llevar. Son los valores por defecto de
 ; la plantilla, no los de esta aventura.
+;
+; Sin el "LET 1 0" que la plantilla pone aquí. El flag 1 es cuántos objetos
+; lleva el jugador y lo mantiene el intérprete, así que ponerlo a cero sólo
+; acierta si la aventura empieza con las manos vacías. La plantilla sí, pero
+; la segunda parte de La Aventura Original te entrega la lámpara, una llave y
+; la comida con que acabó la primera, y entonces el primer INVENTARIO de la
+; partida contesta "no llevas nada" con cuatro cosas en la mano. El RESET de
+; la línea de arriba ya deja la cuenta como toca.
 > _       _     RESET
                 LET     52 10
                 LET     37 4
                 SET     46
                 SET     47
-                LET     1 0

@@ -2,6 +2,7 @@ package vm_test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -312,6 +313,35 @@ func TestTheSecondPartOfLaAventuraOriginalTakesItsCode(t *testing.T) {
 	require.NotContains(t, said, "not implemented")
 }
 
+// And once inside, the first thing a player does is look at what the first
+// part left them holding.
+//
+// Two things had to be right for this to work and neither was. The adventure
+// answers INVENTARIO with "> I _ PROCESS 10", and I is a noun of value 14, so
+// the word only reaches that entry if a verbless sentence promotes its noun to
+// the verb — which the manual says happens below twenty and we were doing
+// below fourteen. Nothing at all was printed.
+//
+// Then, with the entry reached, it tests NOTZERO 1, and flag 1 is how many
+// objects are carried. RESET put the objects back where the database starts
+// them and left the count alone, so the answer was "no llevas nada" with the
+// lamp, a key, the food and the water in hand.
+func TestTheSecondPartKnowsWhatTheFirstOneHandedOver(t *testing.T) {
+	source := ao2Source(t)
+
+	said := transcript(t, source, "TIMACUS", "i", "dejar moneda", "i")
+
+	require.Contains(t, said, "Una llave",
+		"the first inventory of the game is the one that was empty")
+	require.NotContains(t, said, "No tienes nada")
+
+	// And what is put down leaves it, which is the other half of the count
+	// being real rather than a number somebody wrote once.
+	_, after, found := strings.Cut(said, "Has dejado la moneda")
+	require.True(t, found, "the coin was carried and could be dropped")
+	require.NotContains(t, after, "Una moneda")
+}
+
 // Every machine we compile for, played.
 //
 // This is the promise qrun is for: an adventure built for any target can be
@@ -347,13 +377,7 @@ func TestEveryMachineWeCompileForPlays(t *testing.T) {
 func ao2Source(t *testing.T) string {
 	t.Helper()
 
-	const dir = "../../work/port/ao-v3-part2"
-
-	if _, err := os.Stat(dir + "/game.sce"); err != nil {
-		t.Skipf("%s is not in the checkout: %v", dir, err)
-	}
-
-	return dir + "/game.sce"
+	return examplePart(t, "part2")
 }
 
 // templateSource is the blank adventure DRC ships, converted to the UTF-8 the
@@ -371,13 +395,21 @@ func templateSource(t *testing.T) string {
 func aoSource(t *testing.T) string {
 	t.Helper()
 
-	const dir = "../../work/port/ao-v3"
+	return examplePart(t, "part1")
+}
 
-	if _, err := os.Stat(dir + "/game.sce"); err != nil {
-		t.Skipf("%s is not in the checkout: %v", dir, err)
-	}
+// examplePart is one part of the ported adventure as the repository carries
+// it, in examples.
+//
+// It used to be work/port, which is not in the repository, so these tests
+// skipped on a fresh checkout and — worse — went on passing against whatever
+// an old build had left there. One of them did exactly that: the second part's
+// inventory was fixed and the test still failed, because the copy it was
+// reading predated the fix by a week.
+func examplePart(t *testing.T, part string) string {
+	t.Helper()
 
-	return dir + "/game.sce"
+	return filepath.Join("..", "..", "examples", "AO", "ZXSpectrum", "+3", part, "game.sce")
 }
 
 // utf8Copy writes a source the kit ships in ISO-8859-1 somewhere readable.
