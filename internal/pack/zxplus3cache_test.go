@@ -3,9 +3,12 @@ package pack
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jorgefuertes/QDAAD/internal/zx0"
 
 	"github.com/stretchr/testify/require"
 )
@@ -39,10 +42,10 @@ func screens(count int) map[int][]byte {
 // than against our own structs is that the format is the interpreter's, and a
 // test that agrees with the writer but not with the reader proves nothing.
 func TestTheBufferReadsBackTheWayTheInterpreterWalksIt(t *testing.T) {
-	cached, loose, err := chooseCached(screens(30))
+	cached, loose, err := chooseCached(screens(70))
 	require.NoError(t, err)
 	require.NotEmpty(t, cached)
-	require.NotEmpty(t, loose, "thirty of these do not all fit")
+	require.NotEmpty(t, loose, "seventy names do not all fit in the directory")
 
 	file, err := plus3Cache(cached)
 	require.NoError(t, err)
@@ -92,7 +95,7 @@ func TestTheBufferReadsBackTheWayTheInterpreterWalksIt(t *testing.T) {
 // The buffer is there to take pictures out of the directory, so what it takes
 // are the ones that cost least: smallest first, until the page is full.
 func TestTheSmallestPicturesAreTheOnesBuffered(t *testing.T) {
-	pictures := screens(30)
+	pictures := screens(70)
 
 	cached, loose, err := chooseCached(pictures)
 	require.NoError(t, err)
@@ -118,6 +121,52 @@ func TestTheSmallestPicturesAreTheOnesBuffered(t *testing.T) {
 	// Nothing is lost between the two: every picture is in one place or the
 	// other, and never in both.
 	require.Len(t, cached, len(pictures)-len(loose))
+}
+
+// Every buffered picture decompresses back to the screen it came from.
+//
+// The walk is the interpreter's — five bytes an entry, the offset read as an
+// address in page one, the five-byte header copied out and the rest handed to
+// the decompressor — and what comes out the other end is compared with what
+// went in. An index that points one byte out, or a size that counts the header
+// twice, gives a screen that is almost right, and almost right on a Spectrum
+// is a picture full of flashing attributes.
+func TestEveryBufferedPictureComesBackOut(t *testing.T) {
+	pictures := screens(70)
+
+	cached, _, err := chooseCached(pictures)
+	require.NoError(t, err)
+	require.NotEmpty(t, cached)
+
+	file, err := plus3Cache(cached)
+	require.NoError(t, err)
+
+	page := file[2:]
+	seen := 0
+
+	for at := 0; page[at] != plus3CacheEnd; at += plus3CacheEntry {
+		number := int(page[at])
+		address := int(binary.LittleEndian.Uint16(page[at+1:]))
+		size := int(binary.LittleEndian.Uint16(page[at+3:]))
+
+		from := address - plus3CacheAt + plus3PictureHeader
+
+		out, err := zx0.Decompress(page[from : from+size])
+		require.NoError(t, err, "picture %d", number)
+
+		require.Equal(t, screenSize, len(out), "picture %d is not a whole screen", number)
+
+		// The screen the packer would have written on its own, which is the
+		// source cropped to its own height.
+		want, err := plus3Picture(pictures[number])
+		require.NoError(t, err)
+		require.Equal(t, want[plus3PictureHeader:], page[from:from+size],
+			"picture %d is not the stream the packer makes", number)
+
+		seen++
+	}
+
+	require.Equal(t, len(cached), seen)
 }
 
 // The interpreter's buffered-picture path uncompresses with interrupts on, and
@@ -180,13 +229,44 @@ func TestWhatTheDICannotBePutInto(t *testing.T) {
 	require.ErrorContains(t, err, "two places that look alike")
 }
 
-// An adventure whose pictures all fit leaves no files of its own behind, and
-// one with none at all has no buffer to write.
+// The buffer is for one thing, so an adventure that does not need it does not
+// get one.
+//
+// This is the whole of the rule and it is worth stating on its own: the
+// directory holds 64 names, a release spends four on things that are not
+// pictures, and the buffer costs a fifth. Below that there is nothing to
+// rescue, and a picture read out of its own file goes through the path that
+// has always worked.
+func TestTheBufferIsOnlyThereWhenTheDirectoryWouldOverrun(t *testing.T) {
+	for _, tc := range []struct{ pictures, cached int }{
+		{pictures: 10, cached: 0},
+		{pictures: plus3DirEntries - plus3OtherFiles, cached: 0},
+		{pictures: plus3DirEntries - plus3OtherFiles + 1, cached: 2},
+		{pictures: 70, cached: 11},
+	} {
+		t.Run(fmt.Sprint(tc.pictures), func(t *testing.T) {
+			cached, loose, err := chooseCached(screens(tc.pictures))
+			require.NoError(t, err)
+
+			require.Len(t, cached, tc.cached)
+			require.Len(t, loose, tc.pictures-tc.cached)
+
+			names := len(loose) + plus3OtherFiles
+			if len(cached) > 0 {
+				names++
+			}
+
+			require.LessOrEqual(t, names, plus3DirEntries, "the directory still overruns")
+		})
+	}
+}
+
+// An adventure with no pictures at all has no buffer to write.
 func TestTheEdgesOfTheBuffer(t *testing.T) {
 	cached, loose, err := chooseCached(screens(3))
 	require.NoError(t, err)
-	require.Len(t, cached, 3)
-	require.Empty(t, loose)
+	require.Empty(t, cached, "three names fit without help")
+	require.Len(t, loose, 3)
 
 	cached, loose, err = chooseCached(nil)
 	require.NoError(t, err)

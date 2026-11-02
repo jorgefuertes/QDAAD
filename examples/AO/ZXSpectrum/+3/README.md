@@ -37,13 +37,17 @@ They used not to. A picture is a file of its own, opened by name when a
 73 files had nine with nowhere to be named, on a disk with 81 KB going spare.
 What ran out was names, not room.
 
-The way round it is the interpreter's own and we were not using it. At start-up
-it looks for a **`DAAD.GRA`**, and if it is there it reads the whole file into
-page 1 and keeps it; every `PICTURE` then looks in there before going near the
-disk. So the pictures that fit in that page — 16 on part one, 25 on part two —
-cost one directory entry between them, and draw with no disk access at all. The
-smallest go in, because the point is to take as many names as possible out of
-the directory.
+The way round it is the interpreter's own. At start-up it looks for a
+**`DAAD.GRA`**, and if it is there it reads the whole file into page 1 and
+keeps it; every `PICTURE` then looks in there before going near the disk. A
+buffered picture costs no directory entry of its own and draws without a disk
+access at all.
+
+**As few as will do go in there.** Part one's pictures all fit, so it has no
+`DAAD.GRA` and never touches that path; part two is nine names over, so nine
+of them — the smallest, which come to under 400 bytes between them — move into
+the buffer. The page would hold twenty-five, and filling it would be the
+better trade if the buffered path were sound. It is not yet: see below.
 
 A disk that uses the buffer also carries a **patched interpreter**. Paging a
 RAM bank in ends with an EI, so whatever runs next runs interruptible with an
@@ -57,7 +61,16 @@ lands inside the decompression.
 The patch is five bytes appended after the interpreter, in the kilobyte
 between where it ends and where the database starts: the one call is sent
 through a `DI` / `CALL` / `RET` stub. Nothing inside the image moves, so every
-address in it still means what it meant.
+address in it still means what it meant. Only a build that writes a
+`DAAD.GRA` gets it; the rest ship the interpreter untouched.
+
+**And it is not the whole story.** With the DI in, a buffered picture has
+still come out as a screen full of flashing attributes. What the file holds is
+not in doubt — there is a test that walks the index exactly as the Z80 does,
+decompresses every entry and compares it with the screen it was made from —
+so whatever is left is inside the interpreter. That is why only the nine that
+have to be buffered are buffered, and why part one is back to not buffering at
+all.
 
 Each of the rest travels as a `.128` of its own: five bytes of geometry and the
 screen compressed with ZX0, cut to its own last row with a pixel in it rather

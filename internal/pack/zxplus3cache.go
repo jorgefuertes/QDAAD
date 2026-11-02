@@ -155,14 +155,36 @@ type plus3Cached struct {
 	body   []byte // the .128 as it would have been on its own: header and data
 }
 
+// plus3DirEntries is what a +3DOS directory holds, and plus3OtherFiles is how
+// many of them a release spends on things that are not pictures: the loader,
+// the interpreter, the database and the graphics block. One more goes on the
+// buffer itself when there is one.
+const (
+	plus3DirEntries = 64
+	plus3OtherFiles = 4
+)
+
 // chooseCached decides which pictures go into the buffer and which stay as
 // files of their own.
 //
-// Smallest first, which is what the problem asks for: the buffer is there to
-// take pictures out of the directory, so the measure of a good choice is how
-// many of them it rescues and not how much disk time it saves. A blank-ish
-// screen compresses to a few dozen bytes, so the first several cost almost
-// nothing — ten of La Aventura Original's second part come to 431 bytes.
+// As few as will do, and smallest first.
+//
+// The buffer is there for one reason — a +3DOS directory holds 64 entries and
+// an adventure can have more pictures than that — so an adventure whose
+// pictures all fit gets no buffer at all, and one that overruns gets exactly
+// enough of them moved to bring it back under. Smallest first because the
+// measure is how many names it frees and not how much disk time it saves: a
+// blank-ish screen compresses to a few dozen bytes, and the nine the second
+// part of La Aventura Original needs come to under 400 of them.
+//
+// It used to fill the buffer to the top of the page, which is more pictures
+// buffered and strictly more of them drawn without touching the disk. That is
+// the better trade only if the buffered path is sound, and it is not: it
+// decompresses with interrupts enabled, which plus3DisableInterrupts puts
+// right, and something in it is still coming out as a screen full of flashing
+// attributes. Until that is understood, the fewer pictures go through it the
+// better — and an adventure like the first part, whose pictures all fit, goes
+// back to not using it at all.
 //
 // Ties go to the lower number so that two builds of the same adventure are the
 // same file.
@@ -190,9 +212,20 @@ func chooseCached(pictures map[int][]byte) (cached []plus3Cached, loose []int, e
 		return len(bodies[order[i]]) < len(bodies[order[j]])
 	})
 
+	// How many have to move for the names to fit. The buffer costs a name of
+	// its own, so it only helps once it takes more than one picture with it.
+	over := len(numbers) + plus3OtherFiles - plus3DirEntries
+	if over > 0 {
+		over++
+	}
+
 	used := 0
 
 	for _, n := range order {
+		if len(cached) >= over {
+			break
+		}
+
 		// What this one would add: its bytes, its row of the index, and the
 		// terminator the index always ends with.
 		grown := used + len(bodies[n]) + plus3CacheEntry
