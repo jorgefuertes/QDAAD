@@ -146,7 +146,18 @@
 
 /PRO 2
 
-> _       _     HASAT   49
+; Si lo que acabó la espera fue el reloj y no el jugador, lo que toca decir es
+; que el tiempo pasa, no que no se entiende la orden.
+;
+; El 87 no es un número de bandera: HASAT se direcciona descendiendo desde la
+; 59 —"flag = 59 - (valor div 8), bit = valor mod 8"—, así que el 87 es la
+; bandera 49 y su bit 7, que es el que el intérprete pone al vencer el plazo.
+; Aquí ponía 49, que por esa misma cuenta es la bandera 53 y su bit 1, o sea el
+; banco alternativo de atributos: nunca cierto al vencer el reloj. Y entonces
+; caía a la entrada de abajo y La Aventura Original contestaba "Lo siento, no
+; entiendo" en vez de su "El tiempo pasa... ¡Y no vuelve!", que es el mensaje
+; de sistema 35 y lo tiene escrito. Ver 05-flujo-ejecucion.md §5.
+> _       _     HASAT   87
                 SYSMESS 35
                 DONE
 

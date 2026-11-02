@@ -329,6 +329,10 @@ func TestTheExampleLoopsKeepWhatTheDecompilerCannotWriteYet(t *testing.T) {
 		"SET     40",   //
 		"WINAT   14 0", // and the text below the picture rather than on it
 		"WINSIZE 24 42",
+		// And the timeout asked for the way HASAT names a bit, which is not by
+		// flag number: 87 is flag 49 bit 7, and the 49 that used to be here is
+		// flag 53 bit 1 and never true when the clock runs out.
+		"HASAT   87",
 	}
 
 	loops, err := filepath.Glob(filepath.Join("..", "..", "..",
