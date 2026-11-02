@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 	"github.com/jorgefuertes/QDAAD/internal/vm"
@@ -189,16 +190,60 @@ type console struct {
 	// waits says whether a pause should stop for anything. A person wants it
 	// to; a file being fed in has nothing to press.
 	waits bool
+
+	// lines is where the reading goroutine puts them, and the only place the
+	// scanner is read from. See reading.
+	lines chan string
 }
 
 func (c *console) Print(text string) { _, _ = fmt.Fprint(c.out, text) }
 
-func (c *console) Input() (string, bool) {
-	if !c.in.Scan() {
-		return "", false
+// reading is the one goroutine that touches the scanner, started the first
+// time somebody wants a line.
+//
+// A read of a terminal cannot be called off once it has begun, so a timeout
+// cannot be a deadline on the read: it has to be a race between the read and a
+// clock, and that needs the read to be somewhere else. What the goroutine
+// hands over is lines, and a closed channel is the end of the input.
+//
+// A line typed after the clock ran out is not thrown away — it is still in the
+// channel and the next turn takes it. That is the kinder reading and it is the
+// one DAAD has a bit for, "recuperar automáticamente el buffer tras el
+// timeout".
+func (c *console) reading() <-chan string {
+	if c.lines == nil {
+		c.lines = make(chan string)
+
+		go func() {
+			defer close(c.lines)
+
+			for c.in.Scan() {
+				c.lines <- c.in.Text()
+			}
+		}()
 	}
 
-	return c.in.Text(), true
+	return c.lines
+}
+
+func (c *console) Input() (string, bool) {
+	line, more := <-c.reading()
+
+	return line, more
+}
+
+// InputWithin is Input with the adventure's TIME on it: whoever gets there
+// first, the player or the clock.
+func (c *console) InputWithin(limit time.Duration) (line string, more, expired bool) {
+	clock := time.NewTimer(limit)
+	defer clock.Stop()
+
+	select {
+	case line, more := <-c.reading():
+		return line, more, false
+	case <-clock.C:
+		return "", true, true
+	}
 }
 
 // AnyKey waits for a line rather than a key, because a console has no way to
@@ -213,6 +258,6 @@ func (c *console) Input() (string, bool) {
 // because the move to the cabin had been eaten by the title screen.
 func (c *console) AnyKey() {
 	if c.waits {
-		c.in.Scan()
+		<-c.reading()
 	}
 }

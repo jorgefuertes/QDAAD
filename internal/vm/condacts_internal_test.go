@@ -2,6 +2,7 @@ package vm
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -105,3 +106,35 @@ func TestASwitchedOnFlagSurvivesTheTurnCounter(t *testing.T) {
 		require.EqualValues(t, on, flag, "the switch went off on turn %d", turn+1)
 	}
 }
+
+// An adventure that has not asked for a timeout never gets one, however
+// patient the console is willing to be.
+//
+// Flag 48 is the duration and zero means there is no clock, which is what
+// every adventure starts with and what most of them stay at. A console that
+// can wait must not be a console that waits when nobody asked.
+func TestNoTimeWantedIsNoTimeoutGiven(t *testing.T) {
+	m := &Machine{watch: NoWatcher{}, console: neverAnswers{}}
+
+	m.setFlag(FlagTime, 0)
+
+	_, _, expired := m.waitForLine()
+	require.False(t, expired, "flag 48 is zero, so there is no clock to run out")
+
+	// And with a duration, the same console does time out — so the test above
+	// is about the flag and not about the console refusing to play along.
+	m.setFlag(FlagTime, 30)
+
+	_, _, expired = m.waitForLine()
+	require.True(t, expired)
+}
+
+// neverAnswers is a player who says nothing, ever.
+type neverAnswers struct{}
+
+func (neverAnswers) Print(string) {}
+func (neverAnswers) AnyKey()      {}
+
+func (neverAnswers) Input() (string, bool) { return "", true }
+
+func (neverAnswers) InputWithin(time.Duration) (string, bool, bool) { return "", true, true }

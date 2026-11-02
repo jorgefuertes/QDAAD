@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 )
@@ -294,17 +295,29 @@ var condacts = map[byte]func(*Machine, []byte){
 	},
 
 	// ---- things a console has no use for, said plainly rather than omitted ----
-	18:  nothing, // SFX
-	25:  nothing, // SAVE
-	26:  nothing, // LOAD
-	28:  nothing, // DISPLAY
-	29:  nothing, // CLS: a scrolling console has no screen to clear
-	64:  nothing, // BEEP
-	65:  nothing, // PAPER
-	66:  nothing, // INK
-	67:  nothing, // BORDER
-	81:  nothing, // MODE
-	83:  nothing, // TIME
+	18: nothing, // SFX
+	25: nothing, // SAVE
+	26: nothing, // LOAD
+	28: nothing, // DISPLAY
+	29: nothing, // CLS: a scrolling console has no screen to clear
+	64: nothing, // BEEP
+	65: nothing, // PAPER
+	66: nothing, // INK
+	67: nothing, // BORDER
+	81: nothing, // MODE
+	// TIME: how long the player gets before the tables run on without an
+	// order, in seconds, and where else the clock is allowed to run out.
+	//
+	// The duration goes in flag 48 and the three option bits in the bottom of
+	// flag 49, below the three INPUT writes above them. A duration of zero
+	// turns the whole thing off, which is what the manual means by "no
+	// timeout" and what every adventure starts with.
+	83: func(m *Machine, a []byte) {
+		const optionMask = 0x07
+
+		m.setFlag(FlagTime, a[0])
+		m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]&^optionMask|a[1]&optionMask)
+	},
 	84:  nothing, // PICTURE
 	86:  nothing, // MOUSE
 	87:  nothing, // GFX
@@ -656,7 +669,19 @@ func (m *Machine) parse(which byte) bool {
 
 	m.prompt()
 
-	line, ok := m.console.Input()
+	line, ok, expired := m.waitForLine()
+
+	if expired {
+		// The clock ran out, so the tables run on with no order at all. The
+		// bit is how they find out: the loop's own table asks for it with
+		// HASAT 87 and answers with the adventure's "time passes" message
+		// rather than its "I do not understand".
+		m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]|timedOut)
+		m.words("")
+
+		return true
+	}
+
 	if !ok {
 		m.finished = true
 
@@ -666,6 +691,31 @@ func (m *Machine) parse(which byte) bool {
 	m.inputs++
 
 	return !m.sentence(line)
+}
+
+// timedOut is bit 7 of the timeout flags, which the interpreter sets and the
+// adventure reads. See 05-flujo-ejecucion.md §6.
+const timedOut = 0x80
+
+// waitForLine asks the player for a line, giving up if the adventure has said
+// how long to wait and the console can be told to.
+//
+// The bit it clears first is the one it may set afterwards: a timeout is news
+// about this turn, and leaving last turn's would have the adventure announce
+// the clock every turn once it had run out once.
+func (m *Machine) waitForLine() (line string, more, expired bool) {
+	m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]&^timedOut)
+
+	seconds := m.flags[FlagTime]
+
+	impatient, canWait := m.console.(Impatient)
+	if !canWait || seconds == 0 {
+		line, more = m.console.Input()
+
+		return line, more, false
+	}
+
+	return impatient.InputWithin(time.Duration(seconds) * time.Second)
 }
 
 // prompt writes what goes in front of the player's line.

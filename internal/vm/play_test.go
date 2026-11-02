@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/back"
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
@@ -36,6 +37,9 @@ type script struct {
 }
 
 func (s *script) Print(text string) { s.said.WriteString(text) }
+
+// transcript is everything the adventure said, which is what a test reads.
+func (s *script) transcript() string { return s.said.String() }
 
 func (s *script) Input() (string, bool) {
 	if len(s.lines) == 0 {
@@ -106,6 +110,38 @@ func transcriptFor(t *testing.T, source string, target arch.Machine, subtarget s
 	require.NoError(t, machine.Run())
 
 	return player.said.String()
+}
+
+// playWith is the same, for a player that is not a plain list of commands.
+func playWith(t *testing.T, source string, player interface {
+	vm.Console
+	transcript() string
+},
+) string {
+	t.Helper()
+
+	opts := legacy.Options{
+		Machine: arch.PC, Subtarget: "VGA",
+		Language: language.LanguageSpanish, Version: 3,
+	}
+
+	db, err := legacy.Analyze(source, opts)
+	require.NoError(t, err)
+
+	image, _, err := back.LinkWithLayout(db, back.Options{
+		Machine: opts.Machine, Subtarget: opts.Subtarget,
+		Language: opts.Language, Version: opts.Version,
+	})
+	require.NoError(t, err)
+
+	r, ok := ddbfile.At(image, 0)
+	require.True(t, ok)
+
+	machine, err := vm.New(r, player, nil)
+	require.NoError(t, err)
+	require.NoError(t, machine.Run())
+
+	return player.transcript()
 }
 
 // The template is the smallest adventure there is and it is in the checkout,
@@ -311,6 +347,58 @@ func TestTheSecondPartOfLaAventuraOriginalTakesItsCode(t *testing.T) {
 		"the first location was never described")
 
 	require.NotContains(t, said, "not implemented")
+}
+
+// impatient is a player who sometimes says nothing at all.
+//
+// A line of "..." is the clock running out rather than an order: the console
+// says the wait expired and the machine goes on without a sentence. It is the
+// smallest thing that makes a timeout testable, and it is what a test language
+// for qrun would end up needing underneath.
+type impatient struct {
+	script
+
+	waited int
+}
+
+const letTheClockRun = "..."
+
+func (p *impatient) InputWithin(time.Duration) (line string, more, expired bool) {
+	if len(p.lines) > 0 && p.lines[0] == letTheClockRun {
+		p.lines = p.lines[1:]
+		p.waited++
+
+		return "", true, true
+	}
+
+	line, more = p.Input()
+
+	return line, more, false
+}
+
+// When the clock runs out the adventure says so, in its own words.
+//
+// This is the whole of what TIME is for: the player says nothing, the tables
+// run on without an order, and the loop's own table asks whether it was the
+// clock — HASAT 87, flag 49 bit 7 — and answers with system message 35 rather
+// than the one for a sentence it could not parse.
+//
+// It was asking with HASAT 49, which by the same arithmetic is flag 53 bit 1
+// and never set when a clock runs out, so La Aventura Original answered "Lo
+// siento, no entiendo" where it had "El tiempo pasa... ¡Y no vuelve!" written.
+// Nothing in a transcript showed it, because nothing in a transcript waits.
+func TestTheClockRunningOutSaysSo(t *testing.T) {
+	source := aoSource(t)
+
+	player := &impatient{script: script{lines: []string{letTheClockRun, letTheClockRun, "fin", "s"}}}
+
+	said := playWith(t, source, player)
+
+	require.Equal(t, 2, player.waited, "the console was never asked to wait")
+	require.Contains(t, said, "El tiempo pasa",
+		"the adventure has the words and the loop did not ask for them")
+	require.NotContains(t, said, "no te entiendo",
+		"a clock running out is not a sentence it failed to parse")
 }
 
 // And once inside, the first thing a player does is look at what the first

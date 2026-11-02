@@ -22,6 +22,7 @@ package vm
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 )
@@ -99,6 +100,19 @@ type Console interface {
 	// AnyKey waits for a keypress. A driver with nobody at the keyboard
 	// returns straight away.
 	AnyKey()
+}
+
+// Impatient is a console that can be told to stop waiting, which is what a
+// TIME is for: the adventure says how long the player gets, and when the time
+// is up the tables run on without an order.
+//
+// It is an extra rather than part of Console because most drivers have no
+// clock worth the name — a script of commands answers at once, by definition —
+// and a console that cannot do this is not broken, it just never times out.
+type Impatient interface {
+	// InputWithin is Input with a deadline. expired says the wait ran out;
+	// the line is then meaningless and the game has not ended.
+	InputWithin(limit time.Duration) (line string, more, expired bool)
 }
 
 // Watcher is told what the machine does, for a debugger, a test or a
