@@ -197,7 +197,7 @@ func assemble(format string, b build.Build, name string) (*pack.Release, error) 
 		switch b.Machine {
 		case arch.ZX:
 			body, err = pack.ZXDisk(b.Database, b.Subtarget, opts)
-			note = "180K +3 disk, bootable from the +3's own menu"
+			note = "177K +3 disk, loaded from the +3's own menu"
 		case arch.CPC:
 			body, err = pack.CPCDisk(b.Database, opts)
 			note = `180K CPC disk in DATA format: RUN"` + name + `"`

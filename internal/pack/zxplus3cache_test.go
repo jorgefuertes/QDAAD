@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jorgefuertes/QDAAD/internal/media"
 	"github.com/jorgefuertes/QDAAD/internal/zx0"
 
 	"github.com/stretchr/testify/require"
@@ -34,6 +35,15 @@ func screens(count int) map[int][]byte {
 	return out
 }
 
+// overrunning is a picture count that will not fit in the directory, whatever
+// the directory holds today.
+//
+// It used to be the literal 70, which was six over a disk of 64 names. The disk
+// says 128 now and 70 of them fit with room to spare, so a test that asked for
+// 70 and expected a buffer was testing nothing — it got an empty one and said
+// so. Counted from the limit, it goes on meaning what it was written to mean.
+func overrunning() int { return media.Plus3Names() + 6 }
+
 // Reading the buffer back the way the Z80 does: walk the index five bytes at a
 // time until the number is 255, and for a hit take the offset as an address in
 // page one and the five bytes there as the picture's header.
@@ -42,10 +52,10 @@ func screens(count int) map[int][]byte {
 // than against our own structs is that the format is the interpreter's, and a
 // test that agrees with the writer but not with the reader proves nothing.
 func TestTheBufferReadsBackTheWayTheInterpreterWalksIt(t *testing.T) {
-	cached, loose, err := chooseCached(screens(70), plus3OtherFiles)
+	cached, loose, err := chooseCached(screens(overrunning()), plus3OtherFiles)
 	require.NoError(t, err)
 	require.NotEmpty(t, cached)
-	require.NotEmpty(t, loose, "seventy names do not all fit in the directory")
+	require.NotEmpty(t, loose, "that many names do not all fit in the directory")
 
 	file, err := plus3Cache(cached)
 	require.NoError(t, err)
@@ -95,7 +105,7 @@ func TestTheBufferReadsBackTheWayTheInterpreterWalksIt(t *testing.T) {
 // The buffer is there to take pictures out of the directory, so what it takes
 // are the ones that cost least: smallest first, until the page is full.
 func TestTheSmallestPicturesAreTheOnesBuffered(t *testing.T) {
-	pictures := screens(70)
+	pictures := screens(overrunning())
 
 	cached, loose, err := chooseCached(pictures, plus3OtherFiles)
 	require.NoError(t, err)
@@ -132,7 +142,7 @@ func TestTheSmallestPicturesAreTheOnesBuffered(t *testing.T) {
 // twice, gives a screen that is almost right, and almost right on a Spectrum
 // is a picture full of flashing attributes.
 func TestEveryBufferedPictureComesBackOut(t *testing.T) {
-	pictures := screens(70)
+	pictures := screens(overrunning())
 
 	cached, _, err := chooseCached(pictures, plus3OtherFiles)
 	require.NoError(t, err)
@@ -233,30 +243,40 @@ func TestWhatTheDICannotBePutInto(t *testing.T) {
 // get one.
 //
 // This is the whole of the rule and it is worth stating on its own: the
-// directory holds 64 names, a release spends four on things that are not
-// pictures, and the buffer costs a fifth. Below that there is nothing to
-// rescue, and a picture read out of its own file goes through the path that
-// has always worked.
+// directory holds as many names as the disk's own specification says, a release
+// spends four on things that are not pictures, and the buffer costs a fifth.
+// Below that there is nothing to rescue, and a picture read out of its own file
+// goes through the path that has always worked.
+//
+// The numbers here are the limit rather than 64, because the limit moved: a +3
+// disk this writes asks for four directory blocks instead of two, and 128 names
+// is why La Aventura Original's second part no longer needs a buffer at all.
 func TestTheBufferIsOnlyThereWhenTheDirectoryWouldOverrun(t *testing.T) {
-	for _, tc := range []struct{ pictures, cached int }{
+	names := media.Plus3Names()
+
+	for _, tc := range []struct {
+		pictures, cached int
+		note             string
+	}{
 		{pictures: 10, cached: 0},
-		{pictures: plus3DirEntries - plus3OtherFiles, cached: 0},
-		{pictures: plus3DirEntries - plus3OtherFiles + 1, cached: 2},
-		{pictures: 70, cached: 11},
+		{pictures: 70, cached: 0, note: "a disk of 64 names needed eleven of these buffered"},
+		{pictures: names - plus3OtherFiles, cached: 0},
+		{pictures: names - plus3OtherFiles + 1, cached: 2},
+		{pictures: names + 6, cached: 11},
 	} {
 		t.Run(fmt.Sprint(tc.pictures), func(t *testing.T) {
 			cached, loose, err := chooseCached(screens(tc.pictures), plus3OtherFiles)
 			require.NoError(t, err)
 
-			require.Len(t, cached, tc.cached)
+			require.Len(t, cached, tc.cached, tc.note)
 			require.Len(t, loose, tc.pictures-tc.cached)
 
-			names := len(loose) + plus3OtherFiles
+			used := len(loose) + plus3OtherFiles
 			if len(cached) > 0 {
-				names++
+				used++
 			}
 
-			require.LessOrEqual(t, names, plus3DirEntries, "the directory still overruns")
+			require.LessOrEqual(t, used, names, "the directory still overruns")
 		})
 	}
 }

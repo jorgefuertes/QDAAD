@@ -5,16 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/jorgefuertes/QDAAD/internal/media"
 )
 
 // The buffered pictures of a +3 release, which DAAD calls DAAD.GRA.
 //
 // A picture on a +3 is a file of its own, opened by name when a PICTURE names
 // it. That works and it is what the interpreter does first, but it spends a
-// directory entry per picture and a +3DOS directory has 64 of them. La Aventura
-// Original's second part is 69 pictures and four other files, so nine of them
-// had nowhere to be named — with 81 KB of the disk still empty, because what
-// ran out was names and not room.
+// directory entry per picture, and a +3DOS directory holds as many as the
+// disk's own specification says. On a DATA disk, which is what this wrote at
+// first, nothing says anything and the answer is 64: La Aventura Original's
+// second part is 69 pictures and four other files, so nine of them had nowhere
+// to be named — with 81 KB of the disk still empty, because what ran out was
+// names and not room.
+//
+// Asking for 128 instead is a byte of the specification and it is what we do
+// now, so nothing we ship needs this any more. It stays all the same. 128 is
+// still a number an adventure can reach, and the one after it is not another
+// byte away: the directory comes out of the same blocks the files do, and a
+// picture-per-file disk runs out of both together in the end.
 //
 // The interpreter has the answer already and we were not using it. At start-up
 // it looks for DAAD.GRA, and if it is there it reads the whole thing into page
@@ -155,14 +165,16 @@ type plus3Cached struct {
 	body   []byte // the .128 as it would have been on its own: header and data
 }
 
-// plus3DirEntries is what a +3DOS directory holds, and plus3OtherFiles is how
-// many of them a release always spends on things that are not pictures: the
-// loader, the interpreter, the database and the graphics block. A loading
-// screen is a fifth when there is one, and the buffer itself a sixth.
-const (
-	plus3DirEntries = 64
-	plus3OtherFiles = 4
-)
+// plus3OtherFiles is how many directory entries a release always spends on
+// things that are not pictures: the loader, the interpreter, the database and
+// the graphics block. A loading screen is a fifth when there is one, and the
+// buffer itself a sixth.
+//
+// How many there are in all is media.Plus3Names(), which is not a number this
+// writes down: it is a consequence of the disk's own specification, and raising
+// it from 64 to 128 is what took La Aventura Original's second part out of the
+// buffer altogether.
+const plus3OtherFiles = 4
 
 // chooseCached decides which pictures go into the buffer and which stay as
 // files of their own.
@@ -214,7 +226,7 @@ func chooseCached(pictures map[int][]byte, others int) (cached []plus3Cached, lo
 
 	// How many have to move for the names to fit. The buffer costs a name of
 	// its own, so it only helps once it takes more than one picture with it.
-	over := len(numbers) + others - plus3DirEntries
+	over := len(numbers) + others - media.Plus3Names()
 	if over > 0 {
 		over++
 	}

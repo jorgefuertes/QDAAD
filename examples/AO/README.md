@@ -86,9 +86,10 @@ Today the only difference is **how many drawings each one carries**.
 
 About ten fit on a tape, so each part carries the ones the game needs to make
 sense and the generic picture covers the rest, which is what the adventure
-itself does. On a disk they all fit, which they did not until the pictures that
-have room went into a `DAAD.GRA` instead of a file each: a +3DOS directory
-holds 64 entries, and what part two ran out of was names rather than room.
+itself does. On a disk they all fit, which they did not until the disk started
+carrying a +3DOS specification asking for a directory of 128 names instead of
+64: a picture is a file, and what part two ran out of was names rather than
+room.
 
 Part two's drawing 4 is left out on purpose: it is a piece that drawing 107
 calls rather than a scene, and it happens to sit at the number of a location

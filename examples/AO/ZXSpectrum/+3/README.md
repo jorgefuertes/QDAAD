@@ -1,6 +1,6 @@
 # La Aventura Original for a Spectrum +3
 
-Two disks, one per part, bootable from the +3's own menu. Each carries the
+Two disks, one per part, loaded from the +3's own menu. Each carries the
 loader, the interpreter, the database and the pictures as separate files.
 
 A disk here is 40 tracks and **one side**, which is what the +3's built-in
@@ -27,55 +27,72 @@ qpack -f dsk -o AO2 --name AO2 build/p3-part2     # AO2.dsk
 The loader has to be called `DISK`, with no extension, which is what a +3 looks
 for when it boots a disk from its menu. `qpack` sees to that.
 
-## The pictures
+## 128 names, which is what made the pictures fit
 
-They all fit now: 41 on part one's disk, and 68 of part two's 69 — the one
-missing is left out on purpose, see below.
+A picture is a file of its own, opened by name when a `PICTURE` names it, so an
+adventure of 69 pictures wants 73 names on its disk. Part two could not have
+them, on a disk with 81 KB going spare: what ran out was names and not room.
 
-They used not to. A picture is a file of its own, opened by name when a
-`PICTURE` names it, and a +3DOS directory holds **64 entries** — so part two's
-73 files had nine with nowhere to be named, on a disk with 81 KB going spare.
-What ran out was names, not room.
+How many a +3DOS directory holds is **whatever the disk's own specification
+says**, and the specification is sixteen bytes in the first sector of track 0.
+A disk in the CPC's DATA format — which is what these were, and what the CPC
+disks still are — has no specification at all: it is recognised by its sector
+numbering, nothing on it says how big the directory is, and the answer is 64
+with no arguing with it.
 
-The way round it is the interpreter's own. At start-up it looks for a
-**`DAAD.GRA`**, and if it is there it reads the whole file into page 1 and
-keeps it; every `PICTURE` then looks in there before going near the disk. A
-buffered picture costs no directory entry of its own and draws without a disk
-access at all.
+So these disks are the +3's own format now, which is the one La Aventura
+Original's own disk uses: sector IDs from 1 rather than 0xC1, one reserved
+track, and the specification in the first sector of it. The bytes are the
+original's, read out of it, with one changed:
 
-**As few as will do go in there.** Part one's pictures all fit, so it has no
-`DAAD.GRA` and never touches that path; part two is nine names over, so nine
-of them — the smallest, which come to under 400 bytes between them — move into
-the buffer. The page would hold twenty-five, and filling it would be the
-better trade if the buffered path were sound. It is not yet: see below.
+```text
+00 00 28 09 02 01 03 04 2A 52
+|  |  |  |  |  |  |  |  |  '- gap when formatting
+|  |  |  |  |  |  |  |  '---- gap when reading and writing
+|  |  |  |  |  |  |  '------- directory blocks: 2 on the original, 4 here
+|  |  |  |  |  |  '---------- block size, as log2 minus seven: 1 KiB
+|  |  |  |  |  '------------- reserved tracks
+|  |  |  |  '---------------- sector size, same reading: 512
+|  |  |  '------------------- sectors per track
+|  |  '---------------------- tracks per side
+|  '------------------------- sides, and the order they are written in
+'---------------------------- disk type
+```
 
-A disk that uses the buffer also carries a **patched interpreter**. Paging a
-RAM bank in ends with an EI, so whatever runs next runs interruptible with an
-unusual bank at 0xC000; the path that reads a picture out of its own file knows
-this and puts a DI in front of the decompressor, and the path that reads one
-out of the buffer does not. It never mattered while nothing used `DAAD.GRA`.
-It shows up as a picture that comes out black, or a machine that resets, at no
-particular place and not every time — it depends where the 50 Hz interrupt
-lands inside the decompression.
+Four blocks of 32-byte entries is **128 names** for two kilobytes of directory,
+and it costs the reserved track as well: 175 blocks instead of 180. Part two
+uses 73 of the names, so every picture it has travels as a file.
 
-The patch is five bytes appended after the interpreter, in the kilobyte
-between where it ends and where the database starts: the one call is sent
-through a `DI` / `CALL` / `RET` stub. Nothing inside the image moves, so every
-address in it still means what it meant. Only a build that writes a
-`DAAD.GRA` gets it; the rest ship the interpreter untouched.
+A picture travels as a `.128`: five bytes of geometry and the screen compressed
+with ZX0, cut to its own last row with a pixel in it rather than to a fixed
+height, which is what used to leave the title frame without its bottom bar.
 
-**And it is not the whole story.** With the DI in, a buffered picture has
-still come out as a screen full of flashing attributes. What the file holds is
-not in doubt — there is a test that walks the index exactly as the Z80 does,
-decompresses every entry and compares it with the screen it was made from —
-so whatever is left is inside the interpreter. That is why only the nine that
-have to be buffered are buffered, and why part one is back to not buffering at
-all.
+The disk is deliberately **not bootable**. The +3's menu reads all 512 bytes of
+that first sector and, if they sum to 3 modulo 256, takes the disk for bootable
+and *runs* them; the rest of ours is formatting filler, and 0xE5 is `RST 0x20`.
+So the sum is checked and kept away from 3. Nothing is lost by it: the release
+is started from the menu's own Loader option, which is `LOAD "DISK"`.
 
-Each of the rest travels as a `.128` of its own: five bytes of geometry and the
-screen compressed with ZX0, cut to its own last row with a pixel in it rather
-than to a fixed height, which is what used to leave the title frame without its
-bottom bar.
+### What this replaced
+
+The interpreter has an answer of its own and we used it for a while. At start-up
+it looks for a **`DAAD.GRA`**, and if it is there it reads the whole file into
+page 1 and keeps it; every `PICTURE` then looks in there before going near the
+disk, so a buffered picture costs no directory entry.
+
+It works in principle and it did not work in practice: a buffered picture kept
+coming out as a screen full of flashing attributes. Part of that was found — the
+buffered path uncompresses with interrupts enabled, where the path that reads a
+picture out of its own file knows to put a `DI` in front of the decompressor —
+and patching the missing `DI` in did not cure it. What the file holds is not in
+doubt; there is a test that walks the index exactly as the Z80 does,
+decompresses every entry and compares it with the screen it was made from. So
+whatever is left is inside the interpreter.
+
+With 128 names nothing we ship needs it, and neither disk here has a `DAAD.GRA`
+or a patched interpreter. `qpack` still writes both when an adventure has more
+pictures than the disk has names, because 128 is still a number an adventure can
+reach — and if that ever happens, the flashing is waiting.
 
 ### The one that is left out
 
@@ -129,10 +146,6 @@ The `PAUSE` is the one thing here a tape does not need. A tape's last block is
 tens of kilobytes at 1500 baud, so the picture is up for most of a minute
 whether anybody wanted it or not; a disk reads the same bytes in an instant,
 and without the wait the picture would be gone about as fast as it arrived.
-
-It costs a directory entry, which on part two is an entry that was spoken for:
-the split between buffered and loose pictures counts it, so one more picture
-moves into the `DAAD.GRA` instead of one falling off the disk.
 
 `qpack --loading <file>` packages a different one, and wins over whatever the
 build directory carries.

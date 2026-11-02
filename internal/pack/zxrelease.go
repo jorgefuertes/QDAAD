@@ -55,7 +55,7 @@ func ZXDisk(database []byte, subtarget string, opts Options) ([]byte, error) {
 	var dropped []string
 
 	for {
-		image, err := media.DataDisk(files)
+		image, err := media.Plus3Disk(files)
 		if err == nil {
 			if len(dropped) > 0 && opts.Note != nil {
 				opts.Note(fmt.Sprintf("%d pictures did not fit on the disk and are not on it: %s",
@@ -269,10 +269,13 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 	// which the interpreter reads once at start-up and keeps; the rest are
 	// files of their own, opened by name when a PICTURE names them.
 	//
-	// The split is not about speed, although the buffered ones are faster for
-	// nothing. It is about the directory: a +3DOS one has 64 entries, and an
-	// adventure with 69 pictures and four other files has more names than
-	// that however empty the disk is. See zxplus3cache.go.
+	// The split is about the directory and not about speed: an adventure with
+	// more pictures than the disk has names has to put some of them somewhere
+	// that is not a file. Since the disk started asking for 128 names instead
+	// of 64 that is nothing we ship — both parts of La Aventura Original go on
+	// as files — so chooseCached comes back empty and this writes nothing. It
+	// stays because the limit is a limit and an adventure will reach it. See
+	// zxplus3cache.go.
 	if buffer, err := plus3Cache(cached); err != nil {
 		return nil, err
 	} else if len(buffer) > 0 {

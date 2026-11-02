@@ -20,8 +20,10 @@ import (
 // each listing the blocks it occupies and how many 128-byte records of the last
 // one are used, so a file has to be put back together from all of its extents.
 const (
-	cpmEntrySize    = 32
-	cpmEntries      = 64 // the directory is two blocks
+	cpmEntrySize = 32
+	// cpmEntries is what a directory of two blocks holds, which is what these
+	// disks have unless their own specification says otherwise.
+	cpmEntries      = 64
 	cpmBlockSize    = 1024
 	cpmRecordSize   = 128
 	cpmBlocksPerExt = 16
@@ -52,33 +54,25 @@ type cpmExtent struct {
 
 // cpmFiles reads the directory and returns the files it names, whole.
 //
-// Where the data area starts is not written down anywhere either. It depends on
-// how the disk was formatted — the sector numbering says which, &C1 upwards for
-// a data disk with no reserved tracks and &41 upwards for a system one with
-// two — but rather than trust the numbering we try each in turn and keep the
-// one that yields a directory, which is the same test that has to be made
-// anyway to know whether there is a filesystem at all.
+// Where the data area starts is not written down anywhere, on most of these
+// disks. It depends on how the disk was formatted — the sector numbering says
+// which, &C1 upwards for a data disk with no reserved tracks and &41 upwards
+// for a system one with two — but rather than trust the numbering we try each
+// in turn and keep the one that yields a directory, which is the same test that
+// has to be made anyway to know whether there is a filesystem at all.
+//
+// A disk in the +3's own format does write it down, in the specification in its
+// first sector, and that one is read rather than guessed at: it is also the only
+// place a directory of other than 64 entries can be announced. See cpmSpec.
 func cpmFiles(payload []byte, trackSize int) []File {
+	if reserved, entries, ok := cpmSpec(payload); ok {
+		if files := cpmArea(payload, reserved*trackSize, entries); files != nil {
+			return files
+		}
+	}
+
 	for _, reserved := range []int{0, 1, 2} {
-		start := reserved * trackSize
-		if start+cpmEntries*cpmEntrySize > len(payload) {
-			break
-		}
-
-		extents := cpmDirectory(payload[start:])
-		if len(extents) == 0 {
-			continue
-		}
-
-		// A file whose blocks fall outside the disk says the entries were not a
-		// directory after all, which is a thing to move on from rather than to
-		// report: a loader disk has sectors that read as entries here and there.
-		files, err := cpmAssemble(extents, payload[start:])
-		if err != nil {
-			continue
-		}
-
-		if len(files) > 0 {
+		if files := cpmArea(payload, reserved*trackSize, cpmEntries); files != nil {
 			return files
 		}
 	}
@@ -86,15 +80,84 @@ func cpmFiles(payload []byte, trackSize int) []File {
 	return nil
 }
 
-// cpmDirectory reads the 64 entries, keeping the ones that describe a file.
+// cpmArea reads one candidate data area, and says nothing rather than
+// complaining when it turns out not to be one.
+func cpmArea(payload []byte, start, entries int) []File {
+	if start+entries*cpmEntrySize > len(payload) {
+		return nil
+	}
+
+	extents := cpmDirectory(payload[start:], entries)
+	if len(extents) == 0 {
+		return nil
+	}
+
+	// A file whose blocks fall outside the disk says the entries were not a
+	// directory after all, which is a thing to move on from rather than to
+	// report: a loader disk has sectors that read as entries here and there.
+	files, err := cpmAssemble(extents, payload[start:])
+	if err != nil || len(files) == 0 {
+		return nil
+	}
+
+	return files
+}
+
+// cpmSpec reads a +3DOS disk specification, if the first sector holds one.
+//
+// It is sixteen bytes at the very start of the disk and it is the only thing
+// that can say a directory is other than 64 entries, which is why it is read at
+// all: a disk this program writes for a +3 says four directory blocks, and a
+// reader that assumed two would see half of it.
+//
+// What makes it a specification and not a sector of program is the fields
+// agreeing with each other and with a 3-inch drive. A loader disk whose first
+// sector happened to pass all of this would still have to produce a directory
+// afterwards to be believed, so the cost of a false positive is a wasted
+// attempt and not a wrong answer.
+func cpmSpec(payload []byte) (reserved, entries int, ok bool) {
+	const (
+		specType     = 0
+		specTracks   = 2
+		specSectors  = 3
+		specSector   = 4
+		specReserved = 5
+		specBlock    = 6
+		specDirBlock = 7
+		specSize     = 16
+	)
+
+	if len(payload) < specSize {
+		return 0, 0, false
+	}
+
+	spec := payload[:specSize]
+
+	switch {
+	case spec[specType] > 3: // 0 to 3 are the four +3DOS disk types
+	case spec[specTracks] < 40 || spec[specTracks] > 82:
+	case spec[specSectors] < 8 || spec[specSectors] > 10:
+	case spec[specSector] != 2: // 128 << 2, the only sector these drives have
+	case spec[specReserved] < 1 || spec[specReserved] > 2:
+	case spec[specBlock] != 3: // 128 << 3, a 1 KiB block
+	case spec[specDirBlock] < 1 || spec[specDirBlock] > 8:
+	default:
+		return int(spec[specReserved]),
+			int(spec[specDirBlock]) * cpmBlockSize / cpmEntrySize, true
+	}
+
+	return 0, 0, false
+}
+
+// cpmDirectory reads the entries, keeping the ones that describe a file.
 //
 // An entry that is not one has to be discarded rather than taken as the end of
 // the directory: a disk that has had files deleted and written again has live
 // entries after dead ones.
-func cpmDirectory(area []byte) []cpmExtent {
+func cpmDirectory(area []byte, entries int) []cpmExtent {
 	var extents []cpmExtent
 
-	for i := range cpmEntries {
+	for i := range entries {
 		at := i * cpmEntrySize
 		if at+cpmEntrySize > len(area) {
 			break
