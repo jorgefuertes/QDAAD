@@ -45,6 +45,20 @@ cost one directory entry between them, and draw with no disk access at all. The
 smallest go in, because the point is to take as many names as possible out of
 the directory.
 
+A disk that uses the buffer also carries a **patched interpreter**. Paging a
+RAM bank in ends with an EI, so whatever runs next runs interruptible with an
+unusual bank at 0xC000; the path that reads a picture out of its own file knows
+this and puts a DI in front of the decompressor, and the path that reads one
+out of the buffer does not. It never mattered while nothing used `DAAD.GRA`.
+It shows up as a picture that comes out black, or a machine that resets, at no
+particular place and not every time — it depends where the 50 Hz interrupt
+lands inside the decompression.
+
+The patch is five bytes appended after the interpreter, in the kilobyte
+between where it ends and where the database starts: the one call is sent
+through a `DI` / `CALL` / `RET` stub. Nothing inside the image moves, so every
+address in it still means what it meant.
+
 Each of the rest travels as a `.128` of its own: five bytes of geometry and the
 screen compressed with ZX0, cut to its own last row with a pixel in it rather
 than to a fixed height, which is what used to leave the title frame without its

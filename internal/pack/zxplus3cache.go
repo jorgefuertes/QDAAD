@@ -1,6 +1,8 @@
 package pack
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"sort"
 )
@@ -47,6 +49,105 @@ const (
 	// plus3CacheName is what the interpreter opens, and nothing else will do.
 	plus3CacheName = "DAAD.GRA"
 )
+
+// The buffered path of the interpreter uncompresses with interrupts on, and it
+// should not.
+//
+// Paging a bank in ends with an EI — the routine is DI, out to 0x7FFD, EI, RET
+// — so whatever runs next runs interruptible with a bank other than the usual
+// one at 0xC000. The interpreter knows: the path that reads a picture out of
+// its own file puts a DI in front of the decompressor and says why, in
+// PLUS3.ASM's own words, "the pageinRAMx calls enable interrupts, we must
+// ensure they are not activated while UNCOMPRESS runs".
+//
+// CheckCachedImages, which is the path a buffered picture takes, does not. It
+// never mattered while nothing used DAAD.GRA. It matters now, and it fails the
+// way a timing bug fails: most pictures most of the time, and then a screen
+// that comes out black or a machine that resets, depending on where the 50 Hz
+// interrupt lands inside the decompression.
+//
+// So the image gets a DI, in the one place it is missing.
+const (
+	// plus3UncompressCall is the instruction we move: the decompressor being
+	// called with the buffer already in DE. The bytes around it are what make
+	// it findable without an address — a five-byte LDIR of the picture's
+	// header, then DE pointing at the picture buffer at 0xC200, then the call,
+	// then the POP that drops the caller's return address.
+	//
+	//	01 05 00      ld bc,5
+	//	ed b0         ldir
+	//	c1            pop bc
+	//	11 00 c2      ld de,0xC200
+	//	cd lo hi      call UNCOMPRESS   <- this one
+	//	c1            pop bc
+	plus3CallAt = 10
+	// plus3StubSize is DI, the call we took over, and RET.
+	plus3StubSize = 5
+)
+
+var (
+	plus3UncompressBefore = []byte{0x01, 0x05, 0x00, 0xED, 0xB0, 0xC1, 0x11, 0x00, 0xC2, 0xCD}
+	plus3UncompressAfter  = []byte{0xC1}
+)
+
+// plus3DisableInterrupts puts the missing DI in front of the decompressor, by
+// sending the call through a stub of three instructions appended to the image.
+//
+// Appending is what makes this safe to do to somebody else's binary: nothing
+// inside it moves, so every address in it still means what it meant. The stub
+// goes in the gap between the end of the interpreter and the database, which on
+// a +3 is the best part of a kilobyte.
+//
+// origin is where the image loads, and limit is the first address it must not
+// reach — the database's.
+func plus3DisableInterrupts(image []byte, origin, limit int) ([]byte, error) {
+	at := -1
+
+	for from := 0; ; {
+		found := bytes.Index(image[from:], plus3UncompressBefore)
+		if found < 0 {
+			break
+		}
+
+		found += from
+		from = found + 1
+
+		after := found + len(plus3UncompressBefore) + 2
+		if after+len(plus3UncompressAfter) > len(image) ||
+			!bytes.Equal(image[after:after+len(plus3UncompressAfter)], plus3UncompressAfter) {
+			continue
+		}
+
+		if at >= 0 {
+			return nil, errors.New(
+				"the interpreter calls the decompressor from two places that look alike, " +
+					"so this cannot tell which one buffers pictures")
+		}
+
+		at = found
+	}
+
+	if at < 0 {
+		return nil, errors.New(
+			"this interpreter has no buffered-picture path to fix: it does not call the " +
+				"decompressor with the picture buffer in DE")
+	}
+
+	stub := origin + len(image)
+	if stub+plus3StubSize > limit {
+		return nil, fmt.Errorf(
+			"no room for the stub: the interpreter ends at 0x%04X and the database starts at 0x%04X",
+			stub, limit)
+	}
+
+	call := at + plus3CallAt
+	was := int(image[call]) | int(image[call+1])<<8
+
+	out := append([]byte(nil), image...)
+	out[call], out[call+1] = byte(stub), byte(stub>>8)
+
+	return append(out, 0xF3, 0xCD, byte(was), byte(was>>8), 0xC9), nil
+}
 
 // plus3Cached is one picture that went into the buffer.
 type plus3Cached struct {

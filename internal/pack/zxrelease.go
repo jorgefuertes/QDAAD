@@ -161,6 +161,22 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 		return nil, err
 	}
 
+	// Which pictures go into the buffer and which stay files of their own, and
+	// it comes first because the answer decides whether the interpreter needs
+	// fixing before it is written out. See zxplus3cache.go.
+	cached, loose, err := chooseCached(opts.Images)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(cached) > 0 {
+		if built.interpreter, err = plus3DisableInterrupts(
+			built.interpreter, interpreterOrigin, int(arch.ZX.BaseAddress("")),
+		); err != nil {
+			return nil, fmt.Errorf("buffered pictures: %w", err)
+		}
+	}
+
 	named := []string{plus3Interpreter, plus3Database, plus3Graphics}
 	if len(built.page.body) > 0 {
 		named = append(named, plus3Pictures)
@@ -217,11 +233,6 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 	// nothing. It is about the directory: a +3DOS one has 64 entries, and an
 	// adventure with 69 pictures and four other files has more names than
 	// that however empty the disk is. See zxplus3cache.go.
-	cached, loose, err := chooseCached(opts.Images)
-	if err != nil {
-		return nil, err
-	}
-
 	if buffer, err := plus3Cache(cached); err != nil {
 		return nil, err
 	} else if len(buffer) > 0 {
