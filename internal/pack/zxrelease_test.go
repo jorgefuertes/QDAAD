@@ -1,6 +1,7 @@
 package pack
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
@@ -102,4 +103,59 @@ func TestThePlus3LoaderStartsAtItsFirstLine(t *testing.T) {
 func TestASpectrumWeDoNotPackageSaysSo(t *testing.T) {
 	_, err := ZXRelease(someDatabase(), "128k", Options{Language: language.LanguageSpanish})
 	require.ErrorContains(t, err, "48k or plus3")
+}
+
+// The picture a disk shows while it loads, and the moment it gets to be looked
+// at afterwards.
+//
+// A tape got this for nothing: its last block is tens of kilobytes at 1500
+// baud, so the picture is up for most of a minute. A disk reads the same bytes
+// in an instant, so without the PAUSE the picture would be gone about as fast
+// as it arrived — which is why the wait is here and not in ZX48.
+func TestADiskShowsItsLoadingPictureAndWaits(t *testing.T) {
+	loading := make([]byte, screenSize)
+	loading[0] = 0xAA
+
+	release, err := zxPlus3(make([]byte, 2000), Options{
+		Language: language.LanguageSpanish,
+		Name:     "prueba",
+		Loading:  loading,
+	})
+	require.NoError(t, err)
+
+	// A file of its own, addressed at video memory, and first after the loader
+	// so that it is on screen while the rest goes in.
+	files := release.Files()
+	require.Equal(t, plus3Loader, files[0].Name)
+	require.Equal(t, plus3Loading, files[1].Name)
+
+	require.Equal(t, loading, media.WithoutPlus3Header(files[1].Body),
+		"the picture itself, under the 128-byte +3DOS header")
+
+	// And the loader: the picture, then the POKE that quiets the ROM, then
+	// everything else, then three seconds, then the jump.
+	program := media.WithoutPlus3Header(files[0].Body)
+
+	loader := string(program)
+	require.Contains(t, loader, plus3Loading, "the loader never asks for it")
+
+	picture := strings.Index(loader, plus3Loading)
+	interpreter := strings.Index(loader, plus3Interpreter)
+	require.Less(t, picture, interpreter, "the picture loads after the rest of the disk")
+
+	require.Contains(t, string(program), string([]byte{0xF2}), "no PAUSE before the jump")
+
+	// A disk with no picture is the disk it always was.
+	plain, err := zxPlus3(make([]byte, 2000), Options{
+		Language: language.LanguageSpanish, Name: "prueba",
+	})
+	require.NoError(t, err)
+
+	for _, f := range plain.Files() {
+		require.NotEqual(t, plus3Loading, f.Name)
+	}
+
+	bare := media.WithoutPlus3Header(plain.Files()[0].Body)
+	require.NotContains(t, string(bare), string([]byte{0xF2}),
+		"nothing to look at, so nothing to wait for")
 }

@@ -101,6 +101,5 @@ The [+3 README](ZXSpectrum/+3/README.md) has the whole of it.
   message of the database — all 63 system messages and all 140 user messages
   were marked to rule them out — and it is placed inside the text window rather
   than at a fixed row of the screen.
-- **The loading screen does not travel on the +3 disk.** On the tape it does.
 - **The decompiler does not reproduce this copy**: everything in the list above
   has to be put back by hand after decompiling.

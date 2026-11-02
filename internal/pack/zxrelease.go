@@ -115,8 +115,12 @@ func ZXRelease(database []byte, subtarget string, opts Options) (*Release, error
 const (
 	plus3Loader      = "DISK"
 	plus3Interpreter = "DAAD.BIN"
-	plus3Database    = "PART1.DDB"
-	plus3Graphics    = "PART1.SDG"
+	// plus3Loading is the picture shown while the rest of the disk goes in. It
+	// is a file like any other and loads straight into video memory, so the
+	// loader needs nothing but its name.
+	plus3Loading  = "LOADING.SCR"
+	plus3Database = "PART1.DDB"
+	plus3Graphics = "PART1.SDG"
 	// plus3Pictures is page zero, and it is a file only when the adventure has
 	// pictures. DAAD's own +3 releases buffer theirs into a DAAD.GRA instead,
 	// which is a different scheme for a machine with more memory to put it in;
@@ -164,7 +168,15 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 	// Which pictures go into the buffer and which stay files of their own, and
 	// it comes first because the answer decides whether the interpreter needs
 	// fixing before it is written out. See zxplus3cache.go.
-	cached, loose, err := chooseCached(opts.Images)
+	// Every name that is not a picture, so that the count of pictures that
+	// have to leave the directory is the right one. A loading screen is one of
+	// them, and forgetting it cost part two its drawing 107.
+	others := plus3OtherFiles
+	if len(opts.Loading) > 0 {
+		others++
+	}
+
+	cached, loose, err := chooseCached(opts.Images, others)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +197,26 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 	var loader media.BASIC
 
 	loader.Clear(interpreterOrigin - 1)
+
+	// The picture first, and on its own, because the POKE that quiets the ROM
+	// has to go between it and everything else: before it there is nothing to
+	// write over, and after the rest there is nothing left to quiet.
+	if len(opts.Loading) > 0 {
+		loader.BlackScreen()
+		loader.LoadNamed(plus3Loading)
+		loader.HideLoadingMessages()
+	}
+
 	loader.LoadNamed(named...)
+
+	// And a moment to look at it. A tape gives you one for nothing — the last
+	// block takes seconds to come off it — and a disk does not, so the picture
+	// would otherwise be replaced by the first location about as fast as it
+	// appeared.
+	if len(opts.Loading) > 0 {
+		loader.Pause(plus3LoadingFrames)
+	}
+
 	loader.RandomizeUSR(interpreterOrigin)
 
 	boot, err := media.Plus3Program(media.FirstLine, loader.Bytes())
@@ -214,6 +245,15 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 			at         int
 			body       []byte
 		}{plus3Pictures, "the pictures", built.page.at, built.page.body})
+	}
+
+	if len(opts.Loading) > 0 {
+		parts = append([]struct {
+			name, note string
+			at         int
+			body       []byte
+		}{{plus3Loading, "the picture shown while the rest loads", screenBase, opts.Loading}},
+			parts...)
 	}
 
 	for _, part := range parts {
@@ -252,3 +292,12 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 
 	return release, nil
 }
+
+// plus3LoadingFrames is how long the picture stays up once everything is in,
+// in fiftieths of a second: three seconds.
+//
+// A tape needs none of this. Its last block is tens of kilobytes coming off at
+// 1500 baud, so the picture is up for the best part of a minute whether anybody
+// wanted it or not. A disk reads the same bytes in a moment, and without a
+// wait the picture is gone about as fast as it arrived.
+const plus3LoadingFrames = 3 * 50

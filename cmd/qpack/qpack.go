@@ -63,6 +63,14 @@ func main() {
 				Name:  "name",
 				Usage: "The name the machine shows while loading, and the name of the files on a disk.",
 			},
+			&cli.StringFlag{
+				Name:    "loading",
+				Aliases: []string{"l"},
+				Usage: "A screen to show while the rest loads, as the 6912 bytes of " +
+					"a Spectrum's video memory. The build directory may carry one " +
+					"already — the source names it with \"; qdaad: loading=\" — and " +
+					"this wins over that one.",
+			},
 		},
 		Action: run,
 	}
@@ -106,6 +114,18 @@ func run(_ context.Context, cmd *cli.Command) error {
 	name := cmd.String("name")
 	if name == "" {
 		name = strings.ToUpper(filepath.Base(strings.TrimSuffix(dirs[0], string(filepath.Separator))))
+	}
+
+	// The flag wins over what the build carries, the same way the compiler's
+	// --charset wins over what the source says: the picture belongs to the
+	// adventure nearly always, and "nearly" is why there is a flag.
+	if path := cmd.String("loading"); path != "" {
+		loading, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		parts[0].Loading = loading
 	}
 
 	release, err := assemble(cmd.String("format"), parts[0], name)

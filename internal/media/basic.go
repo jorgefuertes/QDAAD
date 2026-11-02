@@ -33,11 +33,34 @@ const (
 	tokRANDOMIZE = 0xF9
 	tokCLEAR     = 0xFD
 	tokPOKE      = 0xF4
-	tokBORDER    = 0xDD
-	tokPAPER     = 0xD9
-	tokINK       = 0xD8
+	tokPAUSE     = 0xF2
+	tokINK       = 0xD9
+	tokPAPER     = 0xDA
+	tokBORDER    = 0xE7
 	tokCLS       = 0xFB
 )
+
+// Those five were wrong once, and the way they were wrong is worth a line.
+//
+// They were written from memory as 0xD8, 0xD9 and 0xDD, which are CIRCLE, INK
+// and INVERSE — one step out of place each, because the keyword table runs
+// CIRCLE, INK, PAPER, FLASH, BRIGHT, INVERSE and a guess slides along it. The
+// loader came out as "INVERSE 0: INK 0: CIRCLE 7: CLS", and CIRCLE with one
+// operand is a syntax error, so the tape stopped on its first line with
+// nothing on screen to say why.
+//
+// These are read off La Aventura Original's own loader instead, whose line 10
+// is thirty bytes long and says it plainly:
+//
+//	FD B0 22 ... 22    CLEAR VAL "25091"
+//	3A E7 B0 22 30 22  : BORDER VAL "0"
+//	3A DA B0 22 30 22  : PAPER VAL "0"
+//	3A D9 B0 22 30 22  : INK VAL "0"
+//	3A FB              : CLS
+//
+// PAUSE is not in there, and it is pinned from both sides: LOAD at 0xEF and
+// POKE at 0xF4 are confirmed by that same loader, and the table between them
+// is LIST, LET, PAUSE, NEXT.
 
 // lineStep is the gap between line numbers, and 10 only because that is what
 // anyone typing this in by hand would have used.
@@ -104,21 +127,28 @@ func (b *BASIC) LoadNamed(names ...string) {
 	b.statement(body)
 }
 
-// BlackScreen sets the border, the paper and the ink and clears, so that the
-// loading picture arrives on a screen of one colour instead of over whatever
-// the machine was showing.
+// BlackScreen sets the border, the paper and the ink to black and clears, so
+// that the loading picture arrives on a screen of one colour instead of over
+// whatever the machine was showing.
 //
-// It is what the loader of La Aventura Original does on its first line, bar
-// the FLASH: "BORDER 0: FLASH 0: PAPER 0: CLS". The ink is white because a
-// black screen with black ink is a screen that cannot report an error.
+// Black ink on black paper is not a mistake. It is what La Aventura Original's
+// own loader does, and the reason is the same as the POKE's: what the ROM
+// prints while loading cannot be read if it is written in the paper colour, so
+// the picture arrives with nothing over it even before the POKE is in.
 func (b *BASIC) BlackScreen() {
 	body := append([]byte{tokBORDER}, number(0)...)
 	body = append(body, ':', tokPAPER)
 	body = append(body, number(0)...)
 	body = append(body, ':', tokINK)
-	body = append(body, number(7)...)
+	body = append(body, number(0)...)
 
 	b.statement(append(body, ':', tokCLS))
+}
+
+// Pause waits for a number of frames, which is fiftieths of a second on a
+// Spectrum, or for a keypress if one comes first. Zero waits for the key alone.
+func (b *BASIC) Pause(frames int) {
+	b.statement(append([]byte{tokPAUSE}, number(frames)...))
 }
 
 // HideLoadingMessages stops the ROM writing "Bytes: name" across the picture

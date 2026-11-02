@@ -111,8 +111,31 @@ followed, so the piece is drawn into them.
 
 ## The loading screen
 
-It is in `partN/gfx/loading.scr` and **does not travel on the disk yet**: the
-BASIC loader carries it on the 48K tape, and here it is still to do.
+It travels as `LOADING.SCR`, a file like any other, addressed at video memory
+so that it paints itself as it comes off the disk. The loader asks for it
+first, quiets the ROM, loads everything else, and then waits:
+
+```text
+10 CLEAR VAL "24575"
+20 BORDER 0: PAPER 0: INK 0: CLS
+30 LOAD "LOADING.SCR"CODE                  the picture, to 16384
+40 POKE PEEK 23633+256*PEEK 23634,VAL "111"
+50 LOAD "DAAD.BIN"CODE: LOAD "PART1.DDB"CODE: LOAD "PART1.SDG"CODE
+60 PAUSE VAL "150"                         three seconds to look at it
+70 RANDOMIZE USR VAL "24576"
+```
+
+The `PAUSE` is the one thing here a tape does not need. A tape's last block is
+tens of kilobytes at 1500 baud, so the picture is up for most of a minute
+whether anybody wanted it or not; a disk reads the same bytes in an instant,
+and without the wait the picture would be gone about as fast as it arrived.
+
+It costs a directory entry, which on part two is an entry that was spoken for:
+the split between buffered and loose pictures counts it, so one more picture
+moves into the `DAAD.GRA` instead of one falling off the disk.
+
+`qpack --loading <file>` packages a different one, and wins over whatever the
+build directory carries.
 
 ## What is coming
 

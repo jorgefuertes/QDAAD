@@ -99,3 +99,80 @@ func TestTheLoaderIsTheOneTheReferenceWrites(t *testing.T) {
 
 	require.Equal(t, want, b.Bytes())
 }
+
+// The keyword bytes, against the loader they came from.
+//
+// This exists because three of them were wrong, and wrong in the way a guess
+// goes wrong rather than the way a typo does: the keyword table runs CIRCLE,
+// INK, PAPER, FLASH, BRIGHT, INVERSE, so being one place out gives another
+// perfectly good keyword. What came out was "INVERSE 0: INK 0: CIRCLE 7: CLS",
+// and CIRCLE with one operand is a syntax error — a tape that stops on its
+// first line, with a black screen and nothing to say why.
+//
+// So they are checked against bytes nobody here chose. This is line 10 of La
+// Aventura Original's own loader, thirty bytes of it, and it uses four of the
+// five.
+func TestTheKeywordBytesAreTheOnesTheRomKnows(t *testing.T) {
+	var b BASIC
+
+	b.Clear(25091)
+	b.BlackScreen()
+
+	const (
+		clear  = 0xFD
+		border = 0xE7
+		paper  = 0xDA
+		ink    = 0xD9
+		cls    = 0xFB
+	)
+
+	want := []byte{clear}
+	want = append(want, number(25091)...)
+	want = append(want, 0x0D, border)
+	want = append(want, number(0)...)
+	want = append(want, ':', paper)
+	want = append(want, number(0)...)
+	want = append(want, ':', ink)
+	want = append(want, number(0)...)
+	want = append(want, ':', cls, 0x0D)
+
+	require.Equal(t, want, statementsOf(t, b.Bytes()))
+}
+
+// PAUSE is the one BlackScreen's line does not use, and it is pinned from both
+// sides: LOAD at 0xEF and POKE at 0xF4 are in that same loader, and the table
+// between them is LIST, LET, PAUSE, NEXT.
+func TestPauseWaitsInFiftiethsOfASecond(t *testing.T) {
+	var b BASIC
+
+	b.Pause(150)
+
+	const pause = 0xF2
+
+	want := append([]byte{pause}, number(150)...)
+	want = append(want, 0x0D)
+
+	require.Equal(t, want, statementsOf(t, b.Bytes()))
+}
+
+// statementsOf strips the line numbers and lengths, leaving what the ROM would
+// read as keywords and characters.
+func statementsOf(t *testing.T, program []byte) []byte {
+	t.Helper()
+
+	var out []byte
+
+	for at := 0; at < len(program); {
+		require.LessOrEqual(t, at+4, len(program))
+
+		length := int(program[at+2]) | int(program[at+3])<<8
+		at += 4
+
+		require.LessOrEqual(t, at+length, len(program))
+
+		out = append(out, program[at:at+length]...)
+		at += length
+	}
+
+	return out
+}

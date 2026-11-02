@@ -42,7 +42,7 @@ func screens(count int) map[int][]byte {
 // than against our own structs is that the format is the interpreter's, and a
 // test that agrees with the writer but not with the reader proves nothing.
 func TestTheBufferReadsBackTheWayTheInterpreterWalksIt(t *testing.T) {
-	cached, loose, err := chooseCached(screens(70))
+	cached, loose, err := chooseCached(screens(70), plus3OtherFiles)
 	require.NoError(t, err)
 	require.NotEmpty(t, cached)
 	require.NotEmpty(t, loose, "seventy names do not all fit in the directory")
@@ -97,7 +97,7 @@ func TestTheBufferReadsBackTheWayTheInterpreterWalksIt(t *testing.T) {
 func TestTheSmallestPicturesAreTheOnesBuffered(t *testing.T) {
 	pictures := screens(70)
 
-	cached, loose, err := chooseCached(pictures)
+	cached, loose, err := chooseCached(pictures, plus3OtherFiles)
 	require.NoError(t, err)
 
 	sizes := map[int]int{}
@@ -134,7 +134,7 @@ func TestTheSmallestPicturesAreTheOnesBuffered(t *testing.T) {
 func TestEveryBufferedPictureComesBackOut(t *testing.T) {
 	pictures := screens(70)
 
-	cached, _, err := chooseCached(pictures)
+	cached, _, err := chooseCached(pictures, plus3OtherFiles)
 	require.NoError(t, err)
 	require.NotEmpty(t, cached)
 
@@ -245,7 +245,7 @@ func TestTheBufferIsOnlyThereWhenTheDirectoryWouldOverrun(t *testing.T) {
 		{pictures: 70, cached: 11},
 	} {
 		t.Run(fmt.Sprint(tc.pictures), func(t *testing.T) {
-			cached, loose, err := chooseCached(screens(tc.pictures))
+			cached, loose, err := chooseCached(screens(tc.pictures), plus3OtherFiles)
 			require.NoError(t, err)
 
 			require.Len(t, cached, tc.cached)
@@ -263,12 +263,12 @@ func TestTheBufferIsOnlyThereWhenTheDirectoryWouldOverrun(t *testing.T) {
 
 // An adventure with no pictures at all has no buffer to write.
 func TestTheEdgesOfTheBuffer(t *testing.T) {
-	cached, loose, err := chooseCached(screens(3))
+	cached, loose, err := chooseCached(screens(3), plus3OtherFiles)
 	require.NoError(t, err)
 	require.Empty(t, cached, "three names fit without help")
 	require.Len(t, loose, 3)
 
-	cached, loose, err = chooseCached(nil)
+	cached, loose, err = chooseCached(nil, plus3OtherFiles)
 	require.NoError(t, err)
 	require.Empty(t, cached)
 	require.Empty(t, loose)

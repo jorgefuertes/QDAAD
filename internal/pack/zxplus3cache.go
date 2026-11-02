@@ -156,9 +156,9 @@ type plus3Cached struct {
 }
 
 // plus3DirEntries is what a +3DOS directory holds, and plus3OtherFiles is how
-// many of them a release spends on things that are not pictures: the loader,
-// the interpreter, the database and the graphics block. One more goes on the
-// buffer itself when there is one.
+// many of them a release always spends on things that are not pictures: the
+// loader, the interpreter, the database and the graphics block. A loading
+// screen is a fifth when there is one, and the buffer itself a sixth.
 const (
 	plus3DirEntries = 64
 	plus3OtherFiles = 4
@@ -188,7 +188,7 @@ const (
 //
 // Ties go to the lower number so that two builds of the same adventure are the
 // same file.
-func chooseCached(pictures map[int][]byte) (cached []plus3Cached, loose []int, err error) {
+func chooseCached(pictures map[int][]byte, others int) (cached []plus3Cached, loose []int, err error) {
 	numbers := make([]int, 0, len(pictures))
 	for n := range pictures {
 		numbers = append(numbers, n)
@@ -214,7 +214,7 @@ func chooseCached(pictures map[int][]byte) (cached []plus3Cached, loose []int, e
 
 	// How many have to move for the names to fit. The buffer costs a name of
 	// its own, so it only helps once it takes more than one picture with it.
-	over := len(numbers) + plus3OtherFiles - plus3DirEntries
+	over := len(numbers) + others - plus3DirEntries
 	if over > 0 {
 		over++
 	}
