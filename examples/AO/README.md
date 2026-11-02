@@ -63,8 +63,27 @@ is the one that counts. The ones there are today:
     screen: location 0 asks its question with `PRINTAT 11 21` over the whole
     screen, and with the window already shrunk that row does not exist.
 
-- **`gfx/loading.scr`** is the loading screen off the original tape, its `AO$`
-  block of 6912 bytes. It is the same picture in both parts.
+- **`gfx/loading.scr`** is the loading screen off the original tape, which is
+  the same picture in both parts — but it is not the `AO$` block. That block is
+  6924 bytes and loads at **30000**, not at video memory: the first twelve are
+  a copier, and line 20 of the original BASIC calls it.
+
+  ```text
+  21 3C 75  ld hl,30012   ; itself, just past these twelve
+  11 00 40  ld de,0x4000  ; video memory
+  01 00 1B  ld bc,6912
+  ED B0     ldir
+  C9        ret
+  ```
+
+  Done that way so the picture appears all at once instead of painting as it
+  comes off the tape. Our loaders put the file straight at 16384 and let it
+  paint, which is the better of the two for a disk and no worse for a tape, so
+  what is here is the 6912 bytes the copier moves. Taking them from the front of
+  the block instead put the copier over twelve bytes of the first pixel row:
+  a row is 32 bytes, so the shift rotated every one of them by twenty
+  characters and the picture came out with its halves swapped and a bar of
+  machine code across the top.
 
 Everything else — the other `.sce` files, `udg.chr` and the `.scr` — comes out
 of the decompiler untouched. Left out are the `.png` and the `.plot`: they are

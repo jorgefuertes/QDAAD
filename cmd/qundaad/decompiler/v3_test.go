@@ -355,6 +355,48 @@ func TestTheExampleLoopsKeepWhatTheDecompilerCannotWriteYet(t *testing.T) {
 	}
 }
 
+// And the loading screen is the screen, not the twelve bytes in front of it.
+//
+// The AO$ block of the original tape is 6924 bytes and loads at 30000, which is
+// not video memory: the first twelve are a copier, and line 20 of the BASIC
+// calls it.
+//
+//	21 3C 75  ld hl,30012   ; itself, just past these twelve
+//	11 00 40  ld de,0x4000  ; video memory
+//	01 00 1B  ld bc,6912
+//	ED B0     ldir
+//	C9        ret
+//
+// Done that way so the picture appears all at once instead of painting as it
+// comes off the tape. Our loaders put it straight at 16384 and let it paint,
+// which is the better of the two for a disk and no worse for a tape — but it
+// means the file has to be the 6912 bytes the copier moves and not the first
+// 6912 of the block.
+//
+// Taking them from the front cost twelve bytes of the first pixel row and put
+// the copier in their place. Each row of a Spectrum screen is 32 bytes, so a
+// shift of twelve rotates every one of them by twenty characters: the picture
+// came out with its halves swapped and a bar of machine code across the top.
+func TestTheExampleLoadingScreenIsNotTheCopierInFrontOfIt(t *testing.T) {
+	copier := []byte{0x21, 0x3C, 0x75, 0x11, 0x00, 0x40, 0x01, 0x00, 0x1B, 0xED, 0xB0, 0xC9}
+
+	screens, err := filepath.Glob(filepath.Join("..", "..", "..",
+		"examples", "AO", "ZXSpectrum", "*", "part*", "gfx", "loading.scr"))
+	require.NoError(t, err)
+	require.Len(t, screens, 4, "two machines, two parts")
+
+	for _, path := range screens {
+		t.Run(filepath.Base(filepath.Dir(filepath.Dir(path))), func(t *testing.T) {
+			body, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			require.Len(t, body, 6912, "a Spectrum screen is 6144 of pixels and 768 of attributes")
+			require.NotEqual(t, copier, body[:len(copier)],
+				"this is the block as it comes off the tape, copier and all")
+		})
+	}
+}
+
 // And over the databases themselves, which is where a mistake in any of the
 // above actually shows. These are the two adventures of 1989, the only ones
 // there is anything to convert in.
