@@ -63,6 +63,11 @@ Four blocks of 32-byte entries is **128 names** for two kilobytes of directory,
 and it costs the reserved track as well: 175 blocks instead of 180. Part two
 uses 73 of the names, so every picture it has travels as a file.
 
+The changed byte is the one thing here not copied from a disk that already
+worked, so it was run on a +3 in ZEsarUX: the menu loads the disk, a `CAT`
+lists all 73 names, and part one plays from start to finish with every picture
+coming up.
+
 A picture travels as a `.128`: five bytes of geometry and the screen compressed
 with ZX0, cut to its own last row with a pixel in it rather than to a fixed
 height, which is what used to leave the title frame without its bottom bar.

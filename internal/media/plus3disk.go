@@ -91,6 +91,11 @@ var dataGeometry = geometry{
 // two is 128 names for two kilobytes of a disk with eighty spare, and that is
 // the difference between an adventure of 69 pictures fitting and not.
 //
+// Changing it is the one thing here not read off a disk that already worked, so
+// it was run: on a +3 in ZEsarUX the menu loads the disk, a CAT lists all 73
+// names of La Aventura Original's second part, and the first part plays from
+// start to finish with every picture coming up.
+//
 // The bytes are the original's, read out of it, with that one changed:
 //
 //	00 00 28 09 02 01 03 02 2A 52
