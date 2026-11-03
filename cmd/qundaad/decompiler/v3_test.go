@@ -2,8 +2,12 @@ package decompiler
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -559,4 +563,155 @@ func openDatabase(t *testing.T, path string) *ddbfile.Reader {
 	require.True(t, ok, "%s does not read as a database", path)
 
 	return r
+}
+
+// What a +3 disk carries is the drawings the adventure can ask for, and no
+// others.
+//
+// A drawing on a +3 is a file, and a file is a name out of the 128 the disk
+// has, so a drawing nothing can ask for is a name and a kilobyte spent on
+// nothing. There were 13 of them in part one and 27 in part two — more than a
+// third of what was being packaged.
+//
+// They are not stray. They are the library: pieces and backgrounds that other
+// drawings CALL. On the machine of 1989 that mattered, because the engine
+// followed the CALL at draw time; what we package is each drawing already
+// traced with its calls followed, so the pieces are inside the drawings that
+// use them and nothing ever opens them by name.
+//
+// Asking for one means one of two things, and this works out both:
+//
+//   - an explicit PICTURE n somewhere in the processes;
+//   - PICTURE @38, which is the loop drawing the picture of the location the
+//     player is at — so any location the player can reach.
+//
+// Reachable is taken widely on purpose: described, or with an exit, or the far
+// end of somebody's exit, or the target of a GOTO. Wider than it needs to be,
+// because the cost of keeping one too many is a kilobyte and the cost of
+// dropping one too few is a location with no picture.
+//
+// The one way round this the adventure has is COPYFF 55 38 in part one, which
+// puts the player somewhere to drop an object down it. It is transient — AUTOD
+// drops at flag 38 and the GOTO 18 two condacts later puts them back, inside
+// the one entry — so no turn ever ends there and no picture is ever asked for
+// by it.
+func TestThePlus3TreesCarryWhatTheAdventureCanAskFor(t *testing.T) {
+	for _, part := range []string{"part1", "part2"} {
+		t.Run(part, func(t *testing.T) {
+			root := filepath.Join("..", "..", "..",
+				"examples", "AO", "ZXSpectrum", "+3", part)
+
+			have := drawingsOf(t, root)
+			asked, explicit := drawingsAsked(t, root)
+
+			var spare []int
+
+			for _, n := range slices.Sorted(maps.Keys(have)) {
+				if !asked[n] {
+					spare = append(spare, n)
+				}
+			}
+
+			// All of them at once, because the answer to one is the answer to
+			// the lot and a failure that names the first is a failure you fix
+			// forty times.
+			require.Empty(t, spare,
+				"packaged and nothing can ask for them: library material, already "+
+					"traced into the drawings that CALL it")
+
+			for _, n := range slices.Sorted(maps.Keys(explicit)) {
+				require.Contains(t, have, n, "PICTURE %d names a drawing that is not there", n)
+			}
+		})
+	}
+}
+
+// drawingsOf is what a tree packages.
+func drawingsOf(t *testing.T, root string) map[int]bool {
+	t.Helper()
+
+	found, err := filepath.Glob(filepath.Join(root, "gfx", "scr", "*.scr"))
+	require.NoError(t, err)
+	require.NotEmpty(t, found)
+
+	out := map[int]bool{}
+
+	for _, path := range found {
+		n, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(path), ".scr"))
+		require.NoError(t, err)
+
+		out[n] = true
+	}
+
+	return out
+}
+
+var (
+	exampleDescribed = regexp.MustCompile(`^/(\d+) "(.+)"\s*$`)
+	exampleLocation  = regexp.MustCompile(`^/(\d+)\s*$`)
+	// No leading space is required: a connection line starts in column one,
+	// "O        4". Demanding one matched nothing, the whole connection map
+	// went missing, and sixteen drawings of locations the player walks to were
+	// counted as unreachable.
+	exampleExit    = regexp.MustCompile(`^\s*([A-Za-zÑÁÉÍÓÚÜ][^\s;]*)\s+(\d+)\s*$`)
+	examplePicture = regexp.MustCompile(`\bPICTURE\s+(\d+)`)
+	exampleGoto    = regexp.MustCompile(`\bGOTO\s+(\d+)`)
+)
+
+// drawingsAsked works out which drawing numbers the adventure can ask for, and
+// separately the ones it names outright.
+func drawingsAsked(t *testing.T, root string) (asked, explicit map[int]bool) {
+	t.Helper()
+
+	read := func(name string) string {
+		body, err := os.ReadFile(filepath.Join(root, name))
+		require.NoError(t, err)
+
+		return string(body)
+	}
+
+	asked, explicit = map[int]bool{}, map[int]bool{}
+
+	for _, line := range strings.Split(read("location-text.sce"), "\n") {
+		if m := exampleDescribed.FindStringSubmatch(line); m != nil && strings.TrimSpace(m[2]) != "" {
+			asked[atoi(t, m[1])] = true
+		}
+	}
+
+	here := -1
+
+	for _, line := range strings.Split(read("connections.sce"), "\n") {
+		if m := exampleLocation.FindStringSubmatch(line); m != nil {
+			here = atoi(t, m[1])
+
+			continue
+		}
+
+		if m := exampleExit.FindStringSubmatch(line); m != nil && here >= 0 {
+			asked[here] = true
+			asked[atoi(t, m[2])] = true
+		}
+	}
+
+	processes := read("processes.sce")
+
+	for _, m := range exampleGoto.FindAllStringSubmatch(processes, -1) {
+		asked[atoi(t, m[1])] = true
+	}
+
+	for _, m := range examplePicture.FindAllStringSubmatch(processes, -1) {
+		explicit[atoi(t, m[1])] = true
+		asked[atoi(t, m[1])] = true
+	}
+
+	return asked, explicit
+}
+
+func atoi(t *testing.T, s string) int {
+	t.Helper()
+
+	n, err := strconv.Atoi(s)
+	require.NoError(t, err)
+
+	return n
 }

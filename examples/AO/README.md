@@ -112,21 +112,25 @@ Today the only difference is **how many drawings each one carries**.
 
 | | Part 1 | Part 2 |
 |---|---|---|
-| Drawings it has | 41 | 69 |
+| Drawings in the database | 41 | 69 |
+| Ones the adventure can ask for | 28 | 42 |
+| On the +3 disk | 28 | 41 |
 | On the 48K tape | 4 | 3 |
-| On the +3 disk | 41 | 68 |
 
-About ten fit on a tape, so each part carries the ones the game needs to make
-sense and the generic picture covers the rest, which is what the adventure
-itself does. On a disk they all fit, which they did not until the disk started
-carrying a +3DOS specification asking for a directory of 128 names instead of
-64: a picture is a file, and what part two ran out of was names rather than
-room.
+Most of what a database holds is not scenes. It is the **library**: pieces and
+backgrounds that other drawings `CALL`, which on the machine of 1989 saved the
+bytes of drawing them twice. We package each drawing already traced with its
+calls followed, so the pieces are inside the drawings that use them and nothing
+ever asks for one by name — and on a +3, where a drawing is a file and a file
+is a name, carrying them was pure cost. The [+3 README](ZXSpectrum/+3/README.md)
+has the rule and the test that enforces it.
 
-Part two's drawing 4 is left out on purpose: it is a piece that drawing 107
-calls rather than a scene, and it happens to sit at the number of a location
-somebody visits, so on its own it came out as a grating floating on nothing.
-The [+3 README](ZXSpectrum/+3/README.md) has the whole of it.
+The one the +3 asks for and does not carry is part two's drawing 4, which is a
+piece parked at a location somebody visits. That one is deliberate.
+
+About ten fit on a tape, so each 48K part carries the ones the game needs to
+make sense and the generic picture covers the rest, which is what the adventure
+itself does.
 
 ## What is still not right
 

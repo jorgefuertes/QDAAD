@@ -27,29 +27,37 @@ signature and a one-second pause after each block. It loads the same and weighs
 
 ## What the loader does
 
+Decoded out of the tape this writes:
+
 ```text
 10 CLEAR VAL "24575"
-20 BORDER 0: PAPER 0: INK 7: CLS
+20 BORDER VAL "0":PAPER VAL "0":INK VAL "0":CLS
 30 LOAD ""CODE                                      the screen, to 16384
-40 POKE PEEK 23633+256*PEEK 23634,VAL "111"         quiet the ROM
+40 POKE PEEK VAL "23633"+VAL "256"*PEEK VAL "23634",VAL "111"
 50 LOAD ""CODE:LOAD ""CODE:LOAD ""CODE:LOAD ""CODE  interpreter, database, stub, pictures
 60 RANDOMIZE USR VAL "24576"                        and away
 ```
 
+Black ink on black paper is not a slip: it is what the original's own loader
+does, so that what the ROM prints while loading cannot be read even before the
+`POKE` is in.
+
 The screen goes to video memory, so it paints itself as it arrives and needs
-neither a routine nor a copy. The loader of 1989 put it at 30000 and blitted it
-with a `RANDOMIZE USR 30000`; this is the same thing with fewer steps. The
-`POKE` is the usual trick to stop the ROM writing "Bytes:" over the picture,
-with the address read out of `CURCHL` rather than written down, which is how
-the original does it in its line 200.
+neither a routine nor a copy. The loader of 1989 took the other road: its `AO$`
+block is 6924 bytes that load at 30000, the first twelve of them an `LDIR` to
+0x4000, and line 20 calls it with `RANDOMIZE USR 3e4` so the picture appears
+all at once instead of painting. The `POKE` is the usual trick to stop the ROM
+writing "Bytes:" over the picture, with the address read out of `CURCHL` rather
+than written down, which is how the original does it in its line 200.
 
 Loading the last block starts the adventure, with no key in between.
 
 ## The pictures
 
-A 48K tape has room for neither part one's 41 nor part two's 69: about ten fit.
-So each part carries only what the game needs to make sense, and the generic
-picture covers everything else.
+A 48K tape has room for neither part one's 28 nor part two's 41 — those are
+what the +3 disk carries — because about ten fit in the memory a Spectrum has
+left. So each part carries only what the game needs to make sense, and the
+generic picture covers everything else.
 
 | Part 1 | | Part 2 | |
 |---|---|---|---|
