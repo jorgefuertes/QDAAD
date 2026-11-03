@@ -96,6 +96,12 @@ var dataGeometry = geometry{
 // names of La Aventura Original's second part, and the first part plays from
 // start to finish with every picture coming up.
 //
+// And the CAT says 24K free, which is the sharp part of that. The directory of
+// part two claims 151 blocks, so 24 free is the machine having read both of the
+// fields that moved: it took the reserved track off the total, or it would have
+// counted 180 blocks and said 29, and it charged four blocks for the directory
+// rather than two, or it would have said 26.
+//
 // The bytes are the original's, read out of it, with that one changed:
 //
 //	00 00 28 09 02 01 03 02 2A 52

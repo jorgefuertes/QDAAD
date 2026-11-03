@@ -68,6 +68,12 @@ worked, so it was run on a +3 in ZEsarUX: the menu loads the disk, a `CAT`
 lists all 73 names, and part one plays from start to finish with every picture
 coming up.
 
+That `CAT` also reports **24K free**, which is the part that proves it. Part
+two's directory claims 151 blocks, so the machine has read both of the fields
+that moved: it took the reserved track off the total, or it would have counted
+180 blocks and said 29K, and it charged four blocks for the directory rather
+than two, or it would have said 26K.
+
 A picture travels as a `.128`: five bytes of geometry and the screen compressed
 with ZX0, cut to its own last row with a pixel in it rather than to a fixed
 height, which is what used to leave the title frame without its bottom bar.
