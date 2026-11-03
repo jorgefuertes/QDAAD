@@ -333,6 +333,11 @@ func TestTheExampleLoopsKeepWhatTheDecompilerCannotWriteYet(t *testing.T) {
 		// flag number: 87 is flag 49 bit 7, and the 49 that used to be here is
 		// flag 53 bit 1 and never true when the clock runs out.
 		"HASAT   87",
+		// The room is not drawn in the dark. Without the ZERO 28 it was drawn
+		// and then blanked by the adventure's own table 3, which is a flash of
+		// the room you are not supposed to be able to see.
+		"ZERO    28\n                PICTURE @38",
+		"SYSMESS 0", // and the darkness is said out loud
 	}
 
 	loops, err := filepath.Glob(filepath.Join("..", "..", "..",
@@ -351,6 +356,22 @@ func TestTheExampleLoopsKeepWhatTheDecompilerCannotWriteYet(t *testing.T) {
 
 			require.NotContains(t, string(body), "WINSIZE 0 0",
 				"this is the loop for an adventure with no pictures")
+
+			// And the clearing comes before anything is printed, which is an
+			// order and not a presence, so it needs a check of its own.
+			//
+			// The CLS went in to stop the last turn's picture sitting under the
+			// new location's text, and it went in below the darkness message.
+			// So being in the dark printed "No se vé nada." and then wiped it:
+			// no picture, which is right, and no text either, which left the
+			// input cursor alone on a black screen.
+			cleared := strings.Index(string(body), "CLS")
+			dark := strings.Index(string(body), "SYSMESS 0")
+
+			require.Positive(t, cleared)
+			require.Positive(t, dark)
+			require.Less(t, cleared, dark,
+				"the screen is cleared after the darkness message, which erases it")
 		})
 	}
 }

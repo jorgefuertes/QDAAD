@@ -62,6 +62,19 @@ is the one that counts. The ones there are today:
   - `NOTAT 0` on the entries that shrink the window, because of the start-up
     screen: location 0 asks its question with `PRINTAT 11 21` over the whole
     screen, and with the window already shrunk that row does not exist.
+  - The `CLS` at the **top** of the turn, before anything is printed. It went
+    in below the darkness message at first, so being in the dark printed
+    "No se vé nada." and then wiped it: no picture, which is right, and no
+    text either, which left the input cursor alone on a black screen.
+  - `ZERO 28` on the entry that draws the picture, so the room is not drawn in
+    the dark. Without it the room was drawn and then blanked by the
+    adventure's own table 3, which is a flash of what you are not supposed to
+    be able to see.
+
+  And the darkness is flag 0 with object 0 — the lamp — absent, which the
+  official template assumes and this adventure confirms: its table 3 branches
+  three ways on exactly that pair, and the third, `NOTZERO 0` with `ABSENT 0`,
+  is the one that leaves the graphics window black.
 
 - **`gfx/loading.scr`** is the loading screen off the original tape, which is
   the same picture in both parts — but it is not the `AO$` block. That block is

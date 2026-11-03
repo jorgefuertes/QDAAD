@@ -30,23 +30,15 @@
 > _       _     AT      0
                 PROCESS 6               ; inicialización
 
-> _       _     WINDOW  1
-                WINAT   0 0
-                WINSIZE 24 42
-
-; CONJETURA: que el flag 0 marca la oscuridad y el objeto 0 es la lámpara. Es
-; lo que hace la plantilla oficial; esta aventura puede llevarlo en otro sitio.
-> _       _     CLEAR   28
-                NOTZERO 0
-                ABSENT  0
-                SET     28
-
-> _       _     NOTZERO 28
-                SYSMESS 0
-
-; La pantalla se limpia cada turno, y con ella el dibujo del turno anterior.
-; Sin esto la imagen de la localidad que acabas de dejar se queda puesta y el
-; texto de la nueva se escribe encima.
+; La pantalla se limpia al principio del turno, y con ella el dibujo del turno
+; anterior. Sin esto la imagen de la localidad que acabas de dejar se queda
+; puesta y el texto de la nueva se escribe encima.
+;
+; Al principio, y no más abajo, que es donde estaba. Debajo se imprimen la
+; oscuridad y la descripción, así que un CLS después de ellas las borra: al
+; quedarte a oscuras en la parte 2 no salía nada de nada —ni imagen, que es
+; correcto, ni el "No se vé nada."—, sólo el cursor del input. La plantilla
+; oficial tampoco limpia después de escribir.
 ;
 ; Y de paso el flag 40, que es como el intérprete del Spectrum de 1989 le decía
 ; a la aventura si esta localidad tenía dibujo. Lo ponía él y por eso ninguna
@@ -75,7 +67,28 @@
 ; §9.6), así que las más bajas dejan aquí un hueco y las de 22 filas se
 ; solapan. Lo segundo apenas se nota: son las pantallas de presentación, que
 ; escriben en su propia ventana 5.
+; La oscuridad va aquí arriba porque el ZERO 28 de abajo la necesita: a oscuras
+; no se ve la habitación. Sin él se dibujaba y la tabla 3 la borraba acto
+; seguido con su "WINDOW 0 / CLS", que es un parpadeo de balde —DISPLAY
+; descomprime y pinta, y eso se ve—.
+;
+; Flag 0 encendido y el objeto 0 —la lámpara— ausente. La plantilla oficial lo
+; da por supuesto; aquí está medido, porque lo dice la propia aventura en su
+; tabla 3, en las tres entradas con ATGT 2 de processes.sce:
+;
+;   ZERO 0                 hay luz: LISTOBJ y la imagen
+;   NOTZERO 0 + PRESENT 0  oscuro con lámpara: lo mismo
+;   NOTZERO 0 + ABSENT 0   oscuro de verdad: WINDOW 0, CLS y nada más
+;
+; Esa tercera es la que deja la ventana gráfica en negro, y es también la que
+; prueba que el flag y el objeto son los que la plantilla supone.
+> _       _     CLEAR   28
+                NOTZERO 0
+                ABSENT  0
+                SET     28
+
 > _       _     NOTAT   0
+                ZERO    28
                 PICTURE @38
                 DISPLAY 0
                 SET     40
@@ -95,6 +108,9 @@
                 ZERO    40
                 WINAT   14 0
                 WINSIZE 10 42
+
+> _       _     NOTZERO 28
+                SYSMESS 0
 
 > _       _     ZERO    28
                 DESC    @38
