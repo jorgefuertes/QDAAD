@@ -129,6 +129,18 @@ to_utf8() {
 			iconv -f ISO-8859-1 -t UTF-8 "${file}" >"${to}/$(basename "${file}")"
 		fi
 	done < <(find "${from}" -maxdepth 1 -type f \( -name '*.sce' -o -name '*.DSF' -o -name '*.dsf' \))
+
+	# And whatever the source points at that is not source. A decompiled
+	# game.sce declares its character set with "; qdaad: charset=gfx/chr/..."
+	# and the compiler will not invent one that is not there, so copying only
+	# the .sce left La Aventura Original's Spectrum part one failing to link
+	# for want of a file the harness had not brought along.
+	#
+	# Linked and not copied: gfx/ holds the original binaries and the PNGs, and
+	# 66 editions times three targets of those is gigabytes.
+	if [[ -d "${from}/gfx" ]]; then
+		ln -s "$(cd "${from}/gfx" && pwd)" "${to}/gfx"
+	fi
 }
 
 # where_it_falls names the part of the tape an offset belongs to, by walking
@@ -256,10 +268,22 @@ compare_one() {
 	local interpreter="internal/runtime/assets/zx48/DS48IS3.BIN"
 	[[ ${lang} == english ]] && interpreter="internal/runtime/assets/zx48/DS48IE3.BIN"
 
+	# The same character set as our side, which is the one the source asks for
+	# when it asks for one.
+	#
+	# Handing daadmaker the stock AD8x6.CHR while we packed La Aventura
+	# Original's own font is not a comparison of two packagers, it is a
+	# comparison of two fonts: 994 bytes of the graphics block came out
+	# different and every one of them was a glyph.
+	local charset="${OLDPWD}/${ASSETS_DIR}/CHARSET/AD8x6.CHR"
+	local declared
+	declared=$(sed -n 's|^; *qdaad: *charset=||p' "${main}" | head -1)
+	[[ -n ${declared} ]] && charset="${OLDPWD}/${work}/utf8/${declared}"
+
 	# The argument order is ZX48.BAT's, for a build with no loading screen.
 	if ! (cd "${work}/theirs" && "${OLDPWD}/${DAADMAKER}" GAME.TAP \
 		"${OLDPWD}/${interpreter}" GAME.ddb \
-		"${OLDPWD}/${ASSETS_DIR}/CHARSET/AD8x6.CHR" INDEX.BIN \
+		"${charset}" INDEX.BIN \
 		"${OLDPWD}/${ASSETS_DIR}/ZX/DAAD.SDG" /48) >"${work}/daadmaker.log" 2>&1; then
 		yellow "SKIP ${name}: daadmaker would not pack it (see ${work}/daadmaker.log)"
 		return 2

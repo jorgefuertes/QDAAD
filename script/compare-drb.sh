@@ -101,6 +101,18 @@ to_utf8() {
 			iconv -f ISO-8859-1 -t UTF-8 "${file}" >"${to}/$(basename "${file}")"
 		fi
 	done < <(find "${from}" -maxdepth 1 -type f \( -name '*.sce' -o -name '*.DSF' -o -name '*.dsf' \))
+
+	# And whatever the source points at that is not source. A decompiled
+	# game.sce declares its character set with "; qdaad: charset=gfx/chr/..."
+	# and the compiler will not invent one that is not there, so copying only
+	# the .sce left La Aventura Original's Spectrum part one failing to link
+	# for want of a file the harness had not brought along.
+	#
+	# Linked and not copied: gfx/ holds the original binaries and the PNGs, and
+	# 66 editions times three targets of those is gigabytes.
+	if [[ -d "${from}/gfx" ]]; then
+		ln -s "$(cd "${from}/gfx" && pwd)" "${to}/gfx"
+	fi
 }
 
 # where_it_falls names the section a byte at an offset belongs to, by reading
