@@ -4,10 +4,41 @@ A Go reimplementation of DAAD, the adventure writing system.
 
 *[Léeme en español](README_ES.md)*
 
-The project has two halves. `qdaad` will compile `.SCE` sources, along with a
-more modern format of its own, into `.DDB` databases, and is under construction.
-**`qundaad` already works**: it reads a DAAD database and gives back the source
-that produced it.
+Four tools, and between them a round trip: **read an adventure off the tape it
+shipped on in 1989, and write a tape you can play**.
+
+| | |
+|---|---|
+| `qundaad` | reads a DAAD database — or the disk or tape image holding it — and gives back the source that produced it |
+| `qdaad` | compiles that source back into a database |
+| `qpack` | packages a build into the tape, disk or files a machine loads |
+| `qrun` | runs a database here, without an emulator |
+
+The round trip is not a claim, it is a target in the Makefile.
+`examples/AO/` holds La Aventura Original decompiled, converted from version 1
+to version 3, and corrected by hand where the conversion cannot yet manage;
+`make example-ao` builds it into two 48K tapes and two +3 disks. Part one of
+the +3 disk has been played from start to finish in ZEsarUX, and part two as
+far as anybody has got. See [its README](examples/AO/README.md).
+
+## What is checked, and against what
+
+Three of these compare our output with the reference tooling's, byte for byte.
+The reference is DAAD Reborn by Uto, which had nothing to do with writing this.
+
+| `make` | | |
+|---|---|---|
+| `decomp-all` | decompiles every edition and holds them against one another | **38 pairs** |
+| `recompile-all` | hands every decompilation to the reference compiler | **66 accepted** |
+| `compile-all` | converts every edition to version 3 and compiles it back | **66 compiled, 0 failed** |
+| `compare-drf` | reads every source with both front ends and compares what each understood | **70 agree, 0 differ** |
+| `compare-drb` | links every source with both back ends and compares the databases | **198 agree, 0 differ** |
+| `compare-daadmaker` | packs every source into a 48K tape with both packagers | **63 agree, 0 differ** |
+
+`compare-drb` covers three targets per source so that the byte order and the
+padding are both exercised. What it skips is what the reference will not link
+at all; what `compare-daadmaker` skips is sources in languages its compiler
+does not speak, and ones too big for a 48K Spectrum.
 
 ## qundaad, the decompiler
 
@@ -32,11 +63,10 @@ were organised: the 1991 manual warns about the dangers of "including a TOK file
 which contains an extra `/TOK`", a warning that only makes sense if splitting
 was the normal practice.
 
-**It is source a compiler accepts**, not a listing. `make recompile-all` hands
-every decompilation to the reference compiler — DAAD Reborn Compiler 0.40, by
-Uto, which had nothing to do with writing this one — and **all 66 are accepted**,
-once the encoding is put back to ISO-8859-1 and the `/TOK` section, which
-version 3 dropped, is left out.
+**It is source a compiler accepts**, not a listing — and not only ours:
+`recompile-all` hands every decompilation to DAAD Reborn Compiler 0.40, and all
+66 are accepted once the encoding is put back to ISO-8859-1 and the `/TOK`
+section, which version 3 dropped, is left out.
 
 Three of them are accepted and should not be trusted: the process tables of
 Cozumel on the Spectrum still cannot be read, and their source says so at the
@@ -144,6 +174,65 @@ the right reading puts it there.
 
 **1798 pictures** are converted as things stand: character sets, loading screens
 and illustrations, on every machine whose databases can be read.
+
+## qdaad and qpack, the other way round
+
+```sh
+go build -o dist/qdaad ./cmd/qdaad
+go build -o dist/qpack ./cmd/qpack
+
+qdaad compile -i game.sce -o build/ -f build -m zx -s 48k -v 3 --part 1
+qpack -f tap -o GAME --name GAME build/      # GAME.tap
+```
+
+The two were one command and were split because they are two jobs. Compiling is
+about one source and gives a database; packaging is about a **release**, which
+is about a machine. `qpack` writes `tap`, `tzx`, `dsk`, `dir` — everything the
+machine needs as loose files — and `qrun`, our own container.
+
+What goes into a release beyond the database is declared by the source, so the
+same build directory packages for any of them:
+
+```text
+; qdaad: charset=gfx/chr/udg.chr    the font, which version 3 does not carry
+; qdaad: images=gfx/scr             a directory of Spectrum screens
+; qdaad: loading=gfx/loading.scr    the picture shown while the rest loads
+```
+
+A **48K tape** is one stream: a BASIC loader that moves RAMTOP out of the way,
+then the loading screen, the interpreter, the database, the graphics stub and
+as many pictures as the memory left will hold. The loader is written rather
+than borrowed, and it is the same bytes daadmaker writes, down to a leading
+space on one line — which is what makes `compare-daadmaker` mean anything. A
+`tzx` is the same blocks wrapped, 46 bytes heavier.
+
+A **+3 disk** is the files loose, and it is written in the +3's own format
+rather than the CPC's DATA one that a CPC disk still gets. The difference is
+sixteen bytes in the first sector of track 0 — the disk specification — and the
+reason is the byte at +7 of it: how many blocks the directory takes. A DATA
+disk has no specification, so the answer is 64 names and there is no arguing
+with it; saying four blocks instead of two makes it 128, for two kilobytes of a
+disk that has eighty spare. A picture is a file and a file is a name, so for an
+adventure with a drawing per location, names are what runs out first.
+
+The specification is La Aventura Original's own, read off its disk, with that
+one byte changed. Verified on a +3: the menu loads the disk, a `CAT` lists
+every name, and the free space it reports is the arithmetic of the fields that
+moved and not of their defaults.
+
+## qrun, the interpreter
+
+```sh
+go build -o dist/qrun ./cmd/qrun
+qrun GAME.qrun
+```
+
+It runs a version 3 database here, on the terminal, which is how a change to
+the compiler gets tried without an emulator in the way. It is not a Spectrum:
+there are no pictures and no character set, so what it is good for is the
+parser, the flags and the process tables. `TIME` and its timeout work, because
+a question with a clock on it is a thing adventures do and a thing that is
+tedious to test by hand.
 
 ## What it has been tested with
 

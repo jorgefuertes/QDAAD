@@ -2,7 +2,31 @@
 
 Reimplementación en Go del sistema DAAD de creación de aventuras conversacionales.
 
-El proyecto tiene dos mitades. `qdaad` compilará fuentes `.SCE`, además de un formato propio más moderno, a base de datos `.DDB`, y está en construcción. **`qundaad` ya funciona**: lee una base de datos DAAD y devuelve el fuente que la produjo.
+Cuatro herramientas, y entre ellas un viaje de ida y vuelta: **leer una aventura de la cinta en que salió en 1989 y escribir una cinta que se pueda jugar**.
+
+| | |
+|---|---|
+| `qundaad` | lee una base de datos DAAD —o la imagen de disco o cinta que la contiene— y devuelve el fuente que la produjo |
+| `qdaad` | compila ese fuente y vuelve a dar una base de datos |
+| `qpack` | empaqueta una compilación en la cinta, el disco o los ficheros que carga cada máquina |
+| `qrun` | ejecuta una base de datos aquí, sin emulador |
+
+El viaje de ida y vuelta no es una afirmación, es un objetivo del Makefile. En `examples/AO/` está La Aventura Original descompilada, convertida de la versión 1 a la 3 y corregida a mano donde la conversión todavía no llega; `make example-ao` la construye en dos cintas de 48K y dos discos de +3. La parte 1 del disco se ha jugado entera en ZEsarUX, y la 2 hasta donde se ha llegado. Ver [su README](examples/AO/README.md), en inglés.
+
+## Qué se comprueba, y contra qué
+
+Tres de estas comparan nuestra salida con la de las herramientas de referencia, byte a byte. La referencia es DAAD Reborn, de Uto, que no ha tenido nada que ver con escribir esto.
+
+| `make` | | |
+|---|---|---|
+| `decomp-all` | descompila todas las ediciones y las contrasta entre sí | **38 parejas** |
+| `recompile-all` | le pasa cada descompilación al compilador de referencia | **66 aceptadas** |
+| `compile-all` | convierte cada edición a la versión 3 y la vuelve a compilar | **66 compiladas, 0 fallos** |
+| `compare-drf` | lee cada fuente con los dos analizadores y compara lo que entendió cada uno | **70 iguales, 0 distintos** |
+| `compare-drb` | enlaza cada fuente con los dos generadores y compara las bases de datos | **198 iguales, 0 distintos** |
+| `compare-daadmaker` | empaqueta cada fuente en una cinta de 48K con los dos empaquetadores | **63 iguales, 0 distintos** |
+
+`compare-drb` cubre tres destinos por fuente, para que el orden de bytes y el relleno queden ejercitados. Lo que salta es lo que la referencia no enlaza; lo que salta `compare-daadmaker` son los fuentes en idiomas que su compilador no habla y los que no caben en un Spectrum de 48K.
 
 ## qundaad, el descompilador
 
@@ -21,7 +45,7 @@ La entrada puede ser la base de datos suelta o **la imagen del disco o la cinta 
 
 La salida es UTF-8, legible y modificable hoy, repartida en un fichero por sección y unida con `#include` desde `game.sce` — que es como se organizaban los fuentes de la época: el manual de 1991 avisa de los peligros de «incluir un fichero TOK que contenga otro `/TOK`», advertencia que solo tiene sentido si trocear era lo normal.
 
-**Es fuente que un compilador acepta**, no un listado. `make recompile-all` le pasa cada descompilación al compilador de referencia —DAAD Reborn Compiler 0.40, de Uto, que no ha tenido nada que ver con escribir este— y **las 66 se aceptan**, devolviendo la codificación a ISO-8859-1 y dejando fuera la sección `/TOK`, que la versión 3 quitó.
+**Es fuente que un compilador acepta**, no un listado, y no sólo el nuestro: `recompile-all` le pasa cada descompilación a DAAD Reborn Compiler 0.40 y las 66 se aceptan, devolviendo la codificación a ISO-8859-1 y dejando fuera la sección `/TOK`, que la versión 3 quitó.
 
 Tres de ellas se aceptan y no hay que fiarse: las tablas de proceso de Cozumel en Spectrum siguen sin poder leerse, y su fuente lo dice en la cabecera. Compilarlas daría un juego, pero no ese.
 
@@ -68,6 +92,41 @@ Las otras dos son las de 68000, y ninguna cede a ningún esquema estándar: cada
 Hay dos generaciones de archivo y el fichero no dice cuál es. Las aventuras tardías ensancharon la ranura de 44 a 48 bytes y cambiaron de dónde se sacan los píxeles —un nibble de un longword en vez de un bit de cada uno de cuatro bytes—, y sus ediciones de PC llevan el mismo archivo con los bytes al revés. Se prueban las formas y se queda la que cuadra: un archivo pone su primera imagen justo donde acaba su tabla de ranuras, y solo la lectura correcta la deja ahí.
 
 Ahora mismo se convierten **1798 imágenes**: tipografías, portadas e ilustraciones, en todas las máquinas cuyas bases de datos se pueden leer.
+
+## qdaad y qpack, el camino de vuelta
+
+```sh
+go build -o dist/qdaad ./cmd/qdaad
+go build -o dist/qpack ./cmd/qpack
+
+qdaad compile -i game.sce -o build/ -f build -m zx -s 48k -v 3 --part 1
+qpack -f tap -o GAME --name GAME build/      # GAME.tap
+```
+
+Las dos eran una sola orden y se separaron porque son dos trabajos. Compilar va de un fuente y da una base de datos; empaquetar va de una **release**, que va de una máquina. `qpack` escribe `tap`, `tzx`, `dsk`, `dir` —todo lo que la máquina necesita como ficheros sueltos— y `qrun`, nuestro propio contenedor.
+
+Lo que entra en una release además de la base de datos lo declara el fuente, así que el mismo directorio de compilación sirve para cualquiera de ellos:
+
+```text
+; qdaad: charset=gfx/chr/udg.chr    la tipografía, que la versión 3 no trae
+; qdaad: images=gfx/scr             un directorio de pantallas de Spectrum
+; qdaad: loading=gfx/loading.scr    la imagen que se enseña mientras carga el resto
+```
+
+Una **cinta de 48K** es un solo flujo: un cargador en BASIC que aparta RAMTOP, y detrás la pantalla de carga, el intérprete, la base de datos, el bloque de gráficos y tantas imágenes como quepan en la memoria que queda. El cargador está escrito y no prestado, y son los mismos bytes que escribe daadmaker, hasta el espacio sobrante de una de sus líneas —que es lo que hace que `compare-daadmaker` signifique algo—. Un `tzx` son los mismos bloques envueltos, 46 bytes más gordo.
+
+Un **disco de +3** son los ficheros sueltos, y va escrito en el formato propio del +3 y no en el DATA del CPC, que es el que sigue llevando un disco de CPC. La diferencia son dieciséis bytes en el primer sector de la pista 0 —la especificación del disco— y la razón es el byte que hace 7 de ella: cuántos bloques ocupa el directorio. Un disco DATA no lleva especificación, así que la respuesta son 64 nombres y no hay discusión; diciendo cuatro bloques en vez de dos son 128, por dos kilobytes de un disco al que le sobran ochenta. Una imagen es un fichero y un fichero es un nombre, así que en una aventura con un dibujo por localidad lo que se acaba antes son los nombres.
+
+La especificación es la del disco de la propia Aventura Original, leída de él, con ese byte cambiado. Verificado en un +3: el menú carga el disco, un `CAT` saca todos los nombres, y el espacio libre que dice es la aritmética de los campos que se movieron y no la de sus valores por omisión.
+
+## qrun, el intérprete
+
+```sh
+go build -o dist/qrun ./cmd/qrun
+qrun GAME.qrun
+```
+
+Ejecuta una base de datos de versión 3 aquí, en el terminal, que es como se prueba un cambio del compilador sin un emulador de por medio. No es un Spectrum: no hay imágenes ni tipografía, así que para lo que vale es para el analizador, las banderas y las tablas de proceso. `TIME` y su plazo funcionan, porque una pregunta con un reloj encima es algo que las aventuras hacen y que a mano se prueba fatal.
 
 ## Con qué se ha probado
 
