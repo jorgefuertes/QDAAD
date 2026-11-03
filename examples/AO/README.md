@@ -117,9 +117,26 @@ The [+3 README](ZXSpectrum/+3/README.md) has the whole of it.
 
 ## What is still not right
 
-- **A stray full stop** turns up in the text window in some locations. It is no
-  message of the database — all 63 system messages and all 140 user messages
-  were marked to rule them out — and it is placed inside the text window rather
-  than at a fixed row of the screen.
+- **A stray full stop** turns up in the text window in some locations, on a line
+  of its own under the input and without anything being typed.
+
+  **Taken as a bug of the interpreter**, not of this adventure, and left here
+  rather than chased further. What says so:
+
+  - It is **no message of the database**. All 63 system messages and all 140
+    user messages were marked with a tag of their own and the adventure rebuilt;
+    the full stop came out unmarked, so nothing printed it through a message.
+  - It is **placed inside the text window**, not at a fixed row of the screen —
+    it moves with the window, so whatever writes it is writing through the
+    normal text path.
+  - It shows on **both builds**: first on the 48K tape and again playing part
+    one through on the +3 disk. Those are two different interpreters, which is
+    what moves the suspicion off either one of them and onto what they share.
+  - With the window at 7 rows it is not visible, which is very likely clipped
+    rather than cured.
+
+  What would settle it is running the same adventure on DAAD's own version 3
+  interpreter, unbuilt by us, and seeing whether it does the same.
+
 - **The decompiler does not reproduce this copy**: everything in the list above
   has to be put back by hand after decompiling.
