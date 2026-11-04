@@ -39,7 +39,7 @@ STEP "Pantalla de título y bosque"
   ASSERT PICTURE = 3
 END
 
-STEP "the bottle, down the valley and back"
+STEP "Ir al valle a coger la botella y volver"
   INPUT  S
   INPUT  S
   INPUT  S
@@ -54,7 +54,7 @@ STEP "the bottle, down the valley and back"
   ASSERT AT = 24
 END
 
-STEP "the boots, east and south"
+STEP "Ir a por las botas"
   INPUT  E
   INPUT  E
   INPUT  S
@@ -74,24 +74,24 @@ STEP "the boots, east and south"
   EXPECT "Has cogido la pareja de botas"
 END
 
-STEP "the battery, and the lamp Don Enano gives for the boots"
+STEP "Coger la pila, y obtener la linterna a cambio de las botas"
   INPUT  E
   INPUT  E
   INPUT  S
   INPUT  COGER PILA
+  EXPECT "Has cogido la pila"
   INPUT  N
   INPUT  N
   INPUT  DAR BOTAS
-  INPUT  COGER LINTERNA
-  INPUT  PONER PILAS
-  INPUT  ENCENDER LINTERNA
-
-  EXPECT "Has cogido la pila"
   EXPECT "Don Enano se calza y agradecido te deja una linterna"
+  INPUT  COGER LINTERNA
   EXPECT "Has cogido la linterna"
+  INPUT  PONER PILAS
+  EXPECT "Vale, linterna lista."
+  INPUT  ENCENDER LINTERNA
 END
 
-STEP "the key, shaken out of the tree"
+STEP "Coger la llave del árbol"
   INPUT  S
   INPUT  O
   INPUT  O
@@ -106,14 +106,13 @@ STEP "the key, shaken out of the tree"
   INPUT  SUBIR ARBOL
   INPUT  EXAMINAR RAMAS
   INPUT  SACUDIR RAMAS
+  EXPECT "ha caido al suelo"
   INPUT  BAJAR ARBOL
   INPUT  COGER LLAVE
-
-  EXPECT "ha caido al suelo"
   EXPECT "Has cogido la llave"
 END
 
-STEP "the coin, in the pool"
+STEP "Coger moneda del charco"
   INPUT  N
   INPUT  S
   INPUT  O
@@ -121,41 +120,38 @@ STEP "the coin, in the pool"
   INPUT  E
   INPUT  BAJAR
   INPUT  EXAMINAR CHARCO
+  EXPECT "una moneda"
   INPUT  COGER MONEDA
+  EXPECT "Has cogido la moneda"
   INPUT  SUBIR
   INPUT  O
   INPUT  S
   INPUT  LLENAR BOTELLA
-
-  EXPECT "una moneda"
-  EXPECT "Has cogido la moneda"
+  EXPECT "Vale."
 END
 
-STEP "the elf, talked to with a phrase in quotes"
+STEP "Decir al elfo que me siga"
   INPUT  E
   INPUT  E
   INPUT  S
   INPUT  EXAMINAR FIGURA
+  EXPECT "Es un elfo que llora"
   INPUT  DECIR "QUE TE PASA?"
   INPUT  DECIR "SIGUEME"
-
-  ; PARSE 1 is what reads a phrase in quotes, and it is the whole of how an
-  ; adventure of this period holds a conversation.
-  EXPECT "Es un elfo que llora"
+  EXPECT "Vale."
 END
 
-STEP "the grating, with the elf following"
+STEP "Entrada en la caverna con el elfo"
   INPUT  N
   INPUT  O
   INPUT  O
   INPUT  S
   INPUT  S
   INPUT  ABRIR CANDADO
-  INPUT  COGER CANDADO
-  INPUT  EMPUJAR REJA
-
   EXPECT "candado abierto"
+  INPUT  COGER CANDADO
   EXPECT "desaparece de tus manos"
+  INPUT  EMPUJAR REJA
   EXPECT "la entrada a La Gran Caverna"
 END
 

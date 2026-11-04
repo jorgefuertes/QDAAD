@@ -101,11 +101,11 @@ type Runner struct {
 	opts    Options
 	machine *vm.Machine
 
-	// at is the step being run and spent is how much of the adventure's clock
-	// has been charged to it. Only an EXPECT or a WAIT ever leaves spent
-	// standing, and it is the only thing a half-finished step remembers.
-	at    int
-	spent int
+	// at is the step being run and waited is how long it has been waiting.
+	// Only an EXPECT or a WAIT ever leaves anything in waited, and it is the
+	// only thing a half-finished step remembers.
+	at     int
+	waited time.Duration
 
 	// typed is the keyboard buffer, which only a KEY ever leaves anything in:
 	// an INPUT types its text and presses return in the same breath, so it
@@ -257,27 +257,40 @@ func (r *Runner) pump(where moment, clock time.Duration) outcome {
 				continue
 			}
 
-			switch {
-			case where == atKey || where == atEnd || clock == 0:
+			if where == atKey || where == atEnd || clock == 0 {
 				r.fail(s, "it has not said that, and "+nothingMore(where))
-
-				return outOver
-
-			case r.spent >= s.secs:
-				// What was spent rather than what was budgeted: the clock runs
-				// in whole turns of the adventure's TIME, so asking for ten
-				// seconds of a game that gives forty-seven a turn spends
-				// forty-seven, and saying ten would be the one number that did
-				// not happen.
-				r.fail(s, fmt.Sprintf("it did not say that in %s of the adventure's clock",
-					plural(r.spent, "second")))
 
 				return outOver
 			}
 
-			r.spent += seconds(clock)
+			// The adventure has a clock on this question, so waiting is a
+			// thing that can be done, and it is done for real.
+			//
+			// Whoever runs out first decides. If the adventure's own timeout
+			// is shorter than what is left of the wait, it fires while the
+			// step is still waiting: the runtime runs its own turn, for its
+			// own reasons, and what it prints may be the very thing being
+			// waited for. If the step gives up first, nothing runs at all —
+			// the adventure is still holding out for an order and never got
+			// one.
+			//
+			// What is never done is to say "expired" without the time having
+			// passed. That is the harness telling the runtime something untrue
+			// in order to see what it would do, and it is how observing a run
+			// ends up altering it.
+			left := time.Duration(s.secs)*time.Second - r.waited
 
-			return outClock
+			if left >= clock {
+				r.waited += clock
+				pause(clock)
+
+				return outClock
+			}
+
+			pause(left)
+			r.fail(s, fmt.Sprintf("it did not say that in %s", plural(s.secs, "second")))
+
+			return outOver
 
 		case opWait:
 			switch {
@@ -293,16 +306,22 @@ func (r *Runner) pump(where moment, clock time.Duration) outcome {
 				r.next()
 
 				continue
-
-			case r.spent >= s.secs:
-				r.next()
-
-				continue
 			}
 
-			r.spent += seconds(clock)
+			// The same race as an EXPECT's, and this is the order that is
+			// about it: what it asks for is that the time pass, so that
+			// whatever the adventure does when nobody answers, it does.
+			left := time.Duration(s.secs)*time.Second - r.waited
 
-			return outClock
+			if left >= clock {
+				r.waited += clock
+				pause(clock)
+
+				return outClock
+			}
+
+			pause(left)
+			r.next()
 
 		case opInput:
 			switch where {
@@ -358,11 +377,24 @@ func (r *Runner) pump(where moment, clock time.Duration) outcome {
 	}
 }
 
-// next moves to the step after this one. The clock budget belongs to the step
-// that was spending it, so it goes with it.
+// next moves to the step after this one. The waiting belongs to the step that
+// was doing it, so it goes with it.
 func (r *Runner) next() {
 	r.at++
-	r.spent = 0
+	r.waited = 0
+}
+
+// pause is the waiting, and it is the real thing.
+//
+// Simulating it would cost nothing and would be a lie with consequences: the
+// only way to tell a runtime that a timeout expired without the time having
+// passed is to say so, and then the adventure runs a turn it would not have
+// run and says something it would not have said. A script that waits pays for
+// it in seconds, the same as a player who sits still.
+func pause(d time.Duration) {
+	if d > 0 {
+		time.Sleep(d)
+	}
 }
 
 // hear looks for what an EXPECT wants and swallows everything up to the end of
@@ -404,17 +436,6 @@ func nothingMore(where moment) string {
 	// sentence a script sitting at one of those needs to read.
 	return "the adventure is waiting for something to be typed with no clock running on it, " +
 		"so it will say nothing more until it is answered"
-}
-
-// seconds is how much of the adventure's clock one wait is worth. The flag is
-// in whole seconds and never zero when the machine is willing to wait, so the
-// floor is only there to keep a wait from costing nothing and looping forever.
-func seconds(clock time.Duration) int {
-	if n := int(clock / time.Second); n > 0 {
-		return n
-	}
-
-	return 1
 }
 
 func plural(n int, thing string) string {

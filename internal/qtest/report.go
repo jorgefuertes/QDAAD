@@ -108,7 +108,7 @@ func (r *Report) Title(name string) {
 		return
 	}
 
-	r.sayf("%s\n", frame.Render(console.TitleStyle.Render(name)))
+	r.sayf("%s\n\n", frame.Render(console.TitleStyle.Render(name)))
 }
 
 // Step announces one as it opens. The newline is held back, because the badge

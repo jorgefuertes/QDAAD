@@ -114,7 +114,7 @@ END
 
 STEP "one that does not"
   INPUT este
-  EXPECT "la biblioteca de Alejandría"
+  EXPECT "la biblioteca de Alejandría", 1
 END
 `)
 
@@ -132,24 +132,52 @@ END
 	require.Contains(t, said, "1 step failed")
 }
 
-// The clock, which is the reason the seconds in this language are the
-// adventure's and not the wall's.
+// The clock, and who it is that runs the turn.
 //
 // This is TestTheClockRunningOutSaysSo written in the language: the player says
 // nothing, the tables run on without an order, and the adventure answers with
-// the words it has for that rather than with "I do not understand". Nothing is
-// slept through — AO gives 47 seconds a turn and this test takes none of them.
+// the words it has for that rather than with "I do not understand".
+//
+// The waiting is real, and that is the point of it. The script asks for two
+// seconds of silence; the adventure's own timeout is shorter, so it fires
+// while the script is still waiting and the runtime runs its own turn for its
+// own reasons. Nobody told it anything untrue about the time.
 func TestTheClockMakesTheAdventureSpeak(t *testing.T) {
-	said, err := play(t, ao(t), past+`
+	said, err := play(t, hurried(t), past+`
 STEP "the time passes, and does not come back"
   EXPECT "Estás en el bosque"
-  WAIT 50
-  EXPECT "El tiempo pasa", 100
+  WAIT 2
+  EXPECT "El tiempo pasa"
   EXPECT NOT "no te entiendo"
 END
 `)
 
 	require.NoError(t, err, "the clock should have run and the adventure should have said so:\n%s", said)
+}
+
+// And an EXPECT that gives up before the adventure's clock does leaves the game
+// exactly where it was.
+//
+// This is the Schrödinger half: a harness that reported a timeout without the
+// time having passed would make the adventure run a turn it would never have
+// run, and the only sign of it is a line in the transcript that a player would
+// never have seen. One second of silence is one second: the adventure gives
+// the player forty-seven, so nothing of its own happens in that time.
+func TestGivingUpFirstLeavesTheGameAlone(t *testing.T) {
+	said, err := play(t, ao(t), past+`
+STEP "a second of silence, and no turn of the game"
+  EXPECT "Estás en el bosque"
+  EXPECT "a dwarf walks in", 1
+END
+`)
+
+	require.Error(t, err)
+
+	require.Contains(t, said, "it did not say that in 1 second",
+		"the seconds reported are the ones the script asked for")
+
+	require.NotContains(t, said, "El tiempo pasa",
+		"the adventure's clock never ran out, so it had nothing to say about time")
 }
 
 // An EXPECT that cannot be met says which kind of cannot it is.
@@ -179,7 +207,7 @@ func TestExpectIsAboutOrder(t *testing.T) {
 	said, err := play(t, ao(t), past+`
 STEP "the forest comes after the title, not before"
   EXPECT "Estás en el bosque"
-  EXPECT "AVENTURA ORIGINAL"
+  EXPECT "AVENTURA ORIGINAL", 1
 END
 `)
 
@@ -434,6 +462,49 @@ func transcriptOf(t *testing.T, db *ddbfile.Reader, text string, seed int64) str
 	require.NoError(t, Play(db, script, Options{Transcript: &said, Seed: seed, HasSeed: true}))
 
 	return said.String()
+}
+
+// hurried is La Aventura Original with its clock turned down to one second.
+//
+// A timeout can only be tested by being timed out, and the waiting is real: the
+// adventure's own forty-seven seconds would be forty-seven seconds of the
+// suite. So the fixture is a different adventure, not a different machine —
+// the same database in every other respect, handed to the same interpreter,
+// which gives the player a second instead of most of a minute.
+//
+// The sources are copied and gfx/ is linked rather than copied, which is what
+// the comparison harnesses in script/ had to learn too: the compiler wants the
+// charset and the pictures beside the source, and the pictures are large.
+func hurried(t *testing.T) *ddbfile.Reader {
+	t.Helper()
+
+	from := filepath.Join("..", "..", "examples", "AO", "ZXSpectrum", "+3", "part1")
+	dir := t.TempDir()
+
+	sources, err := filepath.Glob(filepath.Join(from, "*.sce"))
+	require.NoError(t, err)
+	require.NotEmpty(t, sources, "the adventure's sources are not where this expects them")
+
+	for _, path := range sources {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		if filepath.Base(path) == "processes.sce" {
+			hurry := strings.Replace(string(body), "TIME 47 1", "TIME 1 1", 1)
+			require.NotEqual(t, string(body), hurry,
+				"the adventure no longer gives the player 47 seconds, so this fixture is out of date")
+
+			body = []byte(hurry)
+		}
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, filepath.Base(path)), body, 0o600))
+	}
+
+	gfx, err := filepath.Abs(filepath.Join(from, "gfx"))
+	require.NoError(t, err)
+	require.NoError(t, os.Symlink(gfx, filepath.Join(dir, "gfx")))
+
+	return database(t, filepath.Join(dir, "game.sce"))
 }
 
 // ao is La Aventura Original as the repository carries it, built for a PC,

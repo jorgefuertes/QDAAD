@@ -19,12 +19,9 @@ It exits zero if every step held, and non-zero with the line that did not:
 ▶ the bottle, down the valley and back      OK
 ▶ the boots, east and south                FAIL
   examples/AO/test/part1.qtest:63:3 EXPECT "Has cogido la pareja de botas"
-  it did not say that in 47 seconds of the adventure's clock
+  it did not say that in 10 seconds
   what it had said and nothing had matched:
     > ¡Aquí no hay de eso!
-
-    > 
-    El tiempo pasa... ¡Y no vuelve!
 
 ▶ 2 steps passed
 ▶ 1 step failed
@@ -37,25 +34,40 @@ read as one column. Anything said inside a step, a `DEBUG` or the adventure's
 own words under `--show`, breaks that line, and the badge then stands on its
 own at the margin.
 
-That "El tiempo pasa" in the middle of a failure is not a second bug: an
-`EXPECT` with seconds on it spends a turn of the clock finding out whether what
-it wants was still coming, and spending one is what makes the adventure say it.
-
 ## The clock, which is the one thing here that is not obvious
 
-There is no machine behind `qrun`, so nothing is ever slept through. But
-waiting is not nothing either: an adventure that has set `TIME` gives the
-player a few seconds to answer, and when they run out the tables run on without
-an order — "El tiempo pasa... ¡Y no vuelve!", or the dwarf walking into the
-room. That is half of what an adventure does and it has to be testable.
+An adventure that has set `TIME` gives the player a few seconds to answer, and
+when they run out the tables run on without an order — "El tiempo pasa... ¡Y no
+vuelve!", or the dwarf walking into the room. That is half of what an adventure
+does and it has to be testable, so **the seconds are seconds**: a step that
+waits waits, the same as a player who sits still.
 
-So the seconds in this language are **the adventure's, not the wall's**. An
-`EXPECT` that cannot find its text lets the clock run out, the `TIME` tables
-run, print, and it looks again, until the budget it was given is spent. Nothing
-sleeps, so a script with minutes of waiting in it finishes in milliseconds.
+Whoever runs out first decides.
 
-When the adventure has no clock running there is nothing to wait for: it is
-holding out for an order and will say nothing more until it gets one. An
+```qtest
+EXPECT "El enano entra", 10   ; the adventure allows 47, so this gives up
+                              ; first: the step fails and the game has not
+                              ; moved an inch
+
+EXPECT "El enano entra", 60   ; now the adventure's own timeout fires while
+                              ; the step is still waiting. The runtime runs
+                              ; its turn, for its own reasons, and what it
+                              ; prints may be the very thing being waited for
+```
+
+What is never done is to report a timeout that did not happen. It would cost
+nothing and it would be a lie with consequences: the adventure would run a turn
+it would never have run and say something a player would never have seen, which
+is observing a run by altering it.
+
+So a failing `EXPECT` costs its seconds, and a passing one costs nothing — the
+text it wants is already in the buffer, because the machine said everything it
+had to say before it asked for an order. A green run is as fast as the
+interpreter.
+
+When the adventure has no clock running on the question — which includes the
+yes-or-no questions `QUIT` and `END` ask — there is nothing to wait for at all:
+it is holding out for an order and will say nothing more until it gets one. An
 `EXPECT` then fails at once and says so, rather than spending real seconds to
 learn nothing.
 
@@ -176,11 +188,11 @@ nonsense in ten places instead of the truth in one.
 
 | Order | What it does |
 |---|---|
-| `EXPECT <text>[, <seconds>]` | Wait for the text. Matched case-insensitively against what has been said and not matched yet; on a hit the buffer is eaten **up to the end of the match**, which is what makes the order things are said in part of the test. Any run of space in the text matches any run of space in what was said, because the machine's line breaks are wherever the database put them. The seconds are the clock budget above, and are **10** if not given. |
+| `EXPECT <text>[, <seconds>]` | Wait for the text. Matched case-insensitively against what has been said and not matched yet; on a hit the buffer is eaten **up to the end of the match**, which is what makes the order things are said in part of the test. Any run of space in the text matches any run of space in what was said, because the machine's line breaks are wherever the database put them. The seconds are how long it is prepared to wait, really, and are **10** if not given — see the clock above. |
 | `EXPECT NOT <text>` | Fails if the text is in what has not been matched. Eats nothing, and takes no seconds: it is about what has been said already. |
 | `INPUT <text>` | One command: types the text **and** presses return. Fails if there is nowhere to type, which is the game having ended. |
 | `KEY <key>` | `RETURN`/`ENTER`, `SPACE`, `ESC`, or one character. At a pause it is the keypress the adventure is waiting for, and which key it was does not matter — `ANYKEY` never asks. At a prompt it types its character and leaves it in the buffer, and `RETURN` is what hands the buffer over, which is how a yes-or-no question gets answered a letter at a time. |
-| `WAIT <seconds>` | Let the adventure's clock run. |
+| `WAIT <seconds>` | Say nothing for that long, which is how the adventure's own `TIME` is allowed to run out. |
 | `DEBUG FLAG <n>` | Prints `FLAG_1=23`. |
 | `DEBUG FLAGS` | All 256, one per line. `DEBUG FLAGS SET` for only the ones holding something. |
 | `DEBUG AT` | `AT=1` — flag 38, where the player is. |

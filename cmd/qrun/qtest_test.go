@@ -54,7 +54,7 @@ KEY SPACE
 
 TEST "the forest"
 STEP "the first room"
-  EXPECT "Estás en la biblioteca"
+  EXPECT "Estás en la biblioteca", 1
 END
 `,
 			holds: false,

@@ -16,32 +16,37 @@
 //
 // # The clock
 //
-// There is no machine behind qrun, so nothing is ever slept through. But
-// waiting is not nothing either: an adventure that has set TIME gives the
-// player a few seconds to answer, and when they run out the tables run on
-// without an order — "El tiempo pasa... ¡Y no vuelve!", or the dwarf walking
-// into the room. That is half of what an adventure does and it has to be
-// testable.
+// An adventure that has set TIME gives the player a few seconds to answer, and
+// when they run out the tables run on without an order — "El tiempo pasa... ¡Y
+// no vuelve!", or the dwarf walking into the room. That is half of what an
+// adventure does and it has to be testable, so the seconds in this language
+// are seconds, and a step that waits waits.
 //
-// So the seconds in this language are the adventure's, not the wall's. An
-// EXPECT that cannot find its text lets the clock run out — vm.Impatient,
-// which is the machine asking a console to stop waiting — the TIME tables run,
-// print, and it looks again, until the budget it was given is spent. Nothing
-// sleeps, so a script with minutes of waiting in it finishes in milliseconds.
+// Whoever runs out first decides. An EXPECT given ten seconds against an
+// adventure that allows forty-seven gives up first: the step fails, and
+// because the adventure's own timeout never fired, the game is exactly where
+// it was. Given sixty it is the other way round: the timeout fires while the
+// step is still waiting, the runtime runs its own turn for its own reasons,
+// and what it prints may be the very thing being waited for.
 //
-// When the adventure has no clock running, there is nothing to wait for: it is
-// holding out for an order and will say nothing more until it gets one. An
-// EXPECT then fails at once and says so, rather than spending real seconds to
-// learn nothing.
+// What is never done is to report a timeout that did not happen. It would cost
+// nothing and it would be a lie with consequences — the adventure would run a
+// turn it would never have run and say something a player would never have
+// seen, which is observing a run by altering it.
+//
+// When the adventure has no clock running on the question, there is nothing to
+// wait for at all: it is holding out for an order and will say nothing more
+// until it gets one. An EXPECT then fails at once and says so, rather than
+// spending real seconds to learn nothing.
 //
 // Nothing here changes what the adventure does. The machine is not told that
 // it is being tested and has no way of finding out: what the script hands it
-// is a line, a keypress or a player who said nothing, which is all a person
-// hands it too. Where the clock runs out, the runtime is the one running the
-// turn — it set the TIME and its own timeout expired — and the console only
-// reported that nobody answered. Where the adventure pauses, the script has to
-// press something, because deciding that a pause does not count would be the
-// harness changing the game.
+// is a line, a keypress or a player who really did say nothing for that long,
+// which is all a person hands it too. Where the clock runs out, the runtime is
+// the one running the turn — it set the TIME and its own timeout expired — and
+// the console only reported that nobody answered. Where the adventure pauses,
+// the script has to press something, because deciding that a pause does not
+// count would be the harness changing the game.
 //
 // # How a script and a machine take turns
 //

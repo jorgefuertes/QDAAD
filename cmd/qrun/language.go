@@ -27,6 +27,12 @@ one — quote it when it has a comma or edge spaces that matter. UTF-8.
    SEED   1989
 
    STEP   "the title screen, and then the forest"
+     EXPECT  "?"                     ; it asks for a key before showing anything
+     KEY     SPACE
+     EXPECT  "AVENTURA ORIGINAL"     ; the credits, and it asks again
+     KEY     SPACE
+     EXPECT  "LA RESPUESTA DEPENDE DE TU VALOR"
+     KEY     SPACE
      EXPECT  "Estás en el bosque"
      ASSERT  AT = 3
    END
@@ -40,7 +46,7 @@ one — quote it when it has a comma or edge spaces that matter. UTF-8.
    END
 
    STEP   "the time passes, and does not come back"
-     WAIT    50
+     WAIT    50              ; fifty seconds of saying nothing, for real
      EXPECT  "El tiempo pasa"
    END
 
@@ -51,7 +57,7 @@ is the proof that everything in it held:
    ▶ the title screen, and then the forest     OK
    ▶ the boots, east and south                FAIL
      part1.qtest:63:3 EXPECT "Has cogido la pareja de botas"
-     it did not say that in 47 seconds of the adventure's clock
+     it did not say that in 10 seconds
 
 A step that does not hold names the line it is written on, shows what the
 adventure really said instead, and stops the run. Every STEP needs its END,
@@ -64,7 +70,8 @@ THE ORDERS
                                of space matches any run of space. A hit eats
                                what was said up to the end of the match, so
                                the order things are said in is tested too.
-                               The seconds are a clock budget; 10 if omitted.
+                               The seconds are how long it will wait, really;
+                               10 if omitted.
    EXPECT NOT <text>           Fails if it has been said. Eats nothing.
    INPUT <text>                One command: types the text and presses
                                return.
@@ -73,7 +80,8 @@ THE ORDERS
                                types and leaves it in the buffer, and RETURN
                                hands the buffer over. KEY S then KEY RETURN
                                is how a yes-or-no question is answered.
-   WAIT <seconds>              Let the adventure's clock run.
+   WAIT <seconds>              Say nothing for that long, which is how the
+                               adventure's own TIME is let run out.
    DEBUG FLAG <n>              Prints FLAG_1=23.
    DEBUG FLAGS [SET]           All 256, one per line; SET for the ones
                                holding something.
@@ -96,13 +104,18 @@ THE ORDERS
 
 THE CLOCK
 
-The seconds are the adventure's, not the wall's. Nothing is slept through: an
-EXPECT that cannot find its text lets TIME run out so that the tables run on
-without an order — which is how "El tiempo pasa... ¡Y no vuelve!" and the
-dwarf walking into the room become testable — and looks again, until the
-budget is spent. A script with minutes of waiting in it finishes in
-milliseconds. With no clock running on the question there is nothing to wait
-for, so it fails at once and says so.
+The seconds are seconds: a step that waits waits, the same as a player sitting
+still. Whoever runs out first decides. An EXPECT given ten seconds against an
+adventure that allows forty-seven gives up first, so the step fails and the
+game has not moved; given sixty, the adventure's own timeout fires while the
+step is still waiting, the runtime runs its turn for its own reasons, and what
+it prints may be the very thing being waited for — which is how "El tiempo
+pasa... ¡Y no vuelve!" and the dwarf walking into the room become testable.
+
+A failing EXPECT pays its seconds. A passing one costs nothing: what it is
+looking for was said before the adventure asked for an order. And with no clock
+running on the question there is nothing to wait for at all, so it fails at
+once and says so.
 
 NOTHING HERE CHANGES WHAT THE ADVENTURE DOES
 
@@ -115,18 +128,7 @@ console only reported that nobody answered in time.
 So a pause waits, because the adventure asked it to. A script with nothing to
 press fails there rather than being let through: how many pauses there are and
 where they fall is the adventure's own behaviour, and part of what a test of it
-is for. La Aventura Original asks for three keys before the game begins, and a
-script answers all three:
-
-   STEP   "the title screen, and then the forest"
-     EXPECT  "?"                       ; it asks before showing anything
-     KEY     SPACE
-     EXPECT  "AVENTURA ORIGINAL"       ; the credits
-     KEY     SPACE
-     EXPECT  "LA RESPUESTA DEPENDE DE TU VALOR"
-     KEY     SPACE
-     EXPECT  "Estás en el bosque"
-   END
+is for. That is what the three keys at the top of the example are.
 
    qrun -i GAME.ddb -T part1.qtest
    qrun -i GAME.ddb -T part1.qtest --show --transcript said.txt

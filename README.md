@@ -267,7 +267,7 @@ STEP "the bottle, four rooms down the valley"
 END
 
 STEP "the time passes, and does not come back"
-  WAIT    50
+  WAIT    50              ; fifty seconds of saying nothing, for real
   EXPECT  "El tiempo pasa"
 END
 ```
@@ -284,7 +284,7 @@ held:
 ▶ the bottle, down the valley and back      OK
 ▶ the boots, east and south                FAIL
   examples/AO/test/part1.qtest:63:3 EXPECT "Has cogido la pareja de botas"
-  it did not say that in 47 seconds of the adventure's clock
+  it did not say that in 10 seconds
   what it had said and nothing had matched:
     > ¡Aquí no hay de eso!
 
@@ -305,11 +305,14 @@ shows: the adventure asked for a key, so the script presses one. Deciding that
 a pause does not count would be the harness changing the game, and how many
 pauses there are is part of what a test of it is for.
 
-The seconds in it are the adventure's own, not the wall's: an `EXPECT` that
-cannot find its text lets `TIME` run out so that the tables run on without an
-order, which is how "El tiempo pasa... ¡Y no vuelve!" and the dwarf walking in
-become testable. Nothing is slept through, so a script with minutes of waiting
-in it finishes in milliseconds.
+The seconds in it are seconds, and a step that waits waits. That is how "El
+tiempo pasa... ¡Y no vuelve!" and the dwarf walking into the room become
+testable: the script says nothing for long enough that the adventure's own
+`TIME` runs out, and the runtime runs that turn for its own reasons. Reporting
+a timeout that had not happened would cost nothing and would make the adventure
+run a turn it never would have — observing the run by altering it. A failing
+`EXPECT` pays its seconds; a passing one costs nothing, because what it is
+looking for was said before the adventure asked for an order.
 
 `examples/AO/test` is the first part of La Aventura Original won — 84 commands,
 a conversation, a four-stage puzzle chain and the access code it prints at the
