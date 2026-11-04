@@ -1,0 +1,607 @@
+package qtest
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
+	"github.com/jorgefuertes/QDAAD/internal/vm"
+)
+
+// Options is what a run needs besides a script and a database.
+type Options struct {
+	// Report is where the run is written. A nil one says nothing, which is
+	// what a test that only wants the verdict asks for.
+	Report *Report
+
+	// Seed fixes the dice and wins over the script's own SEED, because it
+	// comes from the person running it.
+	Seed    int64
+	HasSeed bool
+
+	// Show echoes what the adventure says as it says it. A test run is about
+	// the steps, so it is off by default and the transcript is where the words
+	// go.
+	Show bool
+
+	// Transcript is everything the adventure said, kept whatever happens.
+	Transcript io.Writer
+
+	// Trace is where a condact trace goes, if one was asked for. A script with
+	// TRACE orders in it starts with the trace off and turns it on itself;
+	// without them, a trace asked for from outside covers the whole run.
+	Trace vm.Watcher
+}
+
+// ErrNoDatabase is what a script that neither names a database nor is given
+// one gets. Playing nothing quietly and reporting that no step failed would be
+// the worst answer there is.
+var ErrNoDatabase = errors.New("no database to play: give one with --input or name it with GAME")
+
+// Play runs a script against a database and gives back whether it held.
+//
+// An error here is a test that failed, not a program that broke: the one thing
+// a caller has to do with it is exit non-zero.
+func Play(db *ddbfile.Reader, script *Script, o Options) error {
+	if o.Report == nil {
+		o.Report = NewReport(io.Discard)
+	}
+
+	r := &Runner{
+		script:  script,
+		report:  o.Report,
+		opts:    o,
+		tracing: o.Trace != nil && !script.tracing,
+	}
+
+	machine, err := vm.New(db, r, r)
+	if err != nil {
+		return err
+	}
+
+	r.machine = machine
+
+	// The dice are set before the first turn and not from a step, because by
+	// the time a step runs the adventure has already started and whatever
+	// CHANCE is in its opening has already been rolled.
+	switch {
+	case o.HasSeed:
+		machine.SetSeed(o.Seed)
+	case script.HasSeed:
+		machine.SetSeed(script.Seed)
+	}
+
+	o.Report.Title(script.Name)
+
+	// The widest name is known before anything runs, which is what lets every
+	// badge land in the same column instead of chasing the end of each line.
+	o.Report.Align(script.widest())
+
+	if err := machine.Run(); err != nil {
+		o.Report.Broke(err)
+	} else {
+		// What is left of the script still has the last of what was said to
+		// look at, and an ASSERT ENDED is the whole point of being here.
+		r.pump(atEnd, 0)
+	}
+
+	o.Report.Summary()
+
+	return o.Report.Err()
+}
+
+// Runner plays a script. It is the machine's console, its clock and its
+// watcher, which is everything the machine asks of the world.
+type Runner struct {
+	script  *Script
+	report  *Report
+	opts    Options
+	machine *vm.Machine
+
+	// at is the step being run and spent is how much of the adventure's clock
+	// has been charged to it. Only an EXPECT or a WAIT ever leaves spent
+	// standing, and it is the only thing a half-finished step remembers.
+	at    int
+	spent int
+
+	// typed is the keyboard buffer, which only a KEY ever leaves anything in:
+	// an INPUT types its text and presses return in the same breath, so it
+	// empties the buffer again on its way out. line is what was handed over.
+	typed strings.Builder
+	line  string
+
+	// said is what the adventure has said that no EXPECT has matched yet.
+	// Matching eats it up to the end of the match, which is what makes the
+	// order things are said in part of the test.
+	said string
+
+	// stopped is a failure having happened. Nothing else runs after one: a
+	// walkthrough that is one answer behind answers every remaining step in
+	// the wrong room and reports nonsense in ten places instead of the truth
+	// in one.
+	stopped bool
+
+	tracing bool
+}
+
+// Print is the adventure speaking.
+func (r *Runner) Print(text string) {
+	r.said += text
+
+	if r.opts.Transcript != nil {
+		_, _ = io.WriteString(r.opts.Transcript, text)
+	}
+
+	if r.opts.Show {
+		r.report.Said(text)
+	}
+}
+
+// Input is the adventure asking for an order with no clock on it.
+func (r *Runner) Input() (string, bool) {
+	if r.pump(atLine, 0) == outLine {
+		return r.line, true
+	}
+
+	// The script having nothing more to say ends the game, which is how a
+	// script that does not play to the end still finishes.
+	return "", false
+}
+
+// InputWithin is the same with the adventure's TIME on it, and it is what
+// makes the seconds in this language mean anything. See the package comment.
+func (r *Runner) InputWithin(limit time.Duration) (line string, more, expired bool) {
+	switch r.pump(atLine, limit) {
+	case outLine:
+		return r.line, true, false
+	case outClock:
+		return "", true, true
+	default:
+		return "", false, false
+	}
+}
+
+// AnyKey is a pause, and it waits, because the adventure said to wait.
+//
+// A script that has nothing to press fails here rather than being let through.
+// Letting it through would be the harness deciding that this pause does not
+// count, and a pause is the adventure's own behaviour: how many there are and
+// where they fall is part of what a test of it is for. A walkthrough that
+// stops working the day somebody adds one is a walkthrough that noticed.
+//
+// It cannot hang. A script with no key left where a key is wanted is a failure
+// with the line it got to, and a script that has run out altogether returns —
+// the test is over, and what the adventure does afterwards is nobody's
+// business.
+func (r *Runner) AnyKey() { r.pump(atKey, 0) }
+
+// moment is what the machine is stopped for, which decides what the orders
+// that type can mean and whether the clock can be let out.
+type moment int
+
+const (
+	atLine moment = iota // waiting for an order
+	atKey                // waiting for a keypress
+	atEnd                // the game is over
+)
+
+// outcome is what the script gave the machine.
+type outcome int
+
+const (
+	outLine  outcome = iota // a line was typed and is in r.line
+	outKey                  // a key was pressed
+	outClock                // let the adventure's clock run out
+	outOver                 // the script has nothing more to give
+)
+
+// pump runs the script forward until it has something for the machine.
+//
+// It is the whole of how a script and a machine take turns. Everything the
+// language does happens in here, in the one place where what the machine is
+// waiting for is known.
+//
+//nolint:gocognit,gocyclo,cyclop,funlen // the turn-taking is one thing and reads as one
+func (r *Runner) pump(where moment, clock time.Duration) outcome {
+	for {
+		if r.stopped || r.at >= len(r.script.steps) {
+			return outOver
+		}
+
+		s := &r.script.steps[r.at]
+
+		switch s.op {
+		case opStep:
+			r.report.Step(s.text)
+
+			r.next()
+
+		case opEnd:
+			// Getting here is the proof: everything in the step held.
+			r.report.Pass()
+
+			r.next()
+
+		case opTrace:
+			r.tracing = s.on
+
+			r.next()
+
+		case opDebug:
+			r.describe(s)
+			r.next()
+
+		case opAssert:
+			if !r.verify(s) {
+				return outOver
+			}
+
+			r.next()
+
+		case opExpectNot:
+			if _, end := indexFold(r.said, s.text); end >= 0 {
+				r.fail(s, "it said that, and this is the line saying it should not have")
+
+				return outOver
+			}
+
+			r.next()
+
+		case opExpect:
+			if r.hear(s.text) {
+				r.next()
+
+				continue
+			}
+
+			switch {
+			case where == atKey || where == atEnd || clock == 0:
+				r.fail(s, "it has not said that, and "+nothingMore(where))
+
+				return outOver
+
+			case r.spent >= s.secs:
+				// What was spent rather than what was budgeted: the clock runs
+				// in whole turns of the adventure's TIME, so asking for ten
+				// seconds of a game that gives forty-seven a turn spends
+				// forty-seven, and saying ten would be the one number that did
+				// not happen.
+				r.fail(s, fmt.Sprintf("it did not say that in %s of the adventure's clock",
+					plural(r.spent, "second")))
+
+				return outOver
+			}
+
+			r.spent += seconds(clock)
+
+			return outClock
+
+		case opWait:
+			switch {
+			case where == atKey:
+				// A pause has no clock on it: nothing is going to happen until
+				// a key is pressed, so there is nothing to wait for.
+				r.fail(s, "nothing to wait for: "+nothingMore(where))
+
+				return outOver
+
+			case where == atEnd || clock == 0:
+				r.report.Note(s.at, "nothing to wait for: "+nothingMore(where))
+				r.next()
+
+				continue
+
+			case r.spent >= s.secs:
+				r.next()
+
+				continue
+			}
+
+			r.spent += seconds(clock)
+
+			return outClock
+
+		case opInput:
+			switch where {
+			case atKey, atEnd:
+				r.fail(s, "there is nowhere to type: "+nothingMore(where))
+
+				return outOver
+
+			default:
+				// Into the buffer and then over, rather than instead of it: a
+				// KEY in front of an INPUT still belongs to the same line, so
+				// KEY S followed by INPUT alir is one order reading "Salir".
+				r.typed.WriteString(s.text)
+
+				r.line = r.typed.String()
+				r.typed.Reset()
+
+				r.next()
+
+				return outLine
+			}
+
+		case opKey:
+			switch where {
+			case atKey:
+				// A pause takes whichever key comes next, exactly as a real
+				// keyboard does, and never asks which one it was.
+				r.next()
+
+				return outKey
+
+			case atEnd:
+				r.fail(s, "the adventure had already ended, so there was nothing to press a key at")
+
+				return outOver
+
+			default:
+				if !s.enter {
+					r.typed.WriteString(s.typed)
+					r.next()
+
+					continue
+				}
+
+				r.line = r.typed.String()
+				r.typed.Reset()
+
+				r.next()
+
+				return outLine
+			}
+		}
+	}
+}
+
+// next moves to the step after this one. The clock budget belongs to the step
+// that was spending it, so it goes with it.
+func (r *Runner) next() {
+	r.at++
+	r.spent = 0
+}
+
+// hear looks for what an EXPECT wants and swallows everything up to the end of
+// it, so that the next EXPECT can only match later text.
+func (r *Runner) hear(text string) bool {
+	_, end := indexFold(r.said, text)
+	if end < 0 {
+		return false
+	}
+
+	r.said = r.said[end:]
+
+	return true
+}
+
+// fail records the first failure and stops the run.
+//
+// Which step it belongs to is not passed along, because the report has already
+// said: the name is on the line the badge is about to close.
+func (r *Runner) fail(s *step, why string) {
+	r.stopped = true
+
+	r.report.Fail(s.at, s.source, why, r.said)
+}
+
+// nothingMore is why nothing else is going to be said, which is the difference
+// between a test that is wrong and a test that is only early.
+func nothingMore(where moment) string {
+	switch where {
+	case atKey:
+		return "the adventure is waiting for a keypress, and no clock runs during a pause: " +
+			"it will say nothing more until a KEY is given"
+	case atEnd:
+		return "the adventure has ended and will say nothing more"
+	}
+
+	// Not "no TIME set": the yes-no questions QUIT and END ask are read with
+	// no clock on them whatever the adventure's TIME is, and this is the
+	// sentence a script sitting at one of those needs to read.
+	return "the adventure is waiting for something to be typed with no clock running on it, " +
+		"so it will say nothing more until it is answered"
+}
+
+// seconds is how much of the adventure's clock one wait is worth. The flag is
+// in whole seconds and never zero when the machine is willing to wait, so the
+// floor is only there to keep a wait from costing nothing and looping forever.
+func seconds(clock time.Duration) int {
+	if n := int(clock / time.Second); n > 0 {
+		return n
+	}
+
+	return 1
+}
+
+func plural(n int, thing string) string {
+	if n == 1 {
+		return "1 " + thing
+	}
+
+	return fmt.Sprintf("%d %ss", n, thing)
+}
+
+// describe answers a DEBUG.
+func (r *Runner) describe(s *step) {
+	switch s.ask {
+	case askFlag:
+		r.report.Debug(fmt.Sprintf("FLAG_%d=%d", s.num, r.machine.Flag(s.num)))
+
+	case askFlags, askFlagsSet:
+		const flags = 256
+
+		for n := range flags {
+			held := r.machine.Flag(n)
+			if s.ask == askFlagsSet && held == 0 {
+				continue
+			}
+
+			r.report.Debug(fmt.Sprintf("FLAG_%d=%d", n, held))
+		}
+
+	case askAt:
+		r.report.Debug(fmt.Sprintf("AT=%d", r.machine.Flag(vm.FlagPlayer)))
+
+	case askPicture:
+		if number, asked := r.machine.Picture(); asked {
+			r.report.Debug(fmt.Sprintf("PICTURE=%d", number))
+		} else {
+			r.report.Debug("PICTURE=none")
+		}
+
+	case askObjects:
+		for n := range r.machine.Objects() {
+			where, _ := r.machine.ObjectAt(n)
+			r.report.Debug(fmt.Sprintf("OBJ_%d=%d", n, where))
+		}
+
+	case askSaid:
+		r.report.Said(r.said)
+	}
+}
+
+// verify answers an ASSERT, and says what it found rather than only that it
+// was not what was wanted.
+func (r *Runner) verify(s *step) bool {
+	switch s.check {
+	case chkEnded:
+		if r.machine.Ended() {
+			return true
+		}
+
+		r.fail(s, "the adventure is still going")
+
+		return false
+
+	case chkCarried, chkWorn, chkHere, chkPresent:
+		return r.verifyWhere(s)
+
+	case chkObject:
+		where, exists := r.machine.ObjectAt(s.num)
+		if !exists {
+			r.fail(s, fmt.Sprintf("there is no object %d in this database", s.num))
+
+			return false
+		}
+
+		return r.compare(s, fmt.Sprintf("OBJ_%d", s.num), int(where))
+
+	case chkPicture:
+		number, asked := r.machine.Picture()
+		if !asked {
+			r.fail(s, "the adventure has not asked for a picture at all")
+
+			return false
+		}
+
+		return r.compare(s, "PICTURE", int(number))
+
+	case chkFlag:
+		return r.compare(s, fmt.Sprintf("FLAG_%d", s.num), int(r.machine.Flag(s.num)))
+
+	case chkAt:
+		return r.compare(s, "AT", int(r.machine.Flag(vm.FlagPlayer)))
+
+	case chkScore:
+		return r.compare(s, "SCORE", int(r.machine.Flag(vm.FlagScore)))
+
+	case chkTurns:
+		// Two bytes, little-endian, which is how the format counts anything
+		// that can go past 255.
+		turns := int(r.machine.Flag(vm.FlagTurns)) + 256*int(r.machine.Flag(vm.FlagTurns+1))
+
+		return r.compare(s, "TURNS", turns)
+	}
+
+	return true
+}
+
+func (r *Runner) compare(s *step, name string, got int) bool {
+	if s.cmp.holds(got, s.val) {
+		return true
+	}
+
+	why := fmt.Sprintf("%s is %d, not %d", name, got, s.val)
+	if s.cmp != cmpEq {
+		why = fmt.Sprintf("%s is %d, and %s %s %d was wanted", name, got, name, s.cmp, s.val)
+	}
+
+	r.fail(s, why)
+
+	return false
+}
+
+// verifyWhere checks where an object is, in the four words a player would use
+// for it.
+func (r *Runner) verifyWhere(s *step) bool {
+	where, exists := r.machine.ObjectAt(s.num)
+	if !exists {
+		r.fail(s, fmt.Sprintf("there is no object %d in this database", s.num))
+
+		return false
+	}
+
+	player := r.machine.Flag(vm.FlagPlayer)
+
+	var (
+		held  bool
+		meant string
+	)
+
+	switch s.check {
+	case chkCarried:
+		held, meant = where == vm.LocCarried, "carried"
+	case chkWorn:
+		held, meant = where == vm.LocWorn, "worn"
+	case chkHere:
+		held, meant = where == player, "here"
+	default:
+		held, meant = where == vm.LocCarried || where == vm.LocWorn || where == player, "present"
+	}
+
+	if held {
+		return true
+	}
+
+	r.fail(s, fmt.Sprintf("object %d is not %s: it is at %s", s.num, meant, located(where)))
+
+	return false
+}
+
+// located reads a location out, because three of the numbers are not places.
+func located(where byte) string {
+	switch where {
+	case vm.LocCarried:
+		return "254, carried"
+	case vm.LocWorn:
+		return "253, worn"
+	case vm.LocNotCreated:
+		return "252, nowhere yet"
+	default:
+		return fmt.Sprint(where)
+	}
+}
+
+// The watcher, which is the condact trace and nothing else. It is gated here
+// rather than by swapping watchers, because the machine is given one for the
+// whole run and TRACE wants to change its mind halfway through.
+
+func (r *Runner) traced() vm.Watcher {
+	if r.tracing && r.opts.Trace != nil {
+		return r.opts.Trace
+	}
+
+	return vm.NoWatcher{}
+}
+
+func (r *Runner) Condact(process, entry int, c ddbfile.Condact) {
+	r.traced().Condact(process, entry, c)
+}
+
+func (r *Runner) Flag(number int, was, now byte)   { r.traced().Flag(number, was, now) }
+func (r *Runner) Process(number int, running bool) { r.traced().Process(number, running) }
+func (r *Runner) Moved(object int, from, to byte)  { r.traced().Moved(object, from, to) }

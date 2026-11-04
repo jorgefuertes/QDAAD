@@ -22,6 +22,7 @@ package vm
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
@@ -239,6 +240,20 @@ type Machine struct {
 	// spanish is what the database was built for, which decides how an
 	// object's article is read out. See objectName.
 	spanish bool
+
+	// picture is the last one the adventure asked for, and pictured whether it
+	// ever asked. There is no screen here, but what it asked for is still worth
+	// knowing: it is the only way a test can tell that the right illustration
+	// goes with the right room. See the PICTURE condact.
+	picture  byte
+	pictured bool
+
+	// random is the dice, made on first use. It is the machine's own rather
+	// than the package-level one so that a run can be repeated: an adventure
+	// with a CHANCE in it gives a different game every time, and a test that
+	// cannot ask for the same game twice is a test that fails on its own
+	// schedule. See SetSeed and dice.
+	random *rand.Rand
 }
 
 // texts is the four tables, read once.
@@ -369,8 +384,11 @@ func (m *Machine) reset() {
 	// A half-finished indirection belongs to the condact that was going to
 	// consume it, and that condact is not going to run now. inputs is left
 	// alone on purpose: it counts the player, not the game, and the loop's
-	// guard against restarting forever needs it to carry across.
+	// guard against restarting forever needs it to carry across. The dice are
+	// left alone too: a seed is asked for from outside and a RESTART is not a
+	// reason to go back on it.
 	m.indir.pending = false
+	m.picture, m.pictured = 0, false
 
 	// What the machine can do. A console has no graphics and no mouse, and
 	// saying so is better than leaving an adventure to find out.
@@ -409,6 +427,26 @@ func (m *Machine) top() *frame { return &m.stack[len(m.stack)-1] }
 func (m *Machine) holds(f *frame) bool {
 	return len(m.stack) > 0 && m.top() == f
 }
+
+// dice is the machine's randomness, made on first use.
+//
+// Lazily rather than in New, because half the tests in this package build a
+// Machine by hand with the two or three fields they are about — which is the
+// right way to test a condact — and a nil generator would turn the first
+// CHANCE any of them reached into a crash a long way from its cause.
+func (m *Machine) dice() *rand.Rand {
+	if m.random == nil {
+		m.random = newDice(time.Now().UnixNano())
+	}
+
+	return m.random
+}
+
+// newDice is where a generator comes from, in one place so that the seeded and
+// the unseeded kind cannot drift apart. See SetSeed.
+//
+//nolint:gosec // a game's dice, not cryptography
+func newDice(seed int64) *rand.Rand { return rand.New(rand.NewSource(seed)) }
 
 // setFlag is the only way a flag changes, so that a watcher sees every one.
 func (m *Machine) setFlag(number int, value byte) {

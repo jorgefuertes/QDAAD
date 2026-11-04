@@ -1,0 +1,43 @@
+; La Aventura Original, part two: getting in, and what the first part left in
+; your hands.
+;
+; Two things have to be right for the inventory to be, and neither was. The
+; adventure answers INVENTARIO with "> I _ PROCESS 10", and I is a noun of
+; value 14, so the word only reaches that entry if a verbless sentence promotes
+; its noun to the verb. Then, with the entry reached, it tests NOTZERO 1 — flag
+; 1 is how many objects are carried — and a RESET that put the objects back
+; without putting the count back answered "you have nothing" with the lamp, a
+; key, the food and the water in hand.
+;
+;   qdaad compile -i examples/AO/ZXSpectrum/+3/part2/game.sce -m pc -s vga -f ddb -o tmp/AO2 --part 2
+;   qrun -i tmp/AO2.ddb -T examples/AO/test/part2.qtest
+
+TEST "La Aventura Original, part two, entered"
+
+SEED 1989
+
+INCLUDE "prologue.qtest"
+
+STEP "the first room of the second part"
+  EXPECT "Los rayos del sol"
+END
+
+STEP "and what the first part handed over"
+  INPUT  i
+
+  EXPECT "Una llave"
+  EXPECT NOT "No tienes nada"
+  ASSERT FLAG 1 > 0
+END
+
+STEP "what is put down leaves the hand, and the count with it"
+  INPUT  dejar moneda
+  EXPECT "Has dejado la moneda"
+
+  INPUT  i
+  EXPECT NOT "moneda"
+END
+
+STEP "and nothing in that reached a condact we have not written"
+  EXPECT NOT "not implemented"
+END

@@ -2,7 +2,6 @@ package vm
 
 import (
 	"fmt"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -130,7 +129,7 @@ var condacts = map[byte]func(*Machine, []byte){
 	7:   func(m *Machine, a []byte) { m.need(!m.at(int(a[0]), LocWorn)) },      // NOTWORN
 	8:   func(m *Machine, a []byte) { m.need(m.at(int(a[0]), LocCarried)) },    // CARRIED
 	9:   func(m *Machine, a []byte) { m.need(!m.at(int(a[0]), LocCarried)) },   // NOTCARR
-	10:  func(m *Machine, a []byte) { m.need(rand.Intn(100) < int(a[0])) },     //nolint:gosec // CHANCE
+	10:  func(m *Machine, a []byte) { m.need(m.dice().Intn(100) < int(a[0])) }, // CHANCE
 	11:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] == 0) },             // ZERO
 	12:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] != 0) },             // NOTZERO
 	13:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] == a[1]) },          // EQ
@@ -159,7 +158,7 @@ var condacts = map[byte]func(*Machine, []byte){
 	51:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), a[1]); m.did() },                                // LET
 	71:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), plus(m.flags[a[1]], m.flags[a[0]])); m.did() },  // ADD
 	72:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), minus(m.flags[a[1]], m.flags[a[0]])); m.did() }, // SUB
-	95:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), byte(rand.Intn(100)+1)); m.did() },              //nolint:gosec // RANDOM
+	95:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), byte(m.dice().Intn(100)+1)); m.did() },          // RANDOM
 	125: func(m *Machine, a []byte) { m.setFlag(int(a[1]), m.flags[a[0]]); m.did() },                       // COPYFF
 	126: func(m *Machine, a []byte) { m.setFlag(int(a[1]), 255-m.flags[a[0]]); m.did() },                   // COPYBF
 
@@ -318,7 +317,21 @@ var condacts = map[byte]func(*Machine, []byte){
 		m.setFlag(FlagTime, a[0])
 		m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]&^optionMask|a[1]&optionMask)
 	},
-	84:  nothing, // PICTURE
+	// PICTURE: there is no screen, so nothing is drawn — but which illustration
+	// the adventure asked for is remembered, because it is the one thing about
+	// a picture that can be wrong without the text showing it. See Picture.
+	//
+	// It does not fail the entry, and that is a decision rather than an
+	// omission. The C ends on "checkEntry = gfxPicturePrepare(pic)" —
+	// _internal_picture, daad_condacts.c:2609 — so there a picture that is not
+	// in the file stops the entry where it stands. Here there is no file to
+	// look in, so every picture is taken to exist: a database whose
+	// illustrations have not been packed yet would otherwise play differently
+	// from the same database once they are, and the one thing this is for is
+	// playing the adventure rather than the build.
+	84: func(m *Machine, a []byte) {
+		m.picture, m.pictured = a[0], true
+	},
 	86:  nothing, // MOUSE
 	87:  nothing, // GFX
 	78:  nothing, // WINDOW

@@ -10,6 +10,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,20 +18,54 @@ import (
 	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
+	"github.com/jorgefuertes/QDAAD/internal/qtest"
 	"github.com/jorgefuertes/QDAAD/internal/vm"
 	"github.com/urfave/cli/v3"
 )
 
 func main() {
-	cmd := &cli.Command{
-		Name:  "qrun",
-		Usage: "play a DAAD database on a console",
+	if err := command().Run(context.Background(), os.Args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+// command is what the flags and the action are, built apart from main so that
+// a test can run the whole of it the way a person does.
+func command() *cli.Command {
+	return &cli.Command{
+		Name:        "qrun",
+		Usage:       "play a DAAD database on a console",
+		Description: testLanguage,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:     "input",
-				Aliases:  []string{"i"},
-				Usage:    "Database to play.",
-				Required: true,
+				Name:    "input",
+				Aliases: []string{"i"},
+				Usage: "Database to play. Required to play, and optional with --test " +
+					"when the script names its own with GAME.",
+			},
+			&cli.StringSliceFlag{
+				Name:    "test",
+				Aliases: []string{"T"},
+				Usage: "Play a .qtest script instead of a person: wait for text, type, " +
+					"check flags. Give it more than once to run several. Nothing is " +
+					"printed but the steps unless --show is given, and a step that " +
+					"does not hold stops the run and exits non-zero.",
+			},
+			&cli.BoolFlag{
+				Name: "show",
+				Usage: "With --test, print what the adventure says as well as what the " +
+					"steps did. It is off by default because a test is about the steps.",
+			},
+			&cli.StringFlag{
+				Name: "transcript",
+				Usage: "Write everything the adventure said to this file. It is the first " +
+					"thing to read when a step fails for a reason the report cannot show.",
+			},
+			&cli.IntFlag{
+				Name: "seed",
+				Usage: "Fix the dice, so that an adventure with a CHANCE or a RANDOM in it " +
+					"plays the same game twice. It wins over a script's own SEED.",
 			},
 			&cli.IntFlag{
 				Name:  "trace-limit",
@@ -57,24 +92,9 @@ func main() {
 		},
 		Action: run,
 	}
-
-	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
 }
 
 func run(_ context.Context, cmd *cli.Command) error {
-	data, err := os.ReadFile(cmd.String("input"))
-	if err != nil {
-		return err
-	}
-
-	db, err := open(data)
-	if err != nil {
-		return fmt.Errorf("%s: %w", cmd.String("input"), err)
-	}
-
 	watch, closeWatch, err := tracer(cmd.String("trace"), cmd.String("trace-dir"),
 		int64(cmd.Int("trace-limit")))
 	if err != nil {
@@ -82,6 +102,19 @@ func run(_ context.Context, cmd *cli.Command) error {
 	}
 
 	defer closeWatch()
+
+	if scripts := cmd.StringSlice("test"); len(scripts) > 0 {
+		return test(cmd, scripts, watch)
+	}
+
+	if cmd.String("input") == "" {
+		return errors.New("nothing to play: give a database with --input")
+	}
+
+	db, err := load(cmd.String("input"))
+	if err != nil {
+		return err
+	}
 
 	machine, err := vm.New(db, &console{
 		out:   os.Stdout,
@@ -93,6 +126,114 @@ func run(_ context.Context, cmd *cli.Command) error {
 	}
 
 	return machine.Run()
+}
+
+// test plays scripts instead of a person.
+//
+// A script that cannot be read comes back as an error, because that is a
+// mistake in the test rather than a failure of the adventure, and the
+// difference is worth keeping: one is fixed in the .qtest and the other in the
+// game.
+func test(cmd *cli.Command, scripts []string, watch vm.Watcher) error {
+	// A trace is only handed over if one was asked for. Given a watcher that
+	// writes nowhere, a script's TRACE ON would look like it did something.
+	if cmd.String("trace") == "" {
+		watch = nil
+	}
+
+	transcript, closeTranscript, err := transcriptTo(cmd.String("transcript"))
+	if err != nil {
+		return err
+	}
+
+	defer closeTranscript()
+
+	failed := 0
+
+	for _, path := range scripts {
+		script, err := qtest.Parse(path)
+		if err != nil {
+			return err
+		}
+
+		where := cmd.String("input")
+		if where == "" {
+			where = script.Game
+		}
+
+		if where == "" {
+			return fmt.Errorf("%s: %w", path, qtest.ErrNoDatabase)
+		}
+
+		db, err := load(where)
+		if err != nil {
+			return err
+		}
+
+		options := qtest.Options{
+			Report:     qtest.NewReport(writer(cmd)),
+			Show:       cmd.Bool("show"),
+			Transcript: transcript,
+			Trace:      watch,
+		}
+
+		if cmd.IsSet("seed") {
+			options.Seed, options.HasSeed = int64(cmd.Int("seed")), true
+		}
+
+		if err := qtest.Play(db, script, options); err != nil {
+			failed++
+		}
+	}
+
+	if failed == 0 {
+		return nil
+	}
+
+	if len(scripts) == 1 {
+		return fmt.Errorf("%s did not pass", scripts[0])
+	}
+
+	return fmt.Errorf("%d of %d scripts did not pass", failed, len(scripts))
+}
+
+// writer is where a report goes. It is the command's own, so that a test can
+// read what a person would have seen.
+func writer(cmd *cli.Command) io.Writer {
+	if out := cmd.Root().Writer; out != nil {
+		return out
+	}
+
+	return os.Stdout
+}
+
+// load reads a database and says which file it was when it cannot.
+func load(path string) (*ddbfile.Reader, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := open(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+
+	return db, nil
+}
+
+// transcriptTo opens where everything the adventure said is to be kept.
+func transcriptTo(path string) (io.Writer, func(), error) {
+	if path == "" {
+		return nil, func() {}, nil
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return f, func() { _ = f.Close() }, nil
 }
 
 // open reads the database.

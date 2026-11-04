@@ -1,0 +1,188 @@
+; La Aventura Original, part one, played to the end.
+;
+; This is the walkthrough the Go tests play — internal/vm/play_test.go,
+; TestFinishingTheFirstPartOfLaAventuraOriginal — written in the language it
+; asked for. The two have to agree, and if they ever disagree one of them is
+; lying.
+;
+; Finishing the adventure is worth more than every smaller test together: 84
+; commands, every kind of condact, a conversation, a puzzle chain with four
+; stages, and an ending that will not come unless all of it worked. The access
+; code is the adventure's own answer, so there is no judging what counts as
+; winning — either it says TIMACUS or it does not.
+;
+;   qdaad compile -i examples/AO/ZXSpectrum/+3/part1/game.sce -m pc -s vga -f ddb -o tmp/AO1
+;   qrun -i tmp/AO1.ddb -T examples/AO/test/part1.qtest
+
+TEST "La Aventura Original\nParte I - Español"
+
+; The dice are fixed, so that the one CHANCE in the adventure cannot make this
+; pass on Tuesday and fail on Wednesday.
+SEED 1989
+
+; Three pauses before the game starts, and the script answers all three. A
+; pause is the adventure's own behaviour: it asked for a key, so it waits for
+; one, and a walkthrough that stops working the day somebody adds a fourth is
+; a walkthrough that noticed.
+STEP "Pantalla de título y bosque"
+  EXPECT "?"                                ; message 18: it asks before it shows anything
+  KEY    SPACE
+
+  EXPECT "AVENTURA ORIGINAL"                ; the credits
+  KEY    SPACE
+
+  EXPECT "LA RESPUESTA DEPENDE DE TU VALOR" ; what the game is about
+  KEY    SPACE
+
+  EXPECT "Estás en el bosque"
+  ASSERT AT = 3
+  ASSERT PICTURE = 3
+END
+
+STEP "the bottle, down the valley and back"
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  COGER BOTELLA
+  INPUT  N
+  INPUT  N
+  INPUT  N
+
+  EXPECT "Has cogido la botella"
+  ASSERT CARRIED 4
+  ASSERT AT = 24
+END
+
+STEP "the boots, east and south"
+  INPUT  E
+  INPUT  E
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  COGER BOTAS
+  INPUT  N
+  INPUT  N
+  INPUT  N
+  INPUT  N
+  INPUT  O
+  INPUT  O
+  INPUT  N
+  INPUT  N
+
+  EXPECT "Has cogido la pareja de botas"
+END
+
+STEP "the battery, and the lamp Don Enano gives for the boots"
+  INPUT  E
+  INPUT  E
+  INPUT  S
+  INPUT  COGER PILA
+  INPUT  N
+  INPUT  N
+  INPUT  DAR BOTAS
+  INPUT  COGER LINTERNA
+  INPUT  PONER PILAS
+  INPUT  ENCENDER LINTERNA
+
+  EXPECT "Has cogido la pila"
+  EXPECT "Don Enano se calza y agradecido te deja una linterna"
+  EXPECT "Has cogido la linterna"
+END
+
+STEP "the key, shaken out of the tree"
+  INPUT  S
+  INPUT  O
+  INPUT  O
+  INPUT  O
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  E
+  INPUT  E
+  INPUT  SE
+  INPUT  S
+  INPUT  SUBIR ARBOL
+  INPUT  EXAMINAR RAMAS
+  INPUT  SACUDIR RAMAS
+  INPUT  BAJAR ARBOL
+  INPUT  COGER LLAVE
+
+  EXPECT "ha caido al suelo"
+  EXPECT "Has cogido la llave"
+END
+
+STEP "the coin, in the pool"
+  INPUT  N
+  INPUT  S
+  INPUT  O
+  INPUT  N
+  INPUT  E
+  INPUT  BAJAR
+  INPUT  EXAMINAR CHARCO
+  INPUT  COGER MONEDA
+  INPUT  SUBIR
+  INPUT  O
+  INPUT  S
+  INPUT  LLENAR BOTELLA
+
+  EXPECT "una moneda"
+  EXPECT "Has cogido la moneda"
+END
+
+STEP "the elf, talked to with a phrase in quotes"
+  INPUT  E
+  INPUT  E
+  INPUT  S
+  INPUT  EXAMINAR FIGURA
+  INPUT  DECIR "QUE TE PASA?"
+  INPUT  DECIR "SIGUEME"
+
+  ; PARSE 1 is what reads a phrase in quotes, and it is the whole of how an
+  ; adventure of this period holds a conversation.
+  EXPECT "Es un elfo que llora"
+END
+
+STEP "the grating, with the elf following"
+  INPUT  N
+  INPUT  O
+  INPUT  O
+  INPUT  S
+  INPUT  S
+  INPUT  ABRIR CANDADO
+  INPUT  COGER CANDADO
+  INPUT  EMPUJAR REJA
+
+  EXPECT "candado abierto"
+  EXPECT "desaparece de tus manos"
+  EXPECT "la entrada a La Gran Caverna"
+END
+
+STEP "the tortilla the elf leaves, and into the cave"
+  INPUT  N
+  INPUT  N
+  INPUT  E
+  INPUT  COGER TORTILLA
+  INPUT  O
+  INPUT  S
+  INPUT  S
+  INPUT  I
+  INPUT  ENTRAR CAVERNA
+
+  EXPECT "Has cogido la tortilla"
+  ; The five the adventure's own note says to arrive with, and the five the
+  ; cave counts: EQ 1 5, exactly five objects in hand.
+  ASSERT FLAG 1 = 5
+  EXPECT "linterna encendida"
+  EXPECT "moneda"
+  EXPECT "tortilla"
+  EXPECT "botella con agua"
+  EXPECT "llave"
+  EXPECT "FELICIDADES"
+  EXPECT "CLAVE DE ACCESO: TIMACUS"
+END
+
+STEP "and nothing in all of that reached a condact we have not written"
+  EXPECT NOT "not implemented"
+END
