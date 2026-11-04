@@ -21,6 +21,7 @@ func TestEveryOrderReads(t *testing.T) {
 ; a comment, and a blank line above it
 TEST    "everything"
 SEED    1989
+TIMEOUT 3
 
 STEP    "the lot"
   EXPECT  "Los rayos del sol", 2
@@ -88,6 +89,37 @@ EXPECT  bare with a number, 7
 	require.Equal(t, 7, script.steps[3].secs,
 		"an unquoted text may end in a comma and a number, and then it is the budget")
 	require.Equal(t, "bare with a number", script.steps[3].text)
+}
+
+// TIMEOUT is said once and is about the whole script, which is why it reaches
+// the EXPECTs above it as well as the ones below.
+//
+// Reading it as "from here on" would make the same file behave two ways
+// depending on where the line sits, and nothing in the language says it is
+// about order. One per script, like SEED and for the same reason: the last one
+// quietly winning is worse than being told.
+func TestATimeoutIsAboutTheWholeScript(t *testing.T) {
+	script, err := ParseText("t.qtest", `
+EXPECT  "said before the timeout"
+EXPECT  "with its own seconds", 30
+TIMEOUT 2
+EXPECT  "said after it"
+WAIT    7
+`)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, script.steps[0].secs, "an EXPECT above the line still gets it")
+	require.Equal(t, 30, script.steps[1].secs, "and one that said how long keeps what it said")
+	require.Equal(t, 2, script.steps[2].secs)
+	require.Equal(t, 7, script.steps[3].secs, "a WAIT always says how long, so nothing fills it in")
+}
+
+// Without one, an EXPECT waits what the language says.
+func TestWithoutATimeoutTheDefaultStands(t *testing.T) {
+	script, err := ParseText("t.qtest", "EXPECT \"hello\"\n")
+	require.NoError(t, err)
+
+	require.Equal(t, defaultSeconds, script.steps[0].secs)
 }
 
 func TestWhatAScriptSaysAboutItself(t *testing.T) {
@@ -239,6 +271,18 @@ func TestWhatIsWrongAndWhereItIs(t *testing.T) {
 			script: "TEST \"one\"\nTEST \"two\"\n",
 			says:   "already given a name",
 			line:   2,
+		},
+		{
+			name:   "a timeout given twice",
+			script: "TIMEOUT 2\nEXPECT hello\nTIMEOUT 3\n",
+			says:   "TIMEOUT was already said",
+			line:   3,
+		},
+		{
+			name:   "a timeout that is not a number",
+			script: "TIMEOUT soon\n",
+			says:   "is not a number",
+			line:   1,
 		},
 		{
 			name:   "a WAIT with no number",

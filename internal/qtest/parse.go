@@ -38,11 +38,13 @@ const includeDepth = 16
 
 // Parse reads a script from a file.
 func Parse(path string) (*Script, error) {
-	p := &parser{script: &Script{}}
+	p := &parser{script: newScript()}
 
 	if err := p.file(path, Place{}, nil); err != nil {
 		return nil, err
 	}
+
+	p.resolve()
 
 	return p.script, nil
 }
@@ -50,22 +52,39 @@ func Parse(path string) (*Script, error) {
 // ParseText reads a script that is not a file, which is what a test wants and
 // what makes an INCLUDE-less script easy to write inline.
 func ParseText(name, body string) (*Script, error) {
-	p := &parser{script: &Script{}}
+	p := &parser{script: newScript()}
 
 	if err := p.text(name, body, nil); err != nil {
 		return nil, err
 	}
 
+	p.resolve()
+
 	return p.script, nil
+}
+
+// resolve gives every EXPECT that did not name its own seconds the script's,
+// which is done here and not while reading because a TIMEOUT belongs to the
+// whole script wherever in it it was written.
+//
+// A script that sets one at the bottom means it for the EXPECTs at the top as
+// well. Reading it as "from here on" would make the same file behave two ways
+// depending on where the line sits, and nothing in it says it is about order.
+func (p *parser) resolve() {
+	for i := range p.script.steps {
+		if s := &p.script.steps[i]; s.op == opExpect && !s.timed {
+			s.secs = p.script.timeout
+		}
+	}
 }
 
 type parser struct {
 	script *Script
 
-	// named and gamed are which of the one-per-script directives have been
-	// given, so that saying one twice is an error rather than the last one
-	// quietly winning.
-	named, gamed bool
+	// Which of the one-per-script directives have been given, so that saying
+	// one twice is an error rather than the last one quietly winning. SEED
+	// keeps its own on the script, where Play needs it.
+	named, gamed, timed bool
 
 	// open is where a STEP was opened that is still waiting for its END. It
 	// belongs to the file being read — text puts it back on the way out of an
@@ -178,6 +197,18 @@ func (p *parser) order(word, rest string, at Place, source string, stack []strin
 
 		p.script.Seed, p.script.HasSeed = int64(seed), true
 
+	case "TIMEOUT":
+		seconds, err := number(rest, 0, 0xFFFF)
+		if err != nil {
+			return fmt.Errorf("%s: TIMEOUT: %w", at, err)
+		}
+
+		if p.timed {
+			return fmt.Errorf("%s: TIMEOUT was already said", at)
+		}
+
+		p.script.timeout, p.timed = seconds, true
+
 	case "INCLUDE":
 		path, _, err := words(rest)
 		if err != nil || path == "" {
@@ -248,7 +279,10 @@ func (p *parser) order(word, rest string, at Place, source string, stack []strin
 			return fmt.Errorf("%s: WAIT: %w", at, err)
 		}
 
-		p.add(step{op: opWait, at: at, source: source, secs: secs})
+		// A WAIT always says how long, so there is nothing for a TIMEOUT to
+		// fill in: what it asks for is that much time to pass, and a default
+		// would be a guess at what somebody meant to write.
+		p.add(step{op: opWait, at: at, source: source, secs: secs, timed: true})
 
 	case "DEBUG":
 		return p.debug(rest, at, source)
@@ -295,7 +329,10 @@ func (p *parser) expect(rest string, at Place, source string) error {
 		return fmt.Errorf("%s: EXPECT: %w", at, err)
 	}
 
-	secs, asked := defaultSeconds, false
+	// Nothing is filled in here: an EXPECT that does not say waits whatever the
+	// script's TIMEOUT turns out to be, and that is not known until the whole
+	// of it has been read. See resolve.
+	secs, asked := 0, false
 
 	switch {
 	case tail != "":
@@ -324,7 +361,7 @@ func (p *parser) expect(rest string, at Place, source string) error {
 			"it is about what has been said already", at)
 	}
 
-	p.add(step{op: kind, at: at, source: source, text: text, secs: secs})
+	p.add(step{op: kind, at: at, source: source, text: text, secs: secs, timed: asked})
 
 	return nil
 }

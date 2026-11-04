@@ -129,6 +129,61 @@ func TestNoTimeWantedIsNoTimeoutGiven(t *testing.T) {
 	require.True(t, expired)
 }
 
+// The pirate, which is the bug this was found as.
+//
+// WHATO points the five flags that describe "the object this is about" at
+// whatever the sentence named. When the sentence named nothing it used to set
+// the number to 255 and leave the other four holding the last object's own,
+// which is not what the reference does: referencedObject builds the block out
+// of a null object of six zeros rather than leaving early — daad_objects.c:47,
+// nullObjFake at daad_init.c:14.
+//
+// The table that reads those flags is the Terrible Pirate of La Aventura
+// Original's second part. Every turn away from six named rooms it calls
+// PROCESS 20, which asks WHATO for the object in the sentence and then gives
+// up unless it is carried or here:
+//
+//	> _ _ NOTEQ 54 254
+//	      NOTSAME 54 38
+//	      DONE
+//
+// Type a bare direction and WHATO finds nothing. With flag 54 still holding
+// the 254 of whatever was last picked up, that guard passes, a one-in-five
+// CHANCE fires, and the pirate steals object 255 and announces it with message
+// 97 — "¡Te quito _ y me voy a mi entrelazada guarida!" — whose _ is the name
+// of an object that does not exist. What a player saw was the hole:
+//
+//	¡Te quito  y me voy a mi entrelazada guarida!
+func TestNoObjectIsSaidInEveryFlagAndNotJustTheNumber(t *testing.T) {
+	const room = 19
+
+	m := &Machine{watch: NoWatcher{}, objects: []object{
+		{noun: 10, location: LocCarried, weight: 5, container: true, wearable: true},
+	}}
+	m.setFlag(FlagPlayer, room)
+	m.setFlag(FlagAdject1, NoWord)
+
+	// Something the sentence does name, so there is a block to leave behind.
+	m.setFlag(FlagNoun1, 10)
+	m.whatO()
+
+	require.Equal(t, byte(0), m.Flag(FlagCurObj))
+	require.Equal(t, byte(LocCarried), m.Flag(FlagCurObjLoc))
+	require.Equal(t, byte(5), m.Flag(FlagCurObjWei))
+
+	// And then one it does not.
+	m.setFlag(FlagNoun1, 99)
+	m.whatO()
+
+	require.Equal(t, byte(NoWord), m.Flag(FlagCurObj), "the number says there is no object")
+
+	require.Zero(t, m.Flag(FlagCurObjLoc),
+		"and so must the location, or the pirate's guard reads the last object's 254")
+	require.Zero(t, m.Flag(FlagCurObjWei))
+	require.Zero(t, m.Flag(FlagCurObjCon))
+	require.Zero(t, m.Flag(FlagCurObjWR))
+}
+
 // neverAnswers is a player who says nothing, ever.
 type neverAnswers struct{}
 

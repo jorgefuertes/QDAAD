@@ -121,9 +121,11 @@ type step struct {
 	// INPUT's are typed and handed over together: one order is one command.
 	text string
 
-	// secs is the budget of the adventure's clock an EXPECT or a WAIT is
-	// allowed to spend.
-	secs int
+	// secs is how long an EXPECT or a WAIT waits, and timed says the author
+	// wrote the number rather than leaving it to the script's TIMEOUT. See
+	// resolve.
+	secs  int
+	timed bool
 
 	// typed is what a KEY adds to the keyboard buffer, and enter says it is
 	// the one that hands the line over instead. A KEY is the only way to put
@@ -161,6 +163,10 @@ type Script struct {
 	Seed    int64
 	HasSeed bool
 
+	// timeout is how long an EXPECT that does not say waits, which TIMEOUT
+	// sets and defaultSeconds decides when nothing does.
+	timeout int
+
 	steps []step
 
 	// tracing says the script turns the condact trace on and off itself, so a
@@ -168,6 +174,10 @@ type Script struct {
 	// told.
 	tracing bool
 }
+
+// newScript is an empty script with the waiting it would do if nothing said
+// otherwise.
+func newScript() *Script { return &Script{timeout: defaultSeconds} }
 
 // Steps is how many orders the script has, which is all anybody outside needs
 // to know about them.

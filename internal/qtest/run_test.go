@@ -180,6 +180,26 @@ END
 		"the adventure's clock never ran out, so it had nothing to say about time")
 }
 
+// And TIMEOUT is how a whole script says how patient it is.
+//
+// The waiting is real, so the number is a bill. A script being written and run
+// over and over wants it small; one about an adventure that takes its time
+// wants it large. Saying it once at the top beats saying it on every line.
+func TestATimeoutSetsWhatEveryExpectWaits(t *testing.T) {
+	said, err := play(t, ao(t), past+`
+TIMEOUT 1
+
+STEP "one second, because the script said so"
+  EXPECT "Estás en el bosque"
+  EXPECT "a dwarf walks in"
+END
+`)
+
+	require.Error(t, err)
+	require.Contains(t, said, "it did not say that in 1 second",
+		"the seconds are the script's, and the report says which they were")
+}
+
 // An EXPECT that cannot be met says which kind of cannot it is.
 //
 // With no TIME running there is nothing to wait for: the adventure is holding

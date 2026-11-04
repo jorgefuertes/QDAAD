@@ -162,6 +162,42 @@ func TestANounBelowTwentyBecomesTheVerb(t *testing.T) {
 	}
 }
 
+// What a pronoun will stand for, which outlives the sentence that said it.
+//
+// The number is the format's line between a proper noun and a thing: below
+// fifty a word is a direction or one of the machine's own and is not
+// remembered, at or above it it is something "it" can replace. See
+// docs/DAAD_v2_v3_Research/06-parser.md section 4.3.
+//
+// Nothing wrote these two flags at all, and the table that reads them is La
+// Aventura Original's Terrible Pirate: "COPYFF 46 34" then WHATO is its second
+// chance at a treasure when the sentence it was handed named something small.
+// With flag 46 stuck at zero that chance was never taken, so the pirate only
+// ever stole what the player had just named.
+func TestTheNounAPronounWillStandForOutlivesItsSentence(t *testing.T) {
+	const (
+		treasure = 106 // a thing, so it is remembered
+		north    = 2   // a direction, so it is not
+	)
+
+	m := &Machine{watch: NoWatcher{}, vocab: []ddbfile.VocabularyEntry{
+		{Word: "JOYA ", Value: treasure, Kind: ddbKindNoun},
+		{Word: "NORTE", Value: north, Kind: ddbKindNoun},
+	}}
+
+	require.True(t, m.words("JOYA"))
+	require.Equal(t, byte(treasure), m.flags[FlagCPNoun], "a thing is what a pronoun stands for")
+
+	// And then a direction, which is a noun too and goes in the noun flag like
+	// any other — see TestANounBelowTwentyBecomesTheVerb. The pronoun does not follow
+	// it there: a direction is not a thing "it" can stand for, so what the
+	// player was talking about survives the turn they spent walking.
+	require.True(t, m.words("NORTE"))
+	require.Equal(t, byte(north), m.flags[FlagNoun1], "the direction is in the sentence")
+	require.Equal(t, byte(treasure), m.flags[FlagCPNoun],
+		"and the jewel is still what a pronoun would stand for")
+}
+
 // vocabularyOf is a one-word vocabulary, padded to five characters the way the
 // database stores them so that the trimming is exercised too.
 func vocabularyOf(word string, value, kind byte) []ddbfile.VocabularyEntry {

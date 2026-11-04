@@ -14,7 +14,7 @@
 ;   qdaad compile -i examples/AO/ZXSpectrum/+3/part1/game.sce -m pc -s vga -f ddb -o tmp/AO1
 ;   qrun -i tmp/AO1.ddb -T examples/AO/test/part1.qtest
 
-TEST "La Aventura Original\nParte I - Español"
+TEST "La Aventura Original\nParte I      Español"
 
 ; The dice are fixed, so that the one CHANCE in the adventure cannot make this
 ; pass on Tuesday and fail on Wednesday.

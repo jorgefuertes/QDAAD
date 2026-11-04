@@ -109,13 +109,33 @@ func capWeight(weight int) int {
 // note records an object as the one most recently referred to, filling in the
 // flags that describe it. Every condact that touches an object ends this way.
 func (m *Machine) note(object int) {
-	m.setFlag(FlagCurObj, byte(object))
-
+	// No object is an answer too, and it is the whole answer. The C builds the
+	// block out of a null object of six zeros rather than leaving early —
+	// nullObjFake, daad_init.c:14, and referencedObject, daad_objects.c:47 —
+	// so the number says 255 and everything else says nothing at all.
+	//
+	// Leaving early instead leaves the last object's own numbers where the
+	// next table reads them, and the table that reads them is La Aventura
+	// Original's pirate. It asks WHATO for the object in the sentence, and a
+	// sentence without one — "N", or anything with no noun in it — leaves 255
+	// in flag 51 and falls through to the guard that is meant to stop it:
+	// "NOTEQ 54 254 / NOTSAME 54 38 / DONE", which gives up unless the object
+	// is carried or here. With flag 54 still holding the 254 of whatever was
+	// last picked up, the guard passes, the pirate steals object 255, and says
+	// so: "¡Te quito  y me voy a mi entrelazada guarida!", with a hole where
+	// the name should be.
 	if object < 0 || object >= len(m.objects) {
+		m.setFlag(FlagCurObj, NoWord)
+		m.setFlag(FlagCurObjLoc, 0)
+		m.setFlag(FlagCurObjWei, 0)
+		m.setFlag(FlagCurObjCon, 0)
+		m.setFlag(FlagCurObjWR, 0)
+
 		return
 	}
 
 	o := m.objects[object]
+	m.setFlag(FlagCurObj, byte(object))
 	m.setFlag(FlagCurObjLoc, o.location)
 	m.setFlag(FlagCurObjWei, o.weight)
 	m.setFlag(FlagCurObjCon, boolFlag(o.container))
@@ -245,12 +265,8 @@ func (m *Machine) whatO() {
 		}
 	}
 
-	if best < 0 {
-		m.setFlag(FlagCurObj, NoWord)
-
-		return
-	}
-
+	// Nothing found goes through note like everything else: saying so is five
+	// flags and not one.
 	m.note(best)
 }
 

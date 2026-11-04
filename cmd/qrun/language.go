@@ -95,6 +95,9 @@ THE ORDERS
    ASSERT OBJECT <n> AT <location>
    ASSERT ENDED                The adventure has to have ended by here.
    TRACE ON | TRACE OFF        Bounds --trace to the stretch that matters.
+   TIMEOUT <seconds>           How long an EXPECT that does not say waits.
+                               Once per script and about the whole of it,
+                               the lines above it included. 5 by default.
    SEED <n>                    Fixes the dice.
    TEST <name>                 Names the run, once, at the top.
    STEP <name> ... END         One step of the script.

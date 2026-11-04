@@ -80,6 +80,14 @@ text it wants is already in the buffer, because the machine said everything it
 had to say before it asked for an order. A green run is as fast as the
 interpreter.
 
+Five seconds is what an `EXPECT` waits when it does not say. `TIMEOUT` changes
+that for a whole script, once and wherever in the file it is written:
+
+```qtest
+TIMEOUT 1     ; impatient, for a script being written and run over and over
+TIMEOUT 60    ; for an adventure that takes its time
+```
+
 When the adventure has no clock running on the question — which includes the
 yes-or-no questions `QUIT` and `END` ask — there is nothing to wait for at all:
 it is holding out for an order and will say nothing more until it gets one. An
@@ -151,6 +159,7 @@ understand", and that answer in the transcript is how it shows.
 TEST    "the second part, entered"
 GAME    "../../../tmp/AO2.ddb"   ; optional; -i wins over it
 SEED    1989
+TIMEOUT 2                        ; what an EXPECT waits when it does not say
 
 INCLUDE "prologue.qtest"         ; the title screen and the access code
 
@@ -223,13 +232,14 @@ nonsense in ten places instead of the truth in one.
 | `ASSERT OBJECT <n> AT <location>` | For a location that is not one of those four. |
 | `ASSERT ENDED` | The adventure has to have ended by here. |
 | `TRACE ON` / `TRACE OFF` | Turns the condact trace on and off, so `--trace` covers the stretch that matters instead of the whole run. |
+| `TIMEOUT <seconds>` | How long an `EXPECT` that does not say waits. Once per script, and about the whole of it — the `EXPECT`s above the line as well as the ones below. **5** when nothing says. |
 | `SEED <n>` | Fixes the dice. |
 | `TEST <name>` | Names the run, once, at the top. |
 | `STEP <name>` … `END` | One step of the script. |
 | `INCLUDE <file>` | Another script, beside this one. |
 | `GAME <file>` | What to play, if the script wants to be runnable on its own. `-i` wins. |
 
-`SEED`, `TEST`, `GAME` and `INCLUDE` are not steps: they are read when the file
+`SEED`, `TIMEOUT`, `TEST`, `GAME` and `INCLUDE` are not steps: they are read when the file
 is, and `SEED` is applied before the adventure starts, because by the time the
 first step runs whatever `CHANCE` is in the opening has already been rolled.
 

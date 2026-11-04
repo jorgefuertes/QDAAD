@@ -12,32 +12,166 @@
 ;   qdaad compile -i examples/AO/ZXSpectrum/+3/part2/game.sce -m pc -s vga -f ddb -o tmp/AO2 --part 2
 ;   qrun -i tmp/AO2.ddb -T examples/AO/test/part2.qtest
 
-TEST "La Aventura Original, part two, entered"
+TEST "La Aventura Original\nParte II     Español"
 
 SEED 1989
+TIMEOUT 1
 
-INCLUDE "prologue.qtest"
-
-STEP "the first room of the second part"
-  EXPECT "Los rayos del sol"
+STEP "Clave de acceso"
+  EXPECT "¿Clave de acceso?"
+  INPUT "TIMACUS"
 END
 
-STEP "and what the first part handed over"
-  INPUT  i
+STEP "Arranque de la segunda parte"
+  EXPECT "Con un click la puerta se cierra mágicamente..."
+  KEY ENTER
+  EXPECT "Los rayos del sol iluminan la caverna"
+END
 
+STEP "Tenemos los objetos"
+  INPUT  i
+  EXPECT "linterna encendida"
+  EXPECT "Una moneda"
+  EXPECT "Una tortilla"
+  EXPECT "Una botella con agua"
   EXPECT "Una llave"
   EXPECT NOT "No tienes nada"
   ASSERT FLAG 1 > 0
 END
 
-STEP "what is put down leaves the hand, and the count with it"
+STEP "Dejar algo y cogerlo"
   INPUT  dejar moneda
   EXPECT "Has dejado la moneda"
 
   INPUT  i
   EXPECT NOT "moneda"
+
+  INPUT coger moneda
+  EXPECT "Has cogido la moneda"
+  INPUT  i
+  EXPECT "moneda"
 END
 
-STEP "and nothing in that reached a condact we have not written"
+STEP "Dejar y coger todo"
+  INPUT dejar todo
+  EXPECT "Has dejado la linterna encendida"
+  EXPECT "Has dejado la moneda"
+  EXPECT "Has dejado la tortilla"
+  EXPECT "Has dejado la botella con agua"
+  EXPECT "Has dejado la llave"
+
+  INPUT coger todo
+  EXPECT "Has cogido la linterna encendida"
+  EXPECT "Has cogido la moneda"
+  EXPECT "Has cogido la tortilla"
+  EXPECT "Has cogido la botella con agua"
+  EXPECT "Has cogido la llave"
+END
+
+STEP "Ir hacia el oeste y coger la jaula y la varita"
+  INPUT O
+  INPUT coger jaula
+  EXPECT "Has cogido la jaula"
+
+  INPUT O
+  INPUT coger varita
+  EXPECT "Has cogido la varita"
+END
+
+STEP "Cazar el pájaro"
+  INPUT O
+  INPUT dejar todo
+  INPUT coger jaula
+  INPUT coger pájaro
+  EXPECT "Tienes al pájaro enjaulado."
+
+  INPUT coger todo
+  INPUT i
+  EXPECT "Tienes"
+  EXPECT "Una linterna encendida"
+  EXPECT "Una moneda 23"
+  EXPECT "Una tortilla"
+  EXPECT "Una botella con agua"
+  EXPECT "Una llave"
+  EXPECT "Una varita mágica"
+  EXPECT "Una jaula con pájaro"
+END
+
+STEP "Ahuyentar a la serpiente"
+  INPUT O
+  INPUT BAJAR
+  INPUT BAJAR
+
+  INPUT soltar pájaro
+  EXPECT "¡El pájaro se escapa!"
+  EXPECT "Y al ver a la serpiente la ataca en los ojos y la hace huir."
+
+  INPUT dejar jaula
+  INPUT dejar botella
+  INPUT coger joya
+  EXPECT "Has dejado la jaula"
+  EXPECT "Has dejado la botella"
+  EXPECT "Has cogido la joya"
+END
+
+STEP "Conseguir pepita"
+  INPUT subir
+  INPUT leer nota
+  EXPECT "Aquí se perdió una pepita de oro."
+
+  INPUT soplar
+  INPUT mirar
+  INPUT coger pepita
+  EXPECT "Has cogido la pepita"
+END
+
+STEP "Recolectar tesoros"
+  INPUT subir
+  INPUT e
+  INPUT e
+  INPUT xyzzy
+  EXPECT "***RECOLECTOR DE TESOROS***"
+  INPUT dejar joya
+  INPUT m
+  EXPECT "Tesoro: la joya"
+  INPUT xyzzy
+END
+
+STEP "Coger diamante a través del puente"
+  INPUT O
+  INPUT O
+  INPUT BAJAR
+  INPUT O
+  INPUT usar varita
+  EXPECT "junto a un puente de cristal"
+  INPUT coger diamante
+  EXPECT "Has cogido el diamante"
+END
+
+STEP "Cargar pila y encender linterna"
+  INPUT O
+  INPUT N                     ; Laberinto
+  EXPECT "Estás en un laberinto"
+  INPUT N
+  INPUT S
+  INPUT E
+  INPUT O
+  INPUT BAJAR                 ; Sale de laberinto
+  EXPECT "máquina recarga-pilas"
+  INPUT meter moneda          ; En máquina de recargar pilas
+  EXPECT "Vale."
+  INPUT sacar pila            ; De linterna, nos quedamos a oscuras
+  EXPECT "No se vé nada."
+  INPUT poner pila en maquina ; Cargarla
+  EXPECT "Pilas recargadas"
+  INPUT coger pila            ; De la máquina
+  EXPECT "Has cogido la pila"
+  INPUT poner pila en linterna
+  EXPECT "Vale."
+  INPUT encender linterna     ; Se hizo la luz
+END
+
+STEP "No se alcanza un condacto no implementado"
   EXPECT NOT "not implemented"
 END
+
