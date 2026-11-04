@@ -19,13 +19,27 @@ It exits zero if every step held, and non-zero with the line that did not:
 ▶ the bottle, down the valley and back      OK
 ▶ the boots, east and south                FAIL
   examples/AO/test/part1.qtest:63:3 EXPECT "Has cogido la pareja de botas"
-  it did not say that in 10 seconds
-  what it had said and nothing had matched:
+  it did not say that in 5 seconds
+  what it said after INPUT COGER BOTAS:
     > ¡Aquí no hay de eso!
+
+    >
+  and before that, still unmatched:
+    > El cañón se abre en lo que fué antes una cascada.
+
+    >
 
 ▶ 2 steps passed
 ▶ 1 step failed
 ```
+
+The block that matters is the second one: what the adventure answered to the
+last order the script gave, with the order named above it. That is where the
+phrase for an `EXPECT` comes from when a script is being written — everything
+still unmatched is the leftovers of however many commands ago, which is the
+block below it and the one to read when a step failed because its `EXPECT`s are
+in the wrong order. Runs of blank lines are squeezed in both, because an
+adventure pads with newlines wherever its author felt like it.
 
 A caret announces each step as it opens, so a run that hangs has already said
 which step it was in, and the verdict lands at the end of that line when the
@@ -45,9 +59,10 @@ waits waits, the same as a player who sits still.
 Whoever runs out first decides.
 
 ```qtest
-EXPECT "El enano entra", 10   ; the adventure allows 47, so this gives up
-                              ; first: the step fails and the game has not
-                              ; moved an inch
+EXPECT "El enano entra"       ; five seconds, which is what it takes when
+                              ; nothing says otherwise. The adventure allows
+                              ; 47, so this gives up first: the step fails
+                              ; and the game has not moved an inch
 
 EXPECT "El enano entra", 60   ; now the adventure's own timeout fires while
                               ; the step is still waiting. The runtime runs
@@ -188,7 +203,7 @@ nonsense in ten places instead of the truth in one.
 
 | Order | What it does |
 |---|---|
-| `EXPECT <text>[, <seconds>]` | Wait for the text. Matched case-insensitively against what has been said and not matched yet; on a hit the buffer is eaten **up to the end of the match**, which is what makes the order things are said in part of the test. Any run of space in the text matches any run of space in what was said, because the machine's line breaks are wherever the database put them. The seconds are how long it is prepared to wait, really, and are **10** if not given — see the clock above. |
+| `EXPECT <text>[, <seconds>]` | Wait for the text. Matched case-insensitively against what has been said and not matched yet; on a hit the buffer is eaten **up to the end of the match**, which is what makes the order things are said in part of the test. Any run of space in the text matches any run of space in what was said, because the machine's line breaks are wherever the database put them. The seconds are how long it is prepared to wait, really, and are **5** if not given — see the clock above. |
 | `EXPECT NOT <text>` | Fails if the text is in what has not been matched. Eats nothing, and takes no seconds: it is about what has been said already. |
 | `INPUT <text>` | One command: types the text **and** presses return. Fails if there is nowhere to type, which is the game having ended. |
 | `KEY <key>` | `RETURN`/`ENTER`, `SPACE`, `ESC`, or one character. At a pause it is the keypress the adventure is waiting for, and which key it was does not matter — `ANYKEY` never asks. At a prompt it types its character and leaves it in the buffer, and `RETURN` is what hands the buffer over, which is how a yes-or-no question gets answered a letter at a time. |

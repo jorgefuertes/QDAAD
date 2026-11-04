@@ -57,7 +57,7 @@ is the proof that everything in it held:
    ▶ the title screen, and then the forest     OK
    ▶ the boots, east and south                FAIL
      part1.qtest:63:3 EXPECT "Has cogido la pareja de botas"
-     it did not say that in 10 seconds
+     it did not say that in 5 seconds
 
 A step that does not hold names the line it is written on, shows what the
 adventure really said instead, and stops the run. Every STEP needs its END,
@@ -71,7 +71,7 @@ THE ORDERS
                                what was said up to the end of the match, so
                                the order things are said in is tested too.
                                The seconds are how long it will wait, really;
-                               10 if omitted.
+                               5 if omitted.
    EXPECT NOT <text>           Fails if it has been said. Eats nothing.
    INPUT <text>                One command: types the text and presses
                                return.
@@ -105,7 +105,7 @@ THE ORDERS
 THE CLOCK
 
 The seconds are seconds: a step that waits waits, the same as a player sitting
-still. Whoever runs out first decides. An EXPECT given ten seconds against an
+still. Whoever runs out first decides. An EXPECT given five seconds against an
 adventure that allows forty-seven gives up first, so the step fails and the
 game has not moved; given sixty, the adventure's own timeout fires while the
 step is still waiting, the runtime runs its turn for its own reasons, and what

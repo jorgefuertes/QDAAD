@@ -284,8 +284,8 @@ held:
 ▶ the bottle, down the valley and back      OK
 ▶ the boots, east and south                FAIL
   examples/AO/test/part1.qtest:63:3 EXPECT "Has cogido la pareja de botas"
-  it did not say that in 10 seconds
-  what it had said and nothing had matched:
+  it did not say that in 5 seconds
+  what it said after INPUT COGER BOTAS:
     > ¡Aquí no hay de eso!
 
 ▶ 2 steps passed

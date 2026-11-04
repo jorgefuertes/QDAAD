@@ -21,13 +21,22 @@ import (
 // of a blank stretch reads as belonging to nothing.
 //
 // A failure is written where it happens, with the line it was written on, what
-// was wanted, and the last of what the adventure actually said — which is
-// nearly always the whole answer, because a walkthrough fails by being one
-// room behind rather than by being wrong about the room.
+// was wanted, and what the adventure said instead — in two parts, because the
+// two are read for different reasons. First the answer to the last order the
+// script gave, named, which is where the phrase for an EXPECT comes from when
+// somebody is writing one. Then everything else still unmatched, which is what
+// a step whose EXPECTs are in the wrong order looks like.
 
-// shown is how much of what the adventure said goes in a failure. Enough to
-// recognise where the game got to, not so much that the failure scrolls away.
-const shown = 12
+// How much of what the adventure said goes in a failure: enough to recognise
+// where the game got to, not so much that the failure scrolls away.
+//
+// The answer to the last order gets the most room, because it is the one
+// somebody writing a script is reading. What came before it is context and
+// gets less.
+const (
+	shown  = 12
+	before = 6
+)
 
 // badge is how wide OK and FAIL are drawn. The same width for both, because
 // they are read as one column and a column of two sizes is a column that
@@ -135,9 +144,26 @@ func (r *Report) Pass() {
 	r.verdict(okBadge.Render("OK"))
 }
 
-// Fail is a step that did not hold. said is what the adventure had said and no
-// EXPECT had matched.
-func (r *Report) Fail(at Place, source, why, said string) {
+// Heard is what the adventure had said when a step failed, which is most of
+// the answer to why it did.
+type Heard struct {
+	// Order is the last thing the script gave it, as the script wrote it, and
+	// After is what it said back.
+	//
+	// That is the pair somebody writing a script from scratch wants: not
+	// everything still unmatched, which is the leftovers of however many
+	// commands ago, but the answer to the command they just typed — the one
+	// holding the phrase to lift out and put in an EXPECT.
+	Order string
+	After string
+
+	// Unmatched is everything said that no EXPECT has matched, which is what a
+	// failure of order needs instead.
+	Unmatched string
+}
+
+// Fail is a step that did not hold.
+func (r *Report) Fail(at Place, source, why string, heard Heard) {
 	r.failed++
 
 	r.verdict(failBadge.Render("FAIL"))
@@ -145,12 +171,34 @@ func (r *Report) Fail(at Place, source, why, said string) {
 	r.sayf("  %s %s\n", console.PathStyle.Render(at.String()), source)
 	r.sayf("  %s\n", why)
 
-	if tail := lastLines(said, shown); tail != "" {
-		r.sayf("  %s\n", console.MutedStyle.Render("what it had said and nothing had matched:"))
+	if heard.Order != "" {
+		r.heard(fmt.Sprintf("what it said after %s:", heard.Order), heard.After, shown)
+	}
 
-		for line := range strings.SplitSeq(tail, "\n") {
-			r.sayf("    %s\n", console.MutedStyle.Render(line))
-		}
+	// The whole of what is unmatched only when it holds something the answer
+	// above does not, which is what an EXPECT in the wrong order looks like.
+	if older := strings.TrimSuffix(heard.Unmatched, heard.After); strings.TrimSpace(older) != "" {
+		r.heard("and before that, still unmatched:", older, before)
+	}
+}
+
+// heard prints a stretch of what the adventure said, with its runs of blank
+// lines squeezed.
+//
+// An adventure pads with newlines wherever its author felt like it, and twelve
+// lines of a failure spent on four of those is a failure that says nothing.
+// What goes in the transcript is never touched; this is the report deciding
+// how to show it.
+func (r *Report) heard(what, said string, most int) {
+	tail := lastLines(squeeze(said), most)
+	if tail == "" {
+		return
+	}
+
+	r.sayf("  %s\n", console.MutedStyle.Render(what))
+
+	for line := range strings.SplitSeq(tail, "\n") {
+		r.sayf("    %s\n", console.MutedStyle.Render(line))
 	}
 }
 
@@ -284,6 +332,33 @@ func steps(n int) string {
 	}
 
 	return fmt.Sprintf("%d steps", n)
+}
+
+// squeeze turns a run of blank lines into one.
+func squeeze(text string) string {
+	var out strings.Builder
+
+	blank := false
+
+	for line := range strings.SplitSeq(text, "\n") {
+		if strings.TrimSpace(line) == "" {
+			if blank {
+				continue
+			}
+
+			blank = true
+		} else {
+			blank = false
+		}
+
+		if out.Len() > 0 {
+			out.WriteByte('\n')
+		}
+
+		out.WriteString(strings.TrimRight(line, " \t"))
+	}
+
+	return out.String()
 }
 
 // lastLines keeps the end of a transcript, which is the part that says where

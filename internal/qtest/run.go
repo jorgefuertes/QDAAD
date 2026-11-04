@@ -118,6 +118,17 @@ type Runner struct {
 	// order things are said in part of the test.
 	said string
 
+	// order is the last thing the script gave the adventure, as it was
+	// written, and since is what the adventure said back. Nothing eats since:
+	// it is emptied when the next order goes in and that is all.
+	//
+	// It is the pair somebody writing a script from scratch is after. What
+	// they want is not everything still unmatched — which is the leftovers of
+	// however many commands ago — but the answer to the command they just
+	// typed, so they can lift the phrase out of it and put it in an EXPECT.
+	order string
+	since string
+
 	// stopped is a failure having happened. Nothing else runs after one: a
 	// walkthrough that is one answer behind answers every remaining step in
 	// the wrong room and reports nonsense in ten places instead of the truth
@@ -130,6 +141,7 @@ type Runner struct {
 // Print is the adventure speaking.
 func (r *Runner) Print(text string) {
 	r.said += text
+	r.since += text
 
 	if r.opts.Transcript != nil {
 		_, _ = io.WriteString(r.opts.Transcript, text)
@@ -339,6 +351,7 @@ func (r *Runner) pump(where moment, clock time.Duration) outcome {
 				r.line = r.typed.String()
 				r.typed.Reset()
 
+				r.gave(s)
 				r.next()
 
 				return outLine
@@ -349,6 +362,7 @@ func (r *Runner) pump(where moment, clock time.Duration) outcome {
 			case atKey:
 				// A pause takes whichever key comes next, exactly as a real
 				// keyboard does, and never asks which one it was.
+				r.gave(s)
 				r.next()
 
 				return outKey
@@ -369,12 +383,23 @@ func (r *Runner) pump(where moment, clock time.Duration) outcome {
 				r.line = r.typed.String()
 				r.typed.Reset()
 
+				r.gave(s)
 				r.next()
 
 				return outLine
 			}
 		}
 	}
+}
+
+// gave records that the script has just handed the adventure something, so
+// that whatever it says next is known to be the answer to it. See the order
+// and since fields.
+func (r *Runner) gave(s *step) {
+	// The source line with its padding squeezed: it is a label now, and the
+	// spaces that line an order up in a file are not part of what it says.
+	r.order = strings.Join(strings.Fields(s.source), " ")
+	r.since = ""
 }
 
 // next moves to the step after this one. The waiting belongs to the step that
@@ -417,7 +442,11 @@ func (r *Runner) hear(text string) bool {
 func (r *Runner) fail(s *step, why string) {
 	r.stopped = true
 
-	r.report.Fail(s.at, s.source, why, r.said)
+	r.report.Fail(s.at, s.source, why, Heard{
+		Order:     r.order,
+		After:     r.since,
+		Unmatched: r.said,
+	})
 }
 
 // nothingMore is why nothing else is going to be said, which is the difference

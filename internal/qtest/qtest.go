@@ -22,7 +22,7 @@
 // adventure does and it has to be testable, so the seconds in this language
 // are seconds, and a step that waits waits.
 //
-// Whoever runs out first decides. An EXPECT given ten seconds against an
+// Whoever runs out first decides. An EXPECT given five seconds against an
 // adventure that allows forty-seven gives up first: the step fails, and
 // because the adventure's own timeout never fired, the game is exactly where
 // it was. Given sixty it is the other way round: the timeout fires while the

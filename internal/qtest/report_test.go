@@ -52,7 +52,7 @@ func TestTheTwoVerdictsAreTheSameWidth(t *testing.T) {
 
 	failed := NewReport(&bad)
 	failed.Step("a step")
-	failed.Fail(Place{File: "t.qtest", Line: 1, Col: 1}, "EXPECT x", "it did not", "")
+	failed.Fail(Place{File: "t.qtest", Line: 1, Col: 1}, "EXPECT x", "it did not", Heard{})
 
 	first, _, _ := strings.Cut(bad.String(), "\n")
 
@@ -81,6 +81,43 @@ func TestWhatIsSaidInsideAStepBreaksItsLine(t *testing.T) {
 		"the name is already up there; what is left is the verdict")
 }
 
+// A failure says what the adventure answered to the last order given, and says
+// which order that was.
+//
+// It is the difference between a report you can write a script from and one
+// you cannot. Everything still unmatched is the leftovers of however many
+// commands ago — in a step of six orders it is six rooms described, two of them
+// nearly the same — and the phrase that belongs in the EXPECT is the answer to
+// the last one. That one gets its own block, with the order named above it.
+func TestAFailureShowsTheAnswerToTheLastOrder(t *testing.T) {
+	var out strings.Builder
+
+	after := "\n> Hay una reja con un candado abierto.\n\n\n> "
+	older := "> Hay una reja cerrada con un candado.\n\n\n> "
+
+	report := NewReport(&out)
+	report.Step("the padlock")
+	report.Fail(Place{File: "t.qtest", Line: 9, Col: 3}, `EXPECT "1"`, "it did not say that in 5 seconds",
+		Heard{Order: "INPUT ABRIR CANDADO", After: after, Unmatched: older + after})
+
+	said := out.String()
+
+	require.Contains(t, said, "what it said after INPUT ABRIR CANDADO:",
+		"the answer is no use without knowing what it is an answer to")
+	require.Contains(t, said, "candado abierto", "the phrase that belongs in the EXPECT")
+
+	require.Contains(t, said, "and before that, still unmatched:")
+	require.Contains(t, said, "candado abierto", "and what came before it is still there, below")
+}
+
+// And the blank lines an adventure pads with do not eat the room.
+func TestRunsOfBlankLinesAreSqueezed(t *testing.T) {
+	require.Equal(t, "one\n\ntwo", squeeze("one\n\n\n\ntwo"))
+	require.Equal(t, "one\n\ntwo", squeeze("one\n   \n\t\ntwo"), "a line of spaces is a blank line")
+	require.Equal(t, "one\ntwo", squeeze("one   \ntwo"), "and trailing spaces are not content")
+	require.Empty(t, squeeze(""))
+}
+
 // The summary is a line for what passed and, only when there is something to
 // say, a line for what did not.
 func TestTheSummarySaysWhatThereIsToSay(t *testing.T) {
@@ -104,7 +141,8 @@ func TestTheSummarySaysWhatThereIsToSay(t *testing.T) {
 		report.Step("a step")
 		report.Pass()
 		report.Step("another")
-		report.Fail(Place{File: "t.qtest", Line: 7, Col: 3}, "EXPECT x", "it did not", "what it said")
+		report.Fail(Place{File: "t.qtest", Line: 7, Col: 3}, "EXPECT x", "it did not",
+			Heard{Order: `INPUT mirar`, After: "what it said"})
 		report.Summary()
 
 		said := out.String()

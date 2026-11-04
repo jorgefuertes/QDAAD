@@ -152,7 +152,8 @@ STEP "Entrada en la caverna con el elfo"
   INPUT  COGER CANDADO
   EXPECT "desaparece de tus manos"
   INPUT  EMPUJAR REJA
-  EXPECT "la entrada a La Gran Caverna"
+  EXPECT "Tienes ante tí la entrada a La Gran Caverna."
+  EXPECT "Mi agradecimiento está sobre la mesa."
 END
 
 STEP "the tortilla the elf leaves, and into the cave"

@@ -23,12 +23,14 @@ import (
 // does it. A script that cannot be read is said to be wrong before the
 // adventure is started rather than halfway through it.
 
-// defaultSeconds is the clock an EXPECT gets when it does not ask for one.
+// defaultSeconds is how long an EXPECT waits when it does not say.
 //
-// Ten rather than none, because wanting to wait is the common case: an
+// Some rather than none, because wanting to wait is the common case: an
 // adventure with a TIME running says things on its own, and making every line
-// spell out a number would be noise over the one thing a test is about.
-const defaultSeconds = 10
+// spell out a number would be noise over the one thing a test is about. Five
+// rather than more, because the waiting is real and the seconds that get paid
+// for are a failing script's, which is the one being run over and over.
+const defaultSeconds = 5
 
 // includeDepth is how far INCLUDE may nest. A cycle is caught by name, so this
 // is only the belt to that braces.
