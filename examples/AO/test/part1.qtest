@@ -156,26 +156,30 @@ STEP "Entrada en la caverna con el elfo"
   EXPECT "Mi agradecimiento está sobre la mesa."
 END
 
-STEP "the tortilla the elf leaves, and into the cave"
+STEP "Ir a por la tortilla y entrar en la caverna."
   INPUT  N
   INPUT  N
   INPUT  E
+  EXPECT "Estás en la Zona de picnic."
+  EXPECT "Puedes ver Una tortilla"
+
   INPUT  COGER TORTILLA
   INPUT  O
-  INPUT  S
-  INPUT  S
-  INPUT  I
-  INPUT  ENTRAR CAVERNA
-
   EXPECT "Has cogido la tortilla"
-  ; The five the adventure's own note says to arrive with, and the five the
-  ; cave counts: EQ 1 5, exactly five objects in hand.
+
+  INPUT  S
+  INPUT  S
+  EXPECT "La Gran Caverna"
+
+  INPUT  I
   ASSERT FLAG 1 = 5
   EXPECT "linterna encendida"
   EXPECT "moneda"
   EXPECT "tortilla"
   EXPECT "botella con agua"
   EXPECT "llave"
+
+  INPUT  ENTRAR CAVERNA
   EXPECT "FELICIDADES"
   EXPECT "CLAVE DE ACCESO: TIMACUS"
 END
