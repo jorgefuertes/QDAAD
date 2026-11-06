@@ -90,7 +90,32 @@ func (m *Machine) words(line string) bool {
 		m.setFlag(FlagVerb, m.flags[FlagNoun1])
 	}
 
+	m.remember()
+
 	return found
+}
+
+// remember keeps this sentence's noun as the one a pronoun will stand for.
+//
+// Fifty is the line the format draws between a proper noun and one "it" can
+// replace: below it the word is a direction or a word of the machine's own and
+// is not worth remembering, at or above it it is a thing. See
+// docs/DAAD_v2_v3_Research/06-parser.md section 4.3, and the C at
+// daad_parser_sentences.c:233.
+//
+// It outlives the sentence on purpose. Every other sentence flag is cleared at
+// the top of words, and these two are not, because the whole point of them is
+// to still be there next turn when the player says "cógelo" — or when a table
+// asks what the player was last talking about. La Aventura Original's pirate
+// is the one that asks: "COPYFF 46 34" then WHATO, which is its second chance
+// at a treasure when the sentence it was given named something small.
+func (m *Machine) remember() {
+	const firstPronounable = 50
+
+	if noun := m.flags[FlagNoun1]; noun != NoWord && noun >= firstPronounable {
+		m.setFlag(FlagCPNoun, noun)
+		m.setFlag(FlagCPAdject, m.flags[FlagAdject1])
+	}
 }
 
 // splitQuoted takes the quoted phrase out of a line, giving back the rest and

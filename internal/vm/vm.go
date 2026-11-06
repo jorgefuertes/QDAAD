@@ -22,6 +22,7 @@ package vm
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
@@ -198,10 +199,9 @@ type Machine struct {
 	console Console
 	watch   Watcher
 
-	// done is the "something happened" that ISDONE asks about, and lastDone
-	// what it held when the process it belongs to started.
-	done     bool
-	lastDone bool
+	// done is the "something happened" that ISDONE asks about. Starting a
+	// process clears it; see push.
+	done bool
 	// continuing is false once a condition in the current entry has failed,
 	// which is how an entry gives up without ending the process.
 	continuing bool
@@ -239,6 +239,20 @@ type Machine struct {
 	// spanish is what the database was built for, which decides how an
 	// object's article is read out. See objectName.
 	spanish bool
+
+	// picture is the last one the adventure asked for, and pictured whether it
+	// ever asked. There is no screen here, but what it asked for is still worth
+	// knowing: it is the only way a test can tell that the right illustration
+	// goes with the right room. See the PICTURE condact.
+	picture  byte
+	pictured bool
+
+	// random is the dice, made on first use. It is the machine's own rather
+	// than the package-level one so that a run can be repeated: an adventure
+	// with a CHANCE in it gives a different game every time, and a test that
+	// cannot ask for the same game twice is a test that fails on its own
+	// schedule. See SetSeed and dice.
+	random *rand.Rand
 }
 
 // texts is the four tables, read once.
@@ -364,13 +378,16 @@ func (m *Machine) Run() error {
 func (m *Machine) reset() {
 	m.flags = [256]byte{}
 	m.stack = m.stack[:0]
-	m.done, m.lastDone, m.finished = false, false, false
+	m.done, m.finished = false, false
 
 	// A half-finished indirection belongs to the condact that was going to
 	// consume it, and that condact is not going to run now. inputs is left
 	// alone on purpose: it counts the player, not the game, and the loop's
-	// guard against restarting forever needs it to carry across.
+	// guard against restarting forever needs it to carry across. The dice are
+	// left alone too: a seed is asked for from outside and a RESTART is not a
+	// reason to go back on it.
 	m.indir.pending = false
+	m.picture, m.pictured = 0, false
 
 	// What the machine can do. A console has no graphics and no mouse, and
 	// saying so is better than leaving an adventure to find out.
@@ -379,6 +396,26 @@ func (m *Machine) reset() {
 
 func (m *Machine) push(process int) {
 	m.watch.Process(process, true)
+
+	// Starting a process forgets whatever was done before it, so that an
+	// ISDONE after a PROCESS answers about that process and nothing else.
+	//
+	// It is the whole use of the condact. The main loop of La Aventura
+	// Original asks "PROCESS 5 / ISDONE / REDO": if the response tables
+	// answered the player, go round for the next order, and if they did not,
+	// fall through to trying it as a movement and then to saying "No puedes
+	// hacerlo". With done left standing, the loop's own turn counter two
+	// entries earlier — "PLUS 31 1", an action like any other — made ISDONE
+	// true for ever, so the fall-through never happened and every order the
+	// tables had no answer for was met with silence.
+	//
+	// Four interpreters of the five clear it here: PCDAAD at condacts.pas:1375
+	// and msx2daad at the foot of pushPROC, daad_condacts.c:126, with jDAAD
+	// and ZXDAAD128 beside them. NextDAAD is the odd one and is odd on
+	// purpose. Popping leaves it alone in all of them, which is what carries
+	// the subprocess's answer back out. See
+	// docs/DAAD_v2_v3_Research/05-flujo-ejecucion.md section 3.
+	m.done = false
 
 	// Entry -1 and not 0: the first thing the process does is step forward to
 	// an entry that matches, and it has to be able to land on entry zero.
@@ -410,6 +447,26 @@ func (m *Machine) holds(f *frame) bool {
 	return len(m.stack) > 0 && m.top() == f
 }
 
+// dice is the machine's randomness, made on first use.
+//
+// Lazily rather than in New, because half the tests in this package build a
+// Machine by hand with the two or three fields they are about — which is the
+// right way to test a condact — and a nil generator would turn the first
+// CHANCE any of them reached into a crash a long way from its cause.
+func (m *Machine) dice() *rand.Rand {
+	if m.random == nil {
+		m.random = newDice(time.Now().UnixNano())
+	}
+
+	return m.random
+}
+
+// newDice is where a generator comes from, in one place so that the seeded and
+// the unseeded kind cannot drift apart. See SetSeed.
+//
+//nolint:gosec // a game's dice, not cryptography
+func newDice(seed int64) *rand.Rand { return rand.New(rand.NewSource(seed)) }
+
 // setFlag is the only way a flag changes, so that a watcher sees every one.
 func (m *Machine) setFlag(number int, value byte) {
 	was := m.flags[number&0xFF]
@@ -421,9 +478,36 @@ func (m *Machine) setFlag(number int, value byte) {
 }
 
 // move is the only way an object changes place, for the same reason.
+//
+// Being sent "here" is resolved to the room the player is in, which is what
+// makes it a place at all. 255 is not somewhere an object can be: it is the
+// word for wherever the player is standing, and what gets left on that floor
+// holds the room's own number — which is what at says, in so many words, two
+// functions down. CREATE is the same movement with the flag written out, and
+// PLACE with a 255 is the same thing said shorter.
+//
+// Resolving it here rather than in each condact is what closes it: PLACE, PUTO
+// and SWAP are the three that can carry a 255 in from an operand and all three
+// come through here. And it holds itself up — nothing stores a 255, so nothing
+// can read one back.
+//
+// Both references store the 255 as it comes. msx2daad does
+// (_internal_placeObject, daad_condacts.c:879) and NextDAAD calls it runtime
+// error 2 outright, "object sent to location 255". Either way the object lands
+// in a room that does not exist, where listObjects will not name it and get
+// will not pick it up. The interpreter of 1989 cannot have done that: the
+// second part of La Aventura Original leaves the dwarf's axe with "PLACE 14
+// 255" so that the player can throw it back at him, and if that never worked
+// the whole of its CARRIED 14 branch — a fifty-fifty, a latch and a count of
+// dead dwarves — was dead code the day it shipped. Three adventures of the
+// five use the idiom, thirteen times between them.
 func (m *Machine) move(object int, to byte) {
 	if object < 0 || object >= len(m.objects) {
 		return
+	}
+
+	if to == LocHere {
+		to = m.flags[FlagPlayer]
 	}
 
 	from := m.objects[object].location

@@ -1,4 +1,4 @@
-.PHONY: dist build test doc packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker example-ao example-ao-48 example-ao-p3
+.PHONY: dist build test qtest doc packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker example-ao example-ao-48 example-ao-p3
 
 VERSION=$$(git describe --tags --abbrev=0)
 
@@ -141,3 +141,19 @@ example-ao-p3:
 	done
 
 example-ao: example-ao-48 example-ao-p3
+
+# Plays the walkthroughs in examples/AO/test, which is the first part of La
+# Aventura Original won and the second part entered, in the test language qrun
+# reads. The databases are built here rather than taken from anywhere: a
+# prebuilt one left lying about goes on passing against a week-old build.
+#
+# The suite plays these too — internal/qtest, TestTheExampleScriptsPlay — so
+# this target is for watching it happen, and for running one script on its own.
+qtest:
+	@mkdir -p tmp
+	@for part in 1 2; do \
+		go run cmd/qdaad/qdaad.go compile -i "$(AO_EX)/+3/part$$part/game.sce" \
+			-o tmp/qtest-part$$part -f ddb -m pc -s vga -v 3 --part $$part; \
+		go run ./cmd/qrun -i tmp/qtest-part$$part.ddb \
+			-T examples/AO/test/part$$part.qtest; \
+	done

@@ -2,9 +2,10 @@ package vm
 
 import (
 	"fmt"
-	"math/rand"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 )
@@ -130,7 +131,7 @@ var condacts = map[byte]func(*Machine, []byte){
 	7:   func(m *Machine, a []byte) { m.need(!m.at(int(a[0]), LocWorn)) },      // NOTWORN
 	8:   func(m *Machine, a []byte) { m.need(m.at(int(a[0]), LocCarried)) },    // CARRIED
 	9:   func(m *Machine, a []byte) { m.need(!m.at(int(a[0]), LocCarried)) },   // NOTCARR
-	10:  func(m *Machine, a []byte) { m.need(rand.Intn(100) < int(a[0])) },     //nolint:gosec // CHANCE
+	10:  func(m *Machine, a []byte) { m.need(m.dice().Intn(100) < int(a[0])) }, // CHANCE
 	11:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] == 0) },             // ZERO
 	12:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] != 0) },             // NOTZERO
 	13:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] == a[1]) },          // EQ
@@ -159,7 +160,7 @@ var condacts = map[byte]func(*Machine, []byte){
 	51:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), a[1]); m.did() },                                // LET
 	71:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), plus(m.flags[a[1]], m.flags[a[0]])); m.did() },  // ADD
 	72:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), minus(m.flags[a[1]], m.flags[a[0]])); m.did() }, // SUB
-	95:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), byte(rand.Intn(100)+1)); m.did() },              //nolint:gosec // RANDOM
+	95:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), byte(m.dice().Intn(100)+1)); m.did() },          // RANDOM
 	125: func(m *Machine, a []byte) { m.setFlag(int(a[1]), m.flags[a[0]]); m.did() },                       // COPYFF
 	126: func(m *Machine, a []byte) { m.setFlag(int(a[1]), 255-m.flags[a[0]]); m.did() },                   // COPYBF
 
@@ -318,7 +319,21 @@ var condacts = map[byte]func(*Machine, []byte){
 		m.setFlag(FlagTime, a[0])
 		m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]&^optionMask|a[1]&optionMask)
 	},
-	84:  nothing, // PICTURE
+	// PICTURE: there is no screen, so nothing is drawn — but which illustration
+	// the adventure asked for is remembered, because it is the one thing about
+	// a picture that can be wrong without the text showing it. See Picture.
+	//
+	// It does not fail the entry, and that is a decision rather than an
+	// omission. The C ends on "checkEntry = gfxPicturePrepare(pic)" —
+	// _internal_picture, daad_condacts.c:2609 — so there a picture that is not
+	// in the file stops the entry where it stands. Here there is no file to
+	// look in, so every picture is taken to exist: a database whose
+	// illustrations have not been packed yet would otherwise play differently
+	// from the same database once they are, and the one thing this is for is
+	// playing the adventure rather than the build.
+	84: func(m *Machine, a []byte) {
+		m.picture, m.pictured = a[0], true
+	},
 	86:  nothing, // MOUSE
 	87:  nothing, // GFX
 	78:  nothing, // WINDOW
@@ -476,20 +491,83 @@ func (m *Machine) fill(text string) string {
 // expand turns the escapes a source writes into what a console should show.
 //
 // The text arrives already decoded by internal/charset, so what is left is the
-// handful that mean something to a screen rather than to a character set. Two
-// of those mean nothing here at all: #g and #t switch to the graphics half of
-// a character set and back, which is how an adventure of 1989 drew its titles
-// and its little pictures beside an object's name. A console has one set of
-// letters, so the markers come out and what is between them stays.
+// handful that mean something to a screen rather than to a character set.
+//
+// #g and #t are the interesting pair: they switch to the graphics half of a
+// character set and back, and an adventure of 1989 used that half for two
+// quite different things.
+//
+// One is a display face for titles — "#gAVENTURA ORIGINAL I#t", and the access
+// code the first part of La Aventura Original prints as "#gTIMACUS#t". Those
+// glyphs are the letters, drawn larger, and what they say is what they spell.
+//
+// The other is a drawing: "Una llave#g#f,-#t" is the key followed by two cells
+// of a picture of one, where the comma and the hyphen are not punctuation at
+// all. Those come out named — [UDG:44][UDG:45] — because there is no character
+// set here and nothing to draw with. Dropping them would hide that the
+// adventure drew something; letting them through puts punctuation in the
+// middle of a sentence where the author put a picture, and nothing in a
+// transcript then tells a reader which is which.
+//
+// What tells the two apart is the case, and that is measured rather than
+// supposed. Of the 84 distinct graphics runs in the five Aventuras AD
+// adventures, across every edition, 56 are words in capitals and the other 28
+// are one or two characters of lower case, digits or punctuation — "ab cd ef
+// gh ij kl m no pq rs ut vw x yz" and "01 23 45 67 89", a sheet of sprites in
+// pairs of consecutive slots. The display face is a capitals-only font, so the
+// slots a capital never needs were free for the little pictures.
+//
+// The number is the character's code point, which for every one of these is
+// the byte the database holds, so it is the slot to look up in the .chr.
 func expand(text string) string {
-	return strings.NewReplacer(
-		"#n", "\n",
-		"#r", "\n",
-		"#f", " ", // the forced space, which is a space anywhere with no font
-		"#s", " ",
-		"#g", "",
-		"#t", "",
-	).Replace(text)
+	if !strings.ContainsRune(text, '#') {
+		return text
+	}
+
+	var out strings.Builder
+
+	graphics := false
+
+	for at := 0; at < len(text); {
+		if text[at] == '#' && at+1 < len(text) {
+			switch text[at+1] {
+			case 'n', 'r':
+				out.WriteByte('\n')
+			case 'f', 's':
+				// The forced space, which is a space anywhere with no font.
+				out.WriteByte(' ')
+			case 'g':
+				graphics = true
+			case 't':
+				graphics = false
+			default:
+				// Anything else is not an escape this knows, and it is left
+				// exactly as it was found.
+				out.WriteByte('#')
+
+				at++
+
+				continue
+			}
+
+			at += 2
+
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(text[at:])
+		at += size
+
+		if graphics && !unicode.IsUpper(r) && r != ' ' {
+			fmt.Fprintf(&out, "[UDG:%d]", r)
+
+			continue
+		}
+
+		out.WriteRune(r)
+	}
+
+	return out.String()
 }
 
 // end is END: ask whether to play again, and either start over or stop.

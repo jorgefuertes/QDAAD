@@ -24,7 +24,7 @@ far as anybody has got. See [its README](examples/AO/README.md).
 ## What is checked, and against what
 
 Three of these compare our output with the reference tooling's, byte for byte.
-The reference is DAAD Reborn by Uto, which had nothing to do with writing this.
+The reference is DAAD Reborn by Uto — see [Thanks](#thanks).
 
 | `make` | | |
 |---|---|---|
@@ -224,7 +224,7 @@ moved and not of their defaults.
 
 ```sh
 go build -o dist/qrun ./cmd/qrun
-qrun GAME.qrun
+qrun -i GAME.qrun
 ```
 
 It runs a version 3 database here, on the terminal, which is how a change to
@@ -233,6 +233,98 @@ there are no pictures and no character set, so what it is good for is the
 parser, the flags and the process tables. `TIME` and its timeout work, because
 a question with a clock on it is a thing adventures do and a thing that is
 tedious to test by hand.
+
+### Testing a whole adventure: `.qtest`
+
+A walkthrough is not code. It is a list of what to type and what should come
+back, written while playing, so it lives in a file rather than in a Go test:
+
+```sh
+qrun -i tmp/AO1.ddb -T examples/AO/test/part1.qtest
+```
+
+```qtest
+TEST "the forest, and the bottle"
+SEED 1989
+
+STEP "the title screen, and then the forest"
+  EXPECT  "?"                 ; it asks for a key before showing anything
+  KEY     SPACE
+  EXPECT  "AVENTURA ORIGINAL" ; the credits, and it asks again
+  KEY     SPACE
+  EXPECT  "LA RESPUESTA DEPENDE DE TU VALOR"
+  KEY     SPACE
+  EXPECT  "Estás en el bosque"
+  ASSERT  AT = 3
+END
+
+STEP "the bottle, four rooms down the valley"
+  INPUT   S
+  INPUT   COGER BOTELLA
+  EXPECT  "Has cogido la botella"
+  EXPECT  NOT "Aquí no hay de eso"
+  ASSERT  CARRIED 4
+END
+
+STEP "the time passes, and does not come back"
+  WAIT    50              ; fifty seconds of saying nothing, for real
+  EXPECT  "El tiempo pasa"
+END
+```
+
+A caret announces each step as it opens and the verdict lands at the end of
+that line when its `END` is reached, which is the proof that every order in it
+held:
+
+```text
+╭─────────────────────────────────────╮
+│ La Aventura Original, part one, won │
+╰─────────────────────────────────────╯
+▶ the title screen, and then the forest     OK
+▶ the bottle, down the valley and back      OK
+▶ the boots, east and south                FAIL
+  examples/AO/test/part1.qtest:63:3 EXPECT "Has cogido la pareja de botas"
+  it did not say that in 5 seconds
+  what it said after INPUT COGER BOTAS:
+    > ¡Aquí no hay de eso!
+
+▶ 2 steps passed
+▶ 1 step failed
+```
+
+A step that does not hold stops the run and `qrun` exits non-zero. One order is
+one command — `INPUT` types its words and presses return — and `KEY` is the one
+that types without sending, for the single place that wants it: a yes-or-no
+question answered with one letter. The whole language is `EXPECT`,
+`EXPECT NOT`, `KEY`, `INPUT`, `WAIT`, `DEBUG`, `ASSERT`, `BREAKPOINT`,
+`TRACE`, `TIMEOUT`, `SEED`, `INCLUDE` and `GAME` — `qrun --help` has the
+reference, and the language's own document the whole of it:
+**[docs/qtest.md](docs/qtest.md)**, or [en español](docs/qtest_ES.md).
+
+`BREAKPOINT` is the one that makes writing a walkthrough bearable: it hands the
+adventure to whoever is at the terminal, in the middle of a script, with the
+game in exactly the state the script got it into. `CONTINUE TEST` gives it
+back, and the script carries on at the order after the breakpoint.
+
+Nothing in it changes what the adventure does, and the pauses are where that
+shows: the adventure asked for a key, so the script presses one. Deciding that
+a pause does not count would be the harness changing the game, and how many
+pauses there are is part of what a test of it is for.
+
+The seconds in it are seconds, and a step that waits waits. That is how "El
+tiempo pasa... ¡Y no vuelve!" and the dwarf walking into the room become
+testable: the script says nothing for long enough that the adventure's own
+`TIME` runs out, and the runtime runs that turn for its own reasons. Reporting
+a timeout that had not happened would cost nothing and would make the adventure
+run a turn it never would have — observing the run by altering it. A failing
+`EXPECT` pays its seconds; a passing one costs nothing, because what it is
+looking for was said before the adventure asked for an order.
+
+`examples/AO/test` is the first part of La Aventura Original won — 84 commands,
+a conversation, a four-stage puzzle chain and the access code it prints at the
+end — and the second part entered. `make qtest` builds the databases and plays
+them; the suite plays them too, against the same walkthrough the Go tests use,
+so if the two ever disagree one of them is lying.
 
 ## What it has been tested with
 
@@ -326,3 +418,25 @@ and Commodore `.T64` formats.
 
 Nothing is left of the pictures on the machines whose databases read. Every
 illustration of every edition that can be reached comes out.
+
+## Thanks
+
+**Uto**, for DAAD Reborn and for the years of reverse engineering that came
+before it. Most of what is written down about this format is written down
+because he worked it out first, and he has gone on answering questions and
+sharing what he knows while this was being built — information and judgement
+both, which is the harder half to give.
+
+The three comparison harnesses hold our output against DAAD Reborn's byte for
+byte, and that comparison is worth something precisely because the two
+implementations are separate: the code here was written from the format and
+from the databases rather than from his. The understanding of the format is
+another matter, and a good deal of it is his.
+
+**Natalia Pujol**, for msx2daad, which is DAAD written in C and is what the
+interpreter in `internal/vm` follows condact by condact.
+
+**Aventuras AD** — Andrés Samudio, Carlos Marqués, Manuel González and the
+people who worked with them — for the five adventures this is all in aid of,
+and for a format careful enough that it can still be read thirty-seven years
+later.
