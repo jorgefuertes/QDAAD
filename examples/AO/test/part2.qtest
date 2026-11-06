@@ -89,7 +89,7 @@ STEP "Cazar el pájaro"
   INPUT i
   EXPECT "Tienes"
   EXPECT "Una linterna encendida"
-  EXPECT "Una moneda 23"
+  EXPECT "Una moneda"                     ; el dibujito es [UDG:50][UDG:51], y no es lo que se prueba aquí
   EXPECT "Una tortilla"
   EXPECT "Una botella con agua"
   EXPECT "Una llave"
@@ -132,7 +132,9 @@ STEP "Recolectar tesoros"
   INPUT xyzzy
   EXPECT "***RECOLECTOR DE TESOROS***"
   INPUT dejar joya
+  INPUT dejar pepita
   INPUT m
+  EXPECT "Tesoro: la pepita de oro"
   EXPECT "Tesoro: la joya"
   INPUT xyzzy
 END
@@ -145,33 +147,443 @@ STEP "Coger diamante a través del puente"
   INPUT usar varita
   EXPECT "junto a un puente de cristal"
   INPUT coger diamante
-  EXPECT "Has cogido el diamante"
+  EXPECT "Aparece el Terrible Pirata. ¡Te quito el diamante"
+  KEY ENTER
+  EXPECT "Con un gran insulto vuelve a las tinieblas."
 END
 
 STEP "Cargar pila y encender linterna"
   INPUT O
-  INPUT N                     ; Laberinto
+  INPUT N                        ; Laberinto
   EXPECT "Estás en un laberinto"
   INPUT N
   INPUT S
   INPUT E
   INPUT O
-  INPUT BAJAR                 ; Sale de laberinto
+  INPUT BAJAR                    ; Sale de laberinto
   EXPECT "máquina recarga-pilas"
-  INPUT meter moneda          ; En máquina de recargar pilas
+  INPUT meter moneda             ; En máquina de recargar pilas
   EXPECT "Vale."
-  INPUT sacar pila            ; De linterna, nos quedamos a oscuras
+  INPUT sacar pila               ; De linterna, nos quedamos a oscuras
   EXPECT "No se vé nada."
-  INPUT poner pila en maquina ; Cargarla
+  INPUT poner pila en maquina    ; Cargarla
   EXPECT "Pilas recargadas"
-  INPUT coger pila            ; De la máquina
+  INPUT coger pila               ; De la máquina
   EXPECT "Has cogido la pila"
   INPUT poner pila en linterna
   EXPECT "Vale."
-  INPUT encender linterna     ; Se hizo la luz
+  INPUT encender linterna        ; Se hizo la luz
+END
+
+STEP "Recolectar diamante"
+  INPUT ARRIBA 
+  INPUT S
+  INPUT E
+  INPUT N
+  INPUT ABAJO
+  INPUT S
+  INPUT S
+  INPUT ARRIBA
+  INPUT SO
+  INPUT O
+  INPUT BAJAR
+  INPUT NE
+  EXPECT "Estás en la guarida del pirata."
+
+  INPUT coger todo
+  EXPECT "Has cogido el diamante"
+  EXPECT "Has cogido el garfio de oro"
+
+  INPUT E
+  INPUT ABAJO
+  INPUT E
+  INPUT XYZZY
+  EXPECT "***RECOLECTOR DE TESOROS***"
+
+  INPUT dejar diamante
+  EXPECT "Has dejado el diamante"
+
+  INPUT dejar garfio
+  EXPECT "Has dejado el garfio de oro"
+
+  INPUT XYZZY
+END
+
+STEP "Ahuyentar al dragón"
+  INPUT O
+  INPUT O
+  INPUT BAJAR
+  INPUT BAJAR
+  INPUT coger botella
+  INPUT SUBIR
+  INPUT O
+  INPUT O
+  INPUT S
+  INPUT SUBIR
+  INPUT NE
+  KEY ENTER
+  INPUT atacar
+  EXPECT "El cobardica vuelve llorando a su casa en el Hobbit."
+  INPUT mirar
+  INPUT coger alfombra
+  EXPECT "Has cogido la alfombra"
+END
+
+STEP "Conseguir jarrón, esmeralda y titanio"
+  INPUT N
+  INPUT BAJAR
+
+  INPUT coger jarrón
+  EXPECT "Has cogido el jarrón"
+
+  INPUT NE
+
+  INPUT dejar botella
+  EXPECT "Has dejado la botella"
+
+  INPUT coger esmeralda
+  EXPECT "Has cogido la esmeralda"
+
+  INPUT SO
+  INPUT SUBIR
+  INPUT S
+  INPUT E
+  INPUT NE
+  INPUT N
+
+  INPUT dejar tortilla
+  EXPECT "Has dejado la tortilla"
+
+  INPUT coger barra
+  EXPECT "Has cogido la barra de titanio"
+END
+
+STEP "Al recolector"
+  INPUT N ; Sala acústica con grabado
+  INPUT leer grabado
+  EXPECT "OID"
+
+  INPUT escuchar
+  EXPECT "RECOLECTOR"
+
+  INPUT recolector
+  EXPECT "***RECOLECTOR DE TESOROS***"
+
+  INPUT dejar barra
+  EXPECT "Has dejado la barra"
+  INPUT dejar alfombra
+  EXPECT "Has dejado la alfombra"
+  INPUT dejar esmeralda
+  EXPECT "Has dejado la esmeralda"
+  
+  INPUT recolector
+END
+
+STEP "Cultivar semillas y trepar tronco"
+  INPUT S
+  INPUT coger tortilla
+  EXPECT "Has cogido la tortilla"
+  INPUT S
+  INPUT SO
+  INPUT O
+  INPUT N
+  INPUT BAJAR
+  INPUT NE
+  INPUT COGER BOTELLA ; Maluva activo
+  EXPECT "Has cogido la botella"
+  INPUT SO
+  INPUT SE
+  INPUT O
+  INPUT O
+  INPUT BAJAR
+  INPUT dejar tortilla
+  EXPECT "Has dejado la tortilla"
+  INPUT dejar llave
+  EXPECT "Has dejado la llave"
+  INPUT dejar varita
+  EXPECT "Has dejado la varita"
+  INPUT vaciar botella                  ; Regar
+  EXPECT "Nace una plantita de Judías."
+  INPUT SUBIR
+  INPUT E
+  INPUT E
+  INPUT NO
+  INPUT SUBIR
+  INPUT N
+  INPUT llenar botella                  ; Agua
+  INPUT S
+  INPUT BAJAR
+  INPUT SE
+  INPUT O
+  INPUT O
+  INPUT BAJAR
+  INPUT vaciar botella                  ; Agua
+  INPUT SUBIR
+  INPUT E
+  INPUT BAJAR
+  INPUT llenar botella                  ; Aceite
+  INPUT SUBIR                           ; Este de la Habitación Dos Fosos
+  EXPECT "¡El enano Maluva sale de entre las sombras!"
+  KEY ENTER
+  KEY ENTER
+  KEY ENTER
+  KEY ENTER
+  EXPECT "Puedes ver Un hacha"
+  INPUT  coger hacha
+  EXPECT "Has cogido el hacha"
+  INPUT O
+  INPUT BAJAR
+  INPUT trepar tronco
+END
+
+STEP "Huevo de oro"
+  EXPECT "Puedes ver Un huevo de oro"
+  INPUT FEE FIE FOE FOU
+  EXPECT "El huevo vibra"
+
+  INPUT coger huevo
+  EXPECT "Has cogido el huevo de oro"
+
+  INPUT vaciar botella ; Engrasa la puerta
+  EXPECT "Hay una puerta bien aceitada."
+
+  INPUT abrir puerta
+  EXPECT "La puerta está abierta."
+END
+
+STEP "Tridente"
+  INPUT ENTRAR
+
+  INPUT dejar botella
+  EXPECT "Has dejado la botella"
+
+  INPUT coger tridente
+  EXPECT "Has cogido el tridente"
+END
+
+STEP "Perla"
+  INPUT BAJAR
+  INPUT S
+  INPUT SE
+  INPUT N
+  INPUT abrir almeja ; Dentro hay una Perla que cae rodando dos pantallas más abajo
+  INPUT BAJAR
+  INPUT BAJAR
+  INPUT coger perla
+  EXPECT "Has cogido la gran perla"
+END
+
+STEP "Almohada"
+  INPUT SUBIR
+  INPUT SUBIR
+  INPUT S
+
+  EXPECT "¡El enano Maluva sale de entre las sombras!"
+  KEY ENTER
+  KEY ENTER
+  INPUT lanzar hacha
+  EXPECT "Has fallado"
+  INPUT coger hacha
+  EXPECT "Has cogido el hacha"
+  INPUT lanzar hacha
+  EXPECT "¡Le has cortado la cabeza! ¡Maluva y su hacha se desintegra!"
+
+  INPUT E
+  INPUT coger almohada
+  EXPECT "Has cogido la almohada"
+END
+
+STEP "Recolectar tesoros"
+  INPUT O
+  INPUT S
+  INPUT N
+  INPUT E
+  INPUT E
+  INPUT BAJAR
+  INPUT E
+  INPUT XYZZY
+  INPUT dejar tridente
+  EXPECT "Has dejado el tridente"
+  INPUT dejar perla
+  EXPECT "Has dejado la gran perla"
+  INPUT dejar almohada
+  EXPECT "Has dejado la almohada"
+  INPUT dejar jarron sobre almohada
+  EXPECT "Has dejado el jarrón"
+  INPUT XYZZY
+END
+
+; La botella se quedó en la Gran Cascada, la 90, al entrar por la puerta
+; aceitada. No hay conexión que lleve allí: se entra con ENTRAR desde la sala
+; del gigante, la 78, y a la 78 sólo se sube por el brote desde la 64. Así que
+; el camino de vuelta es bajar hasta el Pozo Oeste y repetir la subida.
+STEP "Volver a por la botella"
+  INPUT O
+  INPUT O
+  INPUT BAJAR
+  INPUT BAJAR                           ; Cámara de los Reyes Elfos
+  INPUT SO                              ; la habitación secreta
+  INPUT BAJAR
+  INPUT BAJAR                           ; fondo del Pozo Oeste
+
+  INPUT trepar tronco
+  EXPECT "El hacha y el escudo del gigante"
+
+  INPUT ENTRAR
+  EXPECT "la espumosa Gran Cascada"
+
+  EXPECT "Puedes ver Una botella"
+  INPUT coger botella
+  EXPECT "Has cogido la botella"
+  ASSERT CARRIED 4
+END
+
+STEP "Bajar al lado Oeste de la Habitación Dos Fosos"
+  INPUT ABAJO                           ; cornisa de 10 mts.
+  INPUT S                               ; habitación oliental
+  INPUT SE                              ; el Queso Suizo
+  INPUT O                               ; Este de la Habitación Dos Fosos
+  INPUT O
+  INPUT BAJAR                           ; El fondo del Pozo Oeste
+
+  INPUT dejar botella
+  EXPECT "Has dejado la botella"
+
+  INPUT "coger tortilla"
+  EXPECT "Has cogido la tortilla"
+  
+  INPUT coger llave
+  EXPECT "Has cogido la llave"
+  INPUT coger varita
+  EXPECT "Has cogido la varita"
+  INPUT coger especias
+  EXPECT "Has cogido Unas especias indias"
+END
+
+STEP "Dar huevo al troll"
+  INPUT trepar tronco
+  INPUT ENTRAR
+  INPUT BAJAR
+  INPUT N
+  EXPECT "un tesoro para pasar"
+  
+  INPUT dar huevo al troll
+  EXPECT "Cojo el huevo de oro"
+END
+
+STEP "Liberar oso"
+  INPUT N
+  INPUT E
+  INPUT BAJAR
+  INPUT abrir jaula
+  INPUT ENTRAR
+  EXPECT "Un enorme oso"
+  INPUT dar tortilla
+  EXPECT "Tienes un fiel amigo"
+  INPUT desencadenar oso
+  EXPECT "Lo liberas de la pared"
+END
+
+STEP "Ahuyentar troll"
+  INPUT SALIR
+  INPUT SUBIR
+  INPUT O
+  INPUT soltar oso
+  INPUT coger cadena ; Tesoro
+END
+
+STEP "De nuevo al recolector"
+  INPUT S
+  INPUT S
+  INPUT S
+  INPUT SE
+  INPUT O
+  INPUT O
+  INPUT BAJAR
+  INPUT TREPAR TRONCO
+  INPUT fee fie foe fou ; El huevo aparece
+  INPUT coger huevo
+  INPUT ENTRAR
+  INPUT BAJAR
+  INPUT S
+  INPUT SUBIR
+  INPUT S
+  INPUT E
+  INPUT NE
+  INPUT N
+  INPUT N
+  INPUT RECOLECTOR
+  INPUT dejar huevo
+  EXPECT "Has dejado el huevo de oro"
+  INPUT dejar especias
+  EXPECT "Has dejado Unas especias indias"
+  INPUT dejar cadena
+  EXPECT "Has dejado la cadena"
+  INPUT m
+  EXPECT "Si no has perdido el último tesoro vencerás."
+  INPUT RECOLECTOR  ; Volver a la sala acústica
+END
+
+STEP "A por la pirámide"
+  INPUT usar magia     ; Este de la alcoba
+  INPUT N
+  INPUT coger pirámide ; Tesoro
+  INPUT S
+  INPUT usar magia     ; Sala acústica
+  INPUT RECOLECTOR
+  INPUT dejar pirámide
+  EXPECT "LOS TESOROS DE"
+  EXPECT "LA CAVERNA ORIGINAL"
+  EXPECT "SON TUYOS"
+  KEY ENTER
+  EXPECT "se derrumbará"
+  KEY ENTER
+  EXPECT "***RECOLECTOR DE TESOROS***"
+  EXPECT "Objeto: la almohada"
+  EXPECT "Tesoro: la pepita de oro"
+  EXPECT "Tesoro: el diamante"
+  EXPECT "Tesoro: la barra de titanio"
+  EXPECT "Tesoro: la joya"
+  EXPECT "Tesoro: Unas especias indias"
+  EXPECT "Tesoro: la alfombra persa"
+  EXPECT "Tesoro: el tridente marino"
+  EXPECT "Tesoro: la gran perla"
+  EXPECT "Tesoro: el huevo de oro"
+  EXPECT "Tesoro: la cadena de plata"
+  EXPECT "Tesoro: la pirámide de platino"
+  EXPECT "Tesoro: la esmeralda"
+  EXPECT "Tesoro: el jarrón chino"
+  EXPECT "Tesoro: el garfio de oro"
+END
+
+STEP "Salir de la caverna"
+  INPUT XYZZY
+  INPUT E
+  INPUT E
+  EXPECT "La puerta se abre"
+  KEY ENTER
+  INPUT SALIR
+  EXPECT "MAESTRO AVENTURERO"
+END
+
+STEP "Fin"
+  EXPECT "¿Hace otra partidita?"
+  INPUT s
+
+  EXPECT "Clave de acceso"
+  INPUT timacus
+
+  EXPECT "Con un click la puerta se cierra mágicamente..."
+  KEY ENTER
+  EXPECT "Los rayos del sol iluminan la caverna"
+
+  INPUT fin
+  EXPECT "¿Estás seguro?"
+  INPUT s
+  EXPECT "¿Hace otra partidita?"
+  INPUT n
 END
 
 STEP "No se alcanza un condacto no implementado"
   EXPECT NOT "not implemented"
 END
-

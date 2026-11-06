@@ -34,7 +34,20 @@ type Options struct {
 	// TRACE orders in it starts with the trace off and turns it on itself;
 	// without them, a trace asked for from outside covers the whole run.
 	Trace vm.Watcher
+
+	// Breakpoint is the console a BREAKPOINT hands the adventure to, which is
+	// the one a person plays on. Handing it over whole rather than imitating a
+	// terminal is what makes the clock and the pauses behave for them exactly
+	// as they do when there is no script at all.
+	//
+	// Without one there is nobody to hand it to, and a BREAKPOINT says so and
+	// carries on — a script with one left in it still runs in a suite.
+	Breakpoint vm.Console
 }
+
+// Resume is the line that ends a BREAKPOINT and gives the script the adventure
+// back. It is never handed to the machine.
+const Resume = "CONTINUE TEST"
 
 // ErrNoDatabase is what a script that neither names a database nor is given
 // one gets. Playing nothing quietly and reporting that no step failed would be
@@ -135,6 +148,11 @@ type Runner struct {
 	// in one.
 	stopped bool
 
+	// manual is a BREAKPOINT being in force: the adventure belongs to whoever
+	// is at the terminal and the script does not advance at all, however many
+	// turns they take. Only Resume gives it back.
+	manual bool
+
 	tracing bool
 }
 
@@ -147,6 +165,14 @@ func (r *Runner) Print(text string) {
 		_, _ = io.WriteString(r.opts.Transcript, text)
 	}
 
+	// Inside a breakpoint it goes to the person whatever --show says: they are
+	// playing, and playing blind is not playing.
+	if r.manual {
+		r.opts.Breakpoint.Print(text)
+
+		return
+	}
+
 	if r.opts.Show {
 		r.report.Said(text)
 	}
@@ -154,26 +180,108 @@ func (r *Runner) Print(text string) {
 
 // Input is the adventure asking for an order with no clock on it.
 func (r *Runner) Input() (string, bool) {
-	if r.pump(atLine, 0) == outLine {
-		return r.line, true
-	}
+	for {
+		switch r.pump(atLine, 0) {
+		case outLine:
+			return r.line, true
 
-	// The script having nothing more to say ends the game, which is how a
-	// script that does not play to the end still finishes.
-	return "", false
+		case outManual:
+			typed, more := r.opts.Breakpoint.Input()
+
+			line, more, back := r.played(typed, more)
+			if back {
+				continue
+			}
+
+			return line, more
+
+		default:
+			// The script having nothing more to say ends the game, which is
+			// how a script that does not play to the end still finishes.
+			return "", false
+		}
+	}
 }
 
 // InputWithin is the same with the adventure's TIME on it, and it is what
 // makes the seconds in this language mean anything. See the package comment.
 func (r *Runner) InputWithin(limit time.Duration) (line string, more, expired bool) {
-	switch r.pump(atLine, limit) {
-	case outLine:
-		return r.line, true, false
-	case outClock:
-		return "", true, true
-	default:
+	for {
+		switch r.pump(atLine, limit) {
+		case outLine:
+			return r.line, true, false
+
+		case outClock:
+			return "", true, true
+
+		case outManual:
+			// The clock is theirs too: a person at a breakpoint gets the
+			// seconds the adventure gives a player, and times out like one.
+			typed, more, expired := r.listen(limit)
+
+			// And an expiry is not a line. Handing the machine an empty one
+			// instead loses the only thing it needed to know — that nobody
+			// answered in time — so it answers "Lo siento, no entiendo", which
+			// is what it says to somebody who typed nothing, rather than its
+			// "El tiempo pasa... ¡Y no vuelve!". Resume is not looked for here
+			// either: nothing was typed, so there is nothing to look in.
+			if expired {
+				return "", true, true
+			}
+
+			line, more, back := r.played(typed, more)
+			if back {
+				continue
+			}
+
+			return line, more, false
+
+		default:
+			return "", false, false
+		}
+	}
+}
+
+// listen takes a line from whoever is at the terminal during a breakpoint,
+// with the adventure's clock on it where their console has one.
+//
+// A console that cannot be told to stop waiting never times out, which is not
+// a failure: it is a console with no clock worth the name, and vm.Impatient
+// exists because most of them are. What it never does is invent an expiry, nor
+// swallow a real one.
+func (r *Runner) listen(limit time.Duration) (line string, more, expired bool) {
+	if waits, ok := r.opts.Breakpoint.(vm.Impatient); ok {
+		return waits.InputWithin(limit)
+	}
+
+	line, more = r.opts.Breakpoint.Input()
+
+	return line, more, false
+}
+
+// played takes one line from whoever is at the terminal during a breakpoint,
+// and watches it for the one line that is not for the adventure.
+//
+// back says the script has the adventure again, and the line is then nobody's:
+// Resume is read by the harness and never handed on, which is the whole of
+// what makes it a word of this language rather than a command of the game.
+func (r *Runner) played(typed string, said bool) (line string, more, back bool) {
+	// Running out of input is the end of the session and the end of the game,
+	// the same as it is for a person playing without a script.
+	if !said {
 		return "", false, false
 	}
+
+	line = typed
+
+	if strings.EqualFold(strings.Join(strings.Fields(line), " "), Resume) {
+		r.manual = false
+		r.report.Resumed()
+
+		return "", false, true
+	}
+
+	return line, true, false
 }
 
 // AnyKey is a pause, and it waits, because the adventure said to wait.
@@ -188,7 +296,15 @@ func (r *Runner) InputWithin(limit time.Duration) (line string, more, expired bo
 // with the line it got to, and a script that has run out altogether returns —
 // the test is over, and what the adventure does afterwards is nobody's
 // business.
-func (r *Runner) AnyKey() { r.pump(atKey, 0) }
+func (r *Runner) AnyKey() {
+	if r.pump(atKey, 0) == outManual {
+		// Theirs as well, and the one place Resume is not watched for: a pause
+		// wants a keypress and this language has no way to read a line out of
+		// one. They press something and go on playing; the way out is at the
+		// next prompt.
+		r.opts.Breakpoint.AnyKey()
+	}
+}
 
 // moment is what the machine is stopped for, which decides what the orders
 // that type can mean and whether the clock can be let out.
@@ -204,10 +320,11 @@ const (
 type outcome int
 
 const (
-	outLine  outcome = iota // a line was typed and is in r.line
-	outKey                  // a key was pressed
-	outClock                // let the adventure's clock run out
-	outOver                 // the script has nothing more to give
+	outLine   outcome = iota // a line was typed and is in r.line
+	outKey                   // a key was pressed
+	outClock                 // let the adventure's clock run out
+	outManual                // a BREAKPOINT: ask the person, not the script
+	outOver                  // the script has nothing more to give
 )
 
 // pump runs the script forward until it has something for the machine.
@@ -219,6 +336,12 @@ const (
 //nolint:gocognit,gocyclo,cyclop,funlen // the turn-taking is one thing and reads as one
 func (r *Runner) pump(where moment, clock time.Duration) outcome {
 	for {
+		// Inside a breakpoint the script is not consulted at all, however many
+		// turns the person takes. See Options.Breakpoint.
+		if r.manual {
+			return outManual
+		}
+
 		if r.stopped || r.at >= len(r.script.steps) {
 			return outOver
 		}
@@ -241,6 +364,24 @@ func (r *Runner) pump(where moment, clock time.Duration) outcome {
 			r.tracing = s.on
 
 			r.next()
+
+		case opBreak:
+			if r.opts.Breakpoint == nil {
+				r.report.Note(s.at, "nobody is at a terminal, so there is nobody to hand it to")
+				r.next()
+
+				continue
+			}
+
+			// The step is spent on the way in: what brings the script back is
+			// the line, not the step, and coming back has to land on the one
+			// after this.
+			r.manual = true
+			r.report.Broken(s.at)
+
+			r.next()
+
+			return outManual
 
 		case opDebug:
 			r.describe(s)

@@ -94,6 +94,10 @@ THE ORDERS
    ASSERT CARRIED|WORN|HERE|PRESENT <object>
    ASSERT OBJECT <n> AT <location>
    ASSERT ENDED                The adventure has to have ended by here.
+   BREAKPOINT                  Stop and hand the adventure to whoever is at
+                               the terminal. CONTINUE TEST is never given to
+                               the adventure: it gives the script the
+                               adventure back, at the order after this one.
    TRACE ON | TRACE OFF        Bounds --trace to the stretch that matters.
    TIMEOUT <seconds>           How long an EXPECT that does not say waits.
                                Once per script and about the whole of it,

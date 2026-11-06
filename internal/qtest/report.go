@@ -227,6 +227,26 @@ func (r *Report) verdict(text string) {
 	r.sayf("%s\n", text)
 }
 
+// Broken is a BREAKPOINT: the adventure has just been handed to whoever is at
+// the terminal, and what follows on the screen is theirs and not the report's.
+func (r *Report) Broken(at Place) {
+	r.breakLine()
+	r.margin()
+
+	r.sayf("  %s %s\n", console.MutedStyle.Render(at.String()),
+		console.WarnStyle.Render("BREAKPOINT: the adventure is yours. Type "+Resume+" to go on."))
+}
+
+// Resumed is the script getting it back.
+//
+// The newline is unconditional because what was on the screen during the
+// breakpoint was not written by this: the adventure was talking straight to
+// the person, and it stops at a prompt with no line ending. Nothing here can
+// know where the cursor is, so it starts a line of its own.
+func (r *Report) Resumed() {
+	r.sayf("\n  %s\n", console.WarnStyle.Render("the script has the adventure again"))
+}
+
 // Note is something worth saying that is nobody's failure.
 func (r *Report) Note(at Place, text string) {
 	r.breakLine()

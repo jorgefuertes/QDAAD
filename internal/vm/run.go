@@ -20,8 +20,6 @@ import "github.com/jorgefuertes/QDAAD/internal/ddbfile"
 //     one active does not return: it goes back to the condact after the DOALL
 //     with the next object, and only returns when the objects run out.
 func (m *Machine) runStack() error {
-	m.done, m.lastDone = false, m.done
-
 	for len(m.stack) > 0 && !m.finished && !m.restart {
 		f := m.top()
 		entries := m.entriesOf(f.process)

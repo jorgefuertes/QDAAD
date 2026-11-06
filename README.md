@@ -296,8 +296,8 @@ A step that does not hold stops the run and `qrun` exits non-zero. One order is
 one command — `INPUT` types its words and presses return — and `KEY` is the one
 that types without sending, for the single place that wants it: a yes-or-no
 question answered with one letter. The whole language is `EXPECT`,
-`EXPECT NOT`, `KEY`, `INPUT`, `WAIT`, `DEBUG`, `ASSERT`, `TRACE`, `TIMEOUT`,
-`SEED`, `INCLUDE` and `GAME` — `qrun --help` has the reference, and
+`EXPECT NOT`, `KEY`, `INPUT`, `WAIT`, `DEBUG`, `ASSERT`, `BREAKPOINT`,
+`TRACE`, `TIMEOUT`, `SEED`, `INCLUDE` and `GAME` — `qrun --help` has the reference, and
 [docs/qtest.md](docs/qtest.md) the whole of it.
 
 Nothing in it changes what the adventure does, and the pauses are where that

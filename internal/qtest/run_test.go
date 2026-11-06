@@ -5,12 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/back"
 	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
 	"github.com/jorgefuertes/QDAAD/internal/front/legacy"
+	"github.com/jorgefuertes/QDAAD/internal/vm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -454,6 +456,179 @@ func TestTheExampleScriptsPlay(t *testing.T) {
 	}
 }
 
+// A BREAKPOINT hands the adventure to whoever is at the terminal, and Resume
+// is the one line that is not for the adventure.
+//
+// What the person does is theirs: the script does not advance a step however
+// many turns they take, and what they are told goes to their console and not
+// into the report. Then the line gives it back and the script carries on from
+// the step after the breakpoint, which is the whole point of stopping there.
+func TestABreakpointHandsTheAdventureOver(t *testing.T) {
+	person := &person{lines: []string{"mirar", "salidas", "continue test"}}
+
+	said, err := playWith(t, ao(t), person, past+`
+STEP "the forest"
+  EXPECT "Estás en el bosque"
+END
+
+BREAKPOINT
+
+STEP "and the script picks up where it left off"
+  INPUT este
+  EXPECT "habitación bastante guarra"
+  ASSERT AT = 10
+END
+`)
+
+	require.NoError(t, err, "both steps should have held:\n%s", said)
+
+	require.Equal(t, 3, person.asked, "the person was asked for every line they had")
+
+	require.Contains(t, person.heard.String(), "Las salidas posibles",
+		"what they asked for was answered to them")
+	require.NotContains(t, said, "Las salidas posibles",
+		"and not into the report, which is about the steps")
+
+	require.Contains(t, said, "BREAKPOINT")
+	require.Contains(t, said, "the script has the adventure again")
+
+	// Resume is read by the harness and never handed on. If the adventure had
+	// been given it, it would have answered that it did not understand.
+	require.NotContains(t, person.heard.String(), "no te entiendo",
+		"CONTINUE TEST is a word of the language and not a command of the game")
+}
+
+// Sitting at a breakpoint and saying nothing is not typing an empty line.
+//
+// The adventure gave them TIME seconds and they let them go by, which is a
+// thing it has words for: "El tiempo pasa... ¡Y no vuelve!", its system
+// message 35, reached by asking HASAT 87 — flag 49 bit 7, the one the
+// interpreter raises when a wait runs out.
+//
+// The expiry was being thrown away on its way through: the breakpoint's
+// console reported it, the harness turned it into an empty line and told the
+// machine nobody had timed out. So the adventure answered "Lo siento, no
+// entiendo", which is what it says to somebody who pressed return with nothing
+// typed — and nobody had pressed anything at all. It is the same lie the clock
+// and the pauses were fixed for, pointing the other way: the console decides
+// when a wait is over, and what it decides has to arrive whole.
+//
+// What hid it is in this file rather than in the harness. A person double with
+// no InputWithin is a player who can never sit still, so every breakpoint test
+// typed at once and the clock was never carried through one.
+func TestLettingTheClockRunOutAtABreakpointIsNotAnEmptyLine(t *testing.T) {
+	person := &person{silences: 2, lines: []string{"continue test"}}
+
+	said, err := playWith(t, ao(t), person, past+`
+STEP "the forest"
+  EXPECT "Estás en el bosque"
+END
+
+BREAKPOINT
+
+STEP "and the script picks up afterwards"
+  INPUT este
+  EXPECT "habitación bastante guarra"
+END
+`)
+
+	require.NoError(t, err, "both steps should have held:\n%s", said)
+
+	heard := person.heard.String()
+
+	require.Equal(t, 2, strings.Count(heard, "El tiempo pasa"),
+		"they sat out two of the adventure's own timeouts and it has words for both")
+
+	require.NotContains(t, heard, "no te entiendo",
+		"which is what it says to an empty line, and nothing was typed until the last one")
+}
+
+// And a script with one left in it still runs where there is nobody to hand it
+// to, which is what a suite is.
+func TestABreakpointWithNobodyThereSaysSoAndCarriesOn(t *testing.T) {
+	said, err := play(t, ao(t), past+`
+BREAKPOINT
+
+STEP "the forest, reached anyway"
+  EXPECT "Estás en el bosque"
+END
+`)
+
+	require.NoError(t, err, "the step should have held:\n%s", said)
+	require.Contains(t, said, "nobody is at a terminal")
+}
+
+// Walking away from a breakpoint ends the run, the same as walking away from
+// the adventure does.
+//
+// Nothing hangs and nothing is invented: the person's input runs out, which is
+// the end of the game for them and for the script. The steps after the
+// breakpoint never ran, so the summary says so rather than counting them as
+// anything.
+func TestWalkingAwayFromABreakpointEndsIt(t *testing.T) {
+	person := &person{lines: []string{"mirar"}}
+
+	said, err := playWith(t, ao(t), person, past+`
+STEP "the forest"
+  EXPECT "Estás en el bosque"
+END
+
+BREAKPOINT
+
+STEP "never reached"
+  EXPECT "a dwarf walks in"
+END
+`)
+
+	require.NoError(t, err, "nothing failed; the run simply ended:\n%s", said)
+	require.Contains(t, said, "1 step passed")
+	require.NotContains(t, said, "FAIL")
+}
+
+// person is somebody at a terminal during a breakpoint.
+type person struct {
+	lines []string
+	heard strings.Builder
+	asked int
+
+	// silences is how many times they let the adventure's clock run out before
+	// starting to type. A console is the one thing allowed to decide that a
+	// wait is over, and this is a console.
+	silences int
+}
+
+func (p *person) Print(text string) { p.heard.WriteString(text) }
+func (p *person) AnyKey()           {}
+
+func (p *person) Input() (string, bool) {
+	p.asked++
+
+	if len(p.lines) == 0 {
+		return "", false
+	}
+
+	line := p.lines[0]
+	p.lines = p.lines[1:]
+
+	return line, true
+}
+
+// InputWithin is the half of a person the breakpoint tests used to leave out,
+// and leaving it out is why the clock could be dropped there without anything
+// noticing: a double with no InputWithin is a player who can never sit still.
+func (p *person) InputWithin(time.Duration) (line string, more, expired bool) {
+	if p.silences > 0 {
+		p.silences--
+		p.asked++
+
+		return "", true, true
+	}
+
+	line, more = p.Input()
+
+	return line, more, false
+}
+
 // play compiles an adventure, reads a script and plays one against the other,
 // giving back the report and the verdict.
 func play(t *testing.T, db *ddbfile.Reader, text string) (string, error) {
@@ -465,6 +640,21 @@ func play(t *testing.T, db *ddbfile.Reader, text string) (string, error) {
 	var report strings.Builder
 
 	err = Play(db, script, Options{Report: NewReport(&report)})
+
+	return report.String(), err
+}
+
+// playWith is the same with somebody at the terminal for a BREAKPOINT to hand
+// the adventure to.
+func playWith(t *testing.T, db *ddbfile.Reader, who vm.Console, text string) (string, error) {
+	t.Helper()
+
+	script, err := ParseText("t.qtest", text)
+	require.NoError(t, err)
+
+	var report strings.Builder
+
+	err = Play(db, script, Options{Report: NewReport(&report), Breakpoint: who})
 
 	return report.String(), err
 }

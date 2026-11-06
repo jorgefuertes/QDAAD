@@ -28,6 +28,7 @@ const (
 	opDebug                   // print something about the machine
 	opAssert                  // check something about the machine
 	opTrace                   // turn the condact trace on or off
+	opBreak                   // hand the adventure to whoever is at the terminal
 	opStep                    // open a named step
 	opEnd                     // close it, which is what prints OK
 )

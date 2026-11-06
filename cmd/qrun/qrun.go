@@ -175,6 +175,15 @@ func test(cmd *cli.Command, scripts []string, watch vm.Watcher) error {
 			Show:       cmd.Bool("show"),
 			Transcript: transcript,
 			Trace:      watch,
+
+			// What a BREAKPOINT hands the adventure to is the console a person
+			// plays on, not an imitation of one: the clock and the pauses then
+			// behave for them exactly as they do with no script in the way.
+			Breakpoint: &console{
+				out:   os.Stdout,
+				in:    bufio.NewScanner(os.Stdin),
+				waits: isTerminal(os.Stdin),
+			},
 		}
 
 		if cmd.IsSet("seed") {

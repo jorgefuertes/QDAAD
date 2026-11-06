@@ -123,6 +123,50 @@ STEP "the title screen, and then the forest"
 END
 ```
 
+## Stopping to play
+
+`BREAKPOINT` hands the adventure to whoever is at the terminal, in the middle
+of a script, with the game in exactly the state the script got it into. That is
+what it is for: the hard part of writing a walkthrough is knowing what the
+adventure says at turn forty, and the cheapest way to find out is to be there.
+
+```qtest
+STEP "the key, shaken out of the tree"
+  INPUT  SACUDIR RAMAS
+  EXPECT "ha caido al suelo"
+END
+
+BREAKPOINT        ; have a look around before the next bit is written
+
+STEP "and on from there"
+  INPUT  COGER LLAVE
+  EXPECT "Has cogido la llave"
+END
+```
+
+What is handed over is the console a person plays on, not an imitation of one,
+so the adventure's clock and its pauses behave exactly as they do with no
+script in the way. The script does not advance a single order however many
+turns they take, and what the adventure says goes to their screen rather than
+into the report.
+
+`CONTINUE TEST` ends it. The harness reads that line and never hands it on —
+it is a word of this language and not a command of the game — and the script
+carries on at the order after the `BREAKPOINT`. Typing it at a pause does
+nothing, because a pause wants a keypress and there is no line to read out of
+one; the way out is at the next prompt.
+
+Two things are worth knowing before leaning on it. What the person said and
+what they were told stays in the buffer the `EXPECT`s read, because the rule
+everywhere here is that the buffer is what was said and not matched, and a
+breakpoint is no reason to invent an exception. And the game is wherever they
+left it, so the steps after a breakpoint are being asked about a state the
+script did not put the adventure into — which is fine while writing one, and
+not something to commit.
+
+With nobody at a terminal there is nobody to hand it to, so it says so and
+carries on. A script with a `BREAKPOINT` left in it still runs in a suite.
+
 ## Nothing here changes what the adventure does
 
 The machine is not told that it is being tested and has no way of finding out.
@@ -231,6 +275,7 @@ nonsense in ten places instead of the truth in one.
 | `ASSERT CARRIED\|WORN\|HERE\|PRESENT <object>` | Where an object is. `PRESENT` is carried, worn or in the room, which is what the condact of that name means. |
 | `ASSERT OBJECT <n> AT <location>` | For a location that is not one of those four. |
 | `ASSERT ENDED` | The adventure has to have ended by here. |
+| `BREAKPOINT` | Stops and hands the adventure to whoever is at the terminal, who plays it from there. `CONTINUE TEST` is read by the harness, never given to the adventure, and gives the script the adventure back at the order after the breakpoint. With nobody at a terminal it says so and carries on, so a script with one left in it still runs in a suite. |
 | `TRACE ON` / `TRACE OFF` | Turns the condact trace on and off, so `--trace` covers the stretch that matters instead of the whole run. |
 | `TIMEOUT <seconds>` | How long an `EXPECT` that does not say waits. Once per script, and about the whole of it — the `EXPECT`s above the line as well as the ones below. **5** when nothing says. |
 | `SEED <n>` | Fixes the dice. |

@@ -290,6 +290,13 @@ func (p *parser) order(word, rest string, at Place, source string, stack []strin
 	case "ASSERT":
 		return p.assert(rest, at, source)
 
+	case "BREAKPOINT":
+		if rest != "" {
+			return fmt.Errorf("%s: BREAKPOINT takes nothing", at)
+		}
+
+		p.add(step{op: opBreak, at: at, source: source})
+
 	case "TRACE":
 		switch strings.ToUpper(strings.TrimSpace(rest)) {
 		case "ON":
