@@ -1,5 +1,7 @@
 # The `.qtest` language
 
+*[En español](qtest_ES.md)*
+
 A walkthrough is not code. It is a list of what to type and what should come
 back, written while playing, and the place for it is a file somebody can edit
 with the game open in the other window. `qrun --test` reads that file.
@@ -221,7 +223,7 @@ STEP    "what the first part handed over"
 END
 
 STEP    "the time passes, and does not come back"
-  WAIT    50
+  WAIT    50                       ; fifty seconds of saying nothing, for real
   EXPECT  "El tiempo pasa"
   DEBUG   FLAGS SET
 END
@@ -238,6 +240,32 @@ END
 
 The indentation inside a `STEP` is nobody's business but the author's; the
 language does not look at it.
+
+### The little drawings in an object's name
+
+An adventure of 1989 drew a picture beside an object's name, out of the
+graphics half of its character set: "Una llave" and then two cells that make a
+small drawing of a key. There is no character set here and nothing to draw
+with, so each of those cells comes out named after the slot it would have been
+drawn from:
+
+```text
+> i
+Tienes Una linterna encendida [UDG:48][UDG:49], Una moneda [UDG:50][UDG:51],
+Una llave [UDG:44][UDG:45].
+```
+
+What that means for a script is one thing: **expect the words, not the
+drawing.** `EXPECT "Una llave"` matches and goes on matching the day somebody
+moves the sprite to another slot; `EXPECT "Una llave [UDG:44][UDG:45]"` is for
+when the drawing is what is being tested, which is rarely.
+
+Titles are the same mechanism and come out as themselves, because there the
+glyphs are the letters drawn larger: `#gTIMACUS#t` is the access code and
+reads as one. What tells the two apart is the case — capitals are a display
+face, and the lower-case, digit and punctuation slots are where the author put
+the sprites. Of the 84 graphics runs in the five Aventuras AD adventures, 56
+are words in capitals and the other 28 are one or two of those.
 
 ### The step is the unit of the report
 

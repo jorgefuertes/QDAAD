@@ -297,8 +297,14 @@ one command — `INPUT` types its words and presses return — and `KEY` is the 
 that types without sending, for the single place that wants it: a yes-or-no
 question answered with one letter. The whole language is `EXPECT`,
 `EXPECT NOT`, `KEY`, `INPUT`, `WAIT`, `DEBUG`, `ASSERT`, `BREAKPOINT`,
-`TRACE`, `TIMEOUT`, `SEED`, `INCLUDE` and `GAME` — `qrun --help` has the reference, and
-[docs/qtest.md](docs/qtest.md) the whole of it.
+`TRACE`, `TIMEOUT`, `SEED`, `INCLUDE` and `GAME` — `qrun --help` has the
+reference, and the language's own document the whole of it:
+**[docs/qtest.md](docs/qtest.md)**, or [en español](docs/qtest_ES.md).
+
+`BREAKPOINT` is the one that makes writing a walkthrough bearable: it hands the
+adventure to whoever is at the terminal, in the middle of a script, with the
+game in exactly the state the script got it into. `CONTINUE TEST` gives it
+back, and the script carries on at the order after the breakpoint.
 
 Nothing in it changes what the adventure does, and the pauses are where that
 shows: the adventure asked for a key, so the script presses one. Deciding that

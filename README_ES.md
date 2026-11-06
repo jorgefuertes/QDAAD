@@ -123,10 +123,75 @@ La especificación es la del disco de la propia Aventura Original, leída de él
 
 ```sh
 go build -o dist/qrun ./cmd/qrun
-qrun GAME.qrun
+qrun -i GAME.qrun
 ```
 
 Ejecuta una base de datos de versión 3 aquí, en el terminal, que es como se prueba un cambio del compilador sin un emulador de por medio. No es un Spectrum: no hay imágenes ni tipografía, así que para lo que vale es para el analizador, las banderas y las tablas de proceso. `TIME` y su plazo funcionan, porque una pregunta con un reloj encima es algo que las aventuras hacen y que a mano se prueba fatal.
+
+### Probar una aventura entera: `.qtest`
+
+Un walkthrough no es código. Es una lista de qué teclear y qué debería contestar, escrita mientras se juega, así que vive en un fichero y no en un test de Go:
+
+```sh
+qrun -i tmp/AO1.ddb -T examples/AO/test/part1.qtest
+```
+
+```qtest
+TEST "el bosque, y la botella"
+SEED 1989
+
+STEP "la portada, y después el bosque"
+  EXPECT  "?"                 ; pide una tecla antes de mostrar nada
+  KEY     SPACE
+  EXPECT  "AVENTURA ORIGINAL" ; los créditos, y vuelve a pedirla
+  KEY     SPACE
+  EXPECT  "LA RESPUESTA DEPENDE DE TU VALOR"
+  KEY     SPACE
+  EXPECT  "Estás en el bosque"
+  ASSERT  AT = 3
+END
+
+STEP "la botella, cuatro salas valle abajo"
+  INPUT   S
+  INPUT   COGER BOTELLA
+  EXPECT  "Has cogido la botella"
+  EXPECT  NOT "Aquí no hay de eso"
+  ASSERT  CARRIED 4
+END
+
+STEP "el tiempo pasa, y no vuelve"
+  WAIT    50              ; cincuenta segundos callado, de verdad
+  EXPECT  "El tiempo pasa"
+END
+```
+
+Un caret anuncia cada paso al abrirlo y el veredicto cae al final de esa línea al llegar su `END`, que es la prueba de que todas las órdenes de dentro se cumplieron:
+
+```text
+╭─────────────────────────────────────╮
+│ La Aventura Original, parte I       │
+╰─────────────────────────────────────╯
+▶ la portada y el bosque                    OK
+▶ la botella, valle abajo y volver          OK
+▶ las botas, al este y al sur              FAIL
+  examples/AO/test/part1.qtest:63:3 EXPECT "Has cogido la pareja de botas"
+  it did not say that in 5 seconds
+  what it said after INPUT COGER BOTAS:
+    > ¡Aquí no hay de eso!
+
+▶ 2 steps passed
+▶ 1 step failed
+```
+
+Un paso que no se cumple para la tanda y `qrun` sale distinto de cero. Una orden es un comando —`INPUT` teclea sus palabras y pulsa return— y `KEY` es la que teclea sin enviar, para el único sitio que la quiere: una pregunta que se contesta con una letra. El lenguaje entero son `EXPECT`, `EXPECT NOT`, `KEY`, `INPUT`, `WAIT`, `DEBUG`, `ASSERT`, `BREAKPOINT`, `TRACE`, `TIMEOUT`, `SEED`, `INCLUDE` y `GAME` — `qrun --help` trae la referencia, y el documento del lenguaje todo lo demás: **[docs/qtest_ES.md](docs/qtest_ES.md)**, o [in English](docs/qtest.md).
+
+`BREAKPOINT` es el que hace llevadero escribir un walkthrough: entrega la aventura a quien esté en el terminal, en medio de un guion, con la partida exactamente en el estado al que el guion la llevó. `CONTINUE TEST` la devuelve, y el guion sigue por la orden siguiente al breakpoint.
+
+Nada de esto cambia lo que hace la aventura, y donde más se nota es en las pausas: la aventura pidió una tecla, así que el guion pulsa una. Decidir que esa pausa no cuenta sería el arnés cambiando el juego, y cuántas hay es parte de lo que un test de ella comprueba.
+
+Los segundos son segundos, y un paso que espera, espera. Así es como «El tiempo pasa... ¡Y no vuelve!» y el enano que entra en la habitación se pueden probar: el guion se calla el tiempo suficiente para que venza el `TIME` de la aventura, y el runtime corre ese turno por sus propios motivos. Informar de un plazo vencido que no venció no costaría nada y haría que la aventura corriese un turno que no habría corrido — observar la partida alterándola. Un `EXPECT` que falla paga sus segundos; uno que acierta no cuesta nada, porque lo que busca ya se dijo antes de que la aventura pidiera una orden.
+
+En `examples/AO/test` está la primera parte de La Aventura Original ganada —84 órdenes, una conversación, una cadena de cuatro fases y la clave de acceso que imprime al final— y la segunda recorrida. `make qtest` compila las bases de datos y las juega; la suite las juega también, contra el mismo walkthrough que usan los tests de Go, así que si alguna vez no coinciden, uno de los dos miente.
 
 ## Con qué se ha probado
 
