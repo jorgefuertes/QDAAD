@@ -15,7 +15,7 @@ El viaje de ida y vuelta no es una afirmación, es un objetivo del Makefile. En 
 
 ## Qué se comprueba, y contra qué
 
-Tres de estas comparan nuestra salida con la de las herramientas de referencia, byte a byte. La referencia es DAAD Reborn, de Uto, que no ha tenido nada que ver con escribir esto.
+Tres de estas comparan nuestra salida con la de las herramientas de referencia, byte a byte. La referencia es DAAD Reborn, de Uto — ver [Agradecimientos](#agradecimientos).
 
 | `make` | | |
 |---|---|---|
@@ -240,3 +240,13 @@ La excepción son las cintas del Spectrum de El Jabato, que cargan en trozos de 
 Queda por hacer en las bases de datos: entender el mapa de carga de esos cargadores —desbloquearía MSX, Amstrad CPC y Commodore 64 de una vez— y leer los formatos `.CAS` de MSX y `.T64` de Commodore.
 
 De las imágenes ya no queda nada pendiente en las máquinas cuyas bases de datos se leen: sale toda ilustración de toda edición alcanzable.
+
+## Agradecimientos
+
+**Uto**, por DAAD Reborn y por los años de ingeniería inversa que vinieron antes. Casi todo lo que está escrito sobre este formato está escrito porque él lo averiguó primero, y ha seguido contestando preguntas y compartiendo lo que sabe mientras esto se construía — información y criterio, que es la mitad más difícil de dar.
+
+Los tres arneses de comparación sostienen nuestra salida contra la de DAAD Reborn byte a byte, y esa comparación vale precisamente porque las dos implementaciones son independientes: el código de aquí se escribió desde el formato y desde las bases de datos, no desde el suyo. Entender el formato es otra cosa, y buena parte de ese entendimiento es suyo.
+
+**Natalia Pujol**, por msx2daad, que es DAAD escrito en C y es lo que el intérprete de `internal/vm` sigue condacto a condacto.
+
+**Aventuras AD** —Andrés Samudio, Manuel González, Carlos Marqués y quienes trabajaron con ellos— por las cinco aventuras a las que va dedicado todo esto, y por un formato lo bastante cuidado como para que todavía se pueda leer treinta y siete años después.

@@ -24,7 +24,7 @@ far as anybody has got. See [its README](examples/AO/README.md).
 ## What is checked, and against what
 
 Three of these compare our output with the reference tooling's, byte for byte.
-The reference is DAAD Reborn by Uto, which had nothing to do with writing this.
+The reference is DAAD Reborn by Uto — see [Thanks](#thanks).
 
 | `make` | | |
 |---|---|---|
@@ -418,3 +418,25 @@ and Commodore `.T64` formats.
 
 Nothing is left of the pictures on the machines whose databases read. Every
 illustration of every edition that can be reached comes out.
+
+## Thanks
+
+**Uto**, for DAAD Reborn and for the years of reverse engineering that came
+before it. Most of what is written down about this format is written down
+because he worked it out first, and he has gone on answering questions and
+sharing what he knows while this was being built — information and judgement
+both, which is the harder half to give.
+
+The three comparison harnesses hold our output against DAAD Reborn's byte for
+byte, and that comparison is worth something precisely because the two
+implementations are separate: the code here was written from the format and
+from the databases rather than from his. The understanding of the format is
+another matter, and a good deal of it is his.
+
+**Natalia Pujol**, for msx2daad, which is DAAD written in C and is what the
+interpreter in `internal/vm` follows condact by condact.
+
+**Aventuras AD** — Andrés Samudio, Carlos Marqués, Manuel González and the
+people who worked with them — for the five adventures this is all in aid of,
+and for a format careful enough that it can still be read thirty-seven years
+later.
