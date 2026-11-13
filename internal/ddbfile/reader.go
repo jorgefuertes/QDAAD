@@ -1,0 +1,1272 @@
+package ddbfile
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/jorgefuertes/QDAAD/internal/charset"
+)
+
+// Obfuscation applied to every text byte and to every vocabulary word.
+const obfuscate = 0xFF
+
+// The header is a fixed set of counters followed by a list of words. Version 1
+// databases have twelve of those words; version 2 inserted the pointer to the
+// extra object attributes, so they have thirteen.
+const (
+	headerSizeV1 = 32
+	headerSizeV2 = 34
+)
+
+// Index of each pointer in the header word list.
+const (
+	ptrTokens = iota
+	ptrProcesses
+	ptrObjectText
+	ptrLocationText
+	ptrMessageText
+	ptrSysMessageText
+	ptrConnections
+	ptrVocabulary
+	ptrObjectLocation
+	ptrObjectName
+	ptrObjectWeight
+	ptrObjectAttrs // version 2 onwards only
+)
+
+// Reader gives structured access to a DDB held in memory. The whole file is
+// kept as a slice on purpose: a database is at most 64 KiB, so random access
+// costs nothing and the pointers can be followed directly.
+type Reader struct {
+	data       []byte
+	bigEndian  bool
+	headerSize int
+	base       int // the address the database was laid at, zero in a file
+	offset     int // where it was found, when it was found inside something
+
+	// unreadableProcess is the first process whose pointer is not an address,
+	// or -1 when every one of them reads. See Processes.
+	unreadableProcess int
+	placeholder       string   // the leading token every interpreter skips
+	tokens            []string // the 128 a text can refer to, indexed from zero
+	vocabulary        []VocabularyEntry
+
+	// conv transforms what is read on its way out, for a caller that wants
+	// something other than a faithful account of the binary. Nil is the
+	// default and the faithful reading.
+	conv Conversion
+	// noPictures drops the illustration condacts, for a build without them.
+	noPictures bool
+	// tokenCount is how many entries the compression table has when somebody
+	// knew and said so, and zero when nobody did. Reading a database written
+	// by anyone else, nobody ever does: the number is in no byte of it.
+	tokenCount int
+}
+
+// Conversion changes what a reader hands back.
+//
+// It is an interface and not a thing this package does, because what a
+// conversion means belongs to whoever wants one — this package's job is to say
+// what the binary holds. The decompiler's version 3 conversion is the only
+// implementation so far.
+//
+// The system messages get a method of their own because they are the one table
+// where the slot a text sits in has a meaning: some of them are the
+// interpreter's rather than the adventure's.
+type Conversion interface {
+	Processes(all [][]Entry) [][]Entry
+	Texts(texts []string) []string
+	SystemMessages(texts []string) []string
+}
+
+// Converting says whether anything read is being put through a conversion on
+// its way out, which a caller needs to know when what it writes depends on it.
+func (r *Reader) Converting() bool { return r.conv != nil }
+
+// Bytes is the database as it was read, for a caller that needs the bytes
+// themselves rather than what they mean.
+func (r *Reader) Bytes() []byte { return r.data }
+
+// Convert sets what to put everything read through on its way out.
+func (r *Reader) Convert(c Conversion) { r.conv = c }
+
+// DropPictures leaves the illustration condacts out of everything this reader
+// hands back.
+func (r *Reader) DropPictures() { r.noPictures = true }
+
+// FindDatabases looks for databases lying inside something that is not one.
+//
+// The eight-bit editions never shipped a database as a file. The Commodore one
+// is linked into the program that loads it; the Amstrad and Spectrum ones are
+// laid straight onto disks formatted for their own loader, with no filesystem
+// at all. There is nothing naming them, so the only way in is to recognise a
+// header where it lies and let it prove itself.
+//
+// They come back in the order they appear, which for a multi-part adventure is
+// the order of its parts.
+func FindDatabases(data []byte) []*Reader {
+	var found []*Reader
+
+	for off := 0; off+headerSizeV1 <= len(data); {
+		if !looksLikeHeader(data[off:]) {
+			off++
+
+			continue
+		}
+
+		r, ok := readerAt(data, off)
+		if !ok || !r.readsThrough() {
+			off++
+
+			continue
+		}
+
+		r.offset = off
+		found = append(found, r)
+
+		// No point looking inside one we have already read.
+		off += r.DeclaredLength()
+	}
+
+	return found
+}
+
+// looksLikeHeader is the cheap test that keeps the search down to a handful of
+// candidates. Everything it accepts still has to survive readerAt.
+func looksLikeHeader(d []byte) bool {
+	const lastMachine = 7 // the Amstrad PCW, and there was never an eighth
+
+	version, machine, nullWord := d[0], d[1]>>4, d[2]
+
+	// Version 3 is here because our own compiler writes it. The search this
+	// feeds was built for the adventures of 1989 to 1991 and never met one;
+	// an interpreter reading what we just built does, every time.
+	return (version >= 1 && version <= 3) &&
+		machine <= lastMachine &&
+		nullWord > ' ' && nullWord < 0x7F &&
+		// An adventure with no objects, no locations or no processes is not one.
+		d[3] != 0 && d[4] != 0 && d[7] != 0
+}
+
+// readsThrough is the further test a candidate found by searching has to pass.
+//
+// A header that describes itself and a token table that parses are not enough
+// when megabytes are being sifted: a run of bytes can manage both by luck. Made
+// to read every text table and every connection list as well, it cannot.
+//
+// The process table is left out on purpose. Decoding it depends on the arity of
+// each condact, and where that is still uncertain a real database could fail
+// here and be passed over in silence.
+func (r *Reader) readsThrough() bool {
+	tables := [...]struct {
+		pointer int
+		count   int
+	}{
+		{ptrSysMessageText, r.NumSysMessages()},
+		{ptrMessageText, r.NumMessages()},
+		{ptrObjectText, r.NumObjects()},
+		{ptrLocationText, r.NumLocations()},
+	}
+
+	characters, escapes := 0, 0
+
+	for _, t := range tables {
+		texts, err := r.TextTable(t.pointer, t.count)
+		if err != nil {
+			return false
+		}
+
+		for _, text := range texts {
+			characters += len(text)
+			escapes += strings.Count(text, "#")
+		}
+	}
+
+	if !readsLikeProse(characters, escapes) {
+		return false
+	}
+
+	if _, err := r.Connections(); err != nil {
+		return false
+	}
+
+	_, err := r.Objects()
+
+	return err == nil
+}
+
+// readsLikeProse is the last thing between a candidate and being decompiled,
+// and the only one that looks at what the text says rather than where it is.
+//
+// The structural checks can all pass on something that is not a database. The
+// MSX edition of El Jabato has a header and a vocabulary lying where they can be
+// read — its 288 words match the PC edition exactly — but its text is kept
+// somewhere else, so the addresses lead to bytes that decode into a stream of
+// escapes and token fragments. Every check but this one lets it through, and
+// what comes out is nonsense that looks like source.
+//
+// Real text is prose with the odd escape in it. Across the databases we can
+// read, the highest proportion is one escape in every ninety-six characters;
+// the nonsense above runs at one in thirteen. One in twenty-five sits clear of
+// both.
+//
+// The escape is counted by its hash, which is one per escape: internal/charset
+// writes "#n" and never doubles anything. A hash an adventure wrote itself is
+// counted too, and there is one in the sixty-six, which does not move a ratio.
+func readsLikeProse(characters, escapes int) bool {
+	const leastCharactersPerEscape = 25
+
+	if characters == 0 {
+		return false
+	}
+
+	return escapes*leastCharactersPerEscape <= characters
+}
+
+// readerAt tries to read a database beginning at off, working out how without
+// being told: neither the endianness, nor the size of the header, nor the
+// address the database was laid at is stated anywhere in it.
+//
+// Working them out is the point. The reference tooling takes endianness and
+// header size from a table indexed by the target it was built for, which is how
+// it comes to report a PC database as little-endian when it is not. Here every
+// combination is tried and the one that reads is kept. What makes that safe is
+// that the header has to describe itself consistently — a length that fits and
+// eleven or twelve pointers that all land inside it — and then the token table
+// and the vocabulary have to parse. Rubbish does not survive it.
+//
+// A database in a file of its own is tried first, and told apart by the length
+// it declares accounting for the file. Its addresses are already offsets, so
+// there is nothing to work out about where it was laid.
+//
+// Only when that fails is it taken for one found inside something bigger, and
+// the address deduced. The order matters: a database with padding between its
+// header and its vocabulary — Los Templos Sagrados has twenty-six bytes of it —
+// would otherwise be taken for one laid at an address, and every pointer in it
+// shifted by the width of the padding.
+// At reads a database beginning at an offset, working out for itself how it
+// is laid: see readerAt.
+func At(data []byte, off int) (*Reader, bool) { return readerAt(data, off) }
+
+func readerAt(data []byte, off int) (*Reader, bool) {
+	if off < 0 || off+headerSizeV1 > len(data) {
+		return nil, false
+	}
+
+	for _, whole := range []bool{true, false} {
+		for _, size := range []int{headerSizeV1, headerSizeV2} {
+			for _, big := range []bool{true, false} {
+				for _, base := range candidateBases(data[off:], whole, size, big) {
+					r := &Reader{
+						data: data[off:], bigEndian: big, headerSize: size,
+						base: base, unreadableProcess: -1,
+					}
+
+					if !r.headerAgrees() {
+						continue
+					}
+
+					if whole && !r.lengthAccountsForFile() {
+						continue
+					}
+
+					if err := r.readTokens(); err != nil {
+						continue
+					}
+
+					if err := r.readVocabulary(); err != nil {
+						continue
+					}
+
+					return r, true
+				}
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// candidateBases lists the addresses the database might have been laid at.
+//
+// One in a file of its own is at zero, and there is nothing to work out. One
+// found inside a program or on a disk has absolute addresses, and the
+// vocabulary is what gives the address away: it follows the header, so the base
+// is the difference between where its pointer says it is and where it can
+// actually be.
+//
+// What stops that from being one subtraction is the padding some builds left
+// between the header and the vocabulary: six bytes on the Amstrad PCW, where
+// the base comes out at 0x100 because that is where CP/M loads a program, and
+// twenty-six in Los Templos Sagrados. So every width of padding that has a word
+// at the end of it is offered, and the reading that parses decides.
+func candidateBases(data []byte, whole bool, size int, big bool) []int {
+	const (
+		maxPadding = 512
+		wordLen    = 5
+	)
+
+	if whole {
+		return []int{0}
+	}
+
+	if len(data) < size+wordLen {
+		return nil
+	}
+
+	probe := &Reader{data: data, bigEndian: big, headerSize: size}
+	pointer := int(probe.word(8 + 2*ptrVocabulary))
+
+	var bases []int
+
+	// The one candidate that is arithmetic rather than a guess: a database in
+	// a file of its own ends where it says it ends, so the address it was laid
+	// at is the difference between the two.
+	//
+	// Everything below works from where the vocabulary sits, which is right
+	// after the header in the adventures of 1989 to 1991 and nowhere near it
+	// in the ones our own linker writes — its section order is its own. That
+	// is why a Spectrum database we had just built would not read back.
+	if end := int(probe.word(size - 2)); end >= len(data) {
+		bases = append(bases, end-len(data))
+	}
+
+	for pad := 0; pad <= maxPadding; pad++ {
+		at := size + pad
+		if at+wordLen > len(data) {
+			break
+		}
+
+		base := pointer - at
+		if base < 0 {
+			break
+		}
+
+		if !looksLikeWord(data[at : at+wordLen]) {
+			continue
+		}
+
+		bases = append(bases, base)
+	}
+
+	return bases
+}
+
+// lengthAccountsForFile says whether the declared length covers what is there,
+// which is what marks a database out as a file of its own rather than something
+// sitting inside a larger one.
+//
+// The match is not asked to be exact: the machines that align to a word pad the
+// end of the file, so the declared length can fall a little short of it.
+func (r *Reader) lengthAccountsForFile() bool {
+	const maxPadding = 512
+
+	return len(r.data)-r.DeclaredLength() < maxPadding
+}
+
+// headerAgrees checks that the header describes itself: a length that fits in
+// what is there, and every pointer landing between the end of the header and
+// that length.
+//
+// The length is not asked to match exactly. A database in a file of its own can
+// fall short of it, because the machines that align to a word pad the end; one
+// found inside a program or on a disk is followed by whatever came next.
+func (r *Reader) headerAgrees() bool {
+	if r.base < 0 {
+		return false
+	}
+
+	declared := r.DeclaredLength()
+	if declared <= r.headerSize || declared > len(r.data) {
+		return false
+	}
+
+	// Words from eight to the end of the header are pointers, bar the last,
+	// which is the length. A pointer of zero names a section that is not there
+	// and has nothing to be in range of.
+	for i := range (r.headerSize-8)/2 - 1 {
+		p := r.Pointer(i)
+		if p == 0 {
+			continue
+		}
+
+		if p < r.headerSize || p >= declared {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (r *Reader) word(offset int) uint16 {
+	hi, lo := r.data[offset], r.data[offset+1]
+	if !r.bigEndian {
+		hi, lo = lo, hi
+	}
+
+	return uint16(hi)<<8 | uint16(lo)
+}
+
+// address reads a word that holds an address and turns it into an offset from
+// the start of the database. The tables point at one another this way, so
+// anything read as a destination has to come through here.
+func (r *Reader) address(offset int) int {
+	return int(r.word(offset)) - r.base
+}
+
+// inRange says whether an address read out of the database lands inside it,
+// with room for need bytes.
+//
+// The lower bound matters as much as the upper one. A database found inside a
+// program or on a disk holds addresses rather than offsets, so a wrong guess at
+// where it was laid comes out as a negative address: a crash waiting to happen
+// if it is only ever checked against the end.
+func (r *Reader) inRange(addr, need int) bool {
+	return addr >= r.headerSize && need >= 0 && addr+need <= len(r.data)
+}
+
+// Pointer returns one of the header pointers, by index.
+//
+// A pointer of zero means the section is not in this database: the compression
+// table is optional, and the CGA build of El Jabato was compiled without one.
+// It stays zero rather than being relocated into an address below the base.
+func (r *Reader) Pointer(index int) int {
+	if r.word(8+2*index) == 0 {
+		return 0
+	}
+
+	return r.address(8 + 2*index)
+}
+
+func (r *Reader) BigEndian() bool     { return r.bigEndian }
+func (r *Reader) HeaderSize() int     { return r.headerSize }
+func (r *Reader) Version() byte       { return r.data[0] }
+func (r *Reader) Machine() byte       { return r.data[1] >> 4 }
+func (r *Reader) Language() byte      { return r.data[1] & 0x0F }
+func (r *Reader) NullWord() byte      { return r.nullWord() }
+func (r *Reader) NumObjects() int     { return int(r.data[3]) }
+func (r *Reader) NumLocations() int   { return int(r.data[4]) }
+func (r *Reader) NumMessages() int    { return int(r.data[5]) }
+func (r *Reader) NumSysMessages() int { return int(r.data[6]) }
+func (r *Reader) NumProcesses() int   { return int(r.data[7]) }
+func (r *Reader) DeclaredLength() int { return r.address(r.headerSize - 2) }
+
+// Base is the address the database was laid at, and Offset where it was found
+// in whatever held it. Both are zero for a database in a file of its own, and
+// both are deduced rather than read.
+func (r *Reader) Base() int { return r.base }
+
+// UnreadableProcess returns the first process that could not be read, or -1 if
+// they all could.
+func (r *Reader) UnreadableProcess() int { return r.unreadableProcess }
+
+func (r *Reader) Offset() int { return r.offset }
+
+func (r *Reader) Tokens() []string    { return r.tokens }
+func (r *Reader) Placeholder() string { return r.placeholder }
+
+// readTokens loads the compression table. It has no counter and no terminator:
+// tokens follow one another and the last byte of each has bit 7 set.
+//
+// The first one is a placeholder that no text ever refers to. Every interpreter
+// skips it — PCDAAD hardcodes "tokenPos + 1", msx2daad walks to the first
+// terminator — so the table really holds 129 entries: the placeholder and the
+// 128 that texts can name.
+func (r *Reader) readTokens() error {
+	const numTokens = 128
+
+	p := r.Pointer(ptrTokens)
+	if p == 0 {
+		// Compiled without a compression table. Every text then stands on its
+		// own, and none may refer to a token, because there are none.
+		return nil
+	}
+
+	if !r.inRange(p, 1) {
+		return fmt.Errorf("token pointer out of range: %d", p)
+	}
+
+	// raw reads one token's bytes. The top bit marks the last of them and is
+	// not part of the token.
+	raw := func() ([]byte, error) {
+		var out []byte
+
+		for {
+			if p >= len(r.data) {
+				return nil, errors.New("token table runs past the end of the file")
+			}
+
+			b := r.data[p]
+			p++
+
+			out = append(out, b&0x7F)
+
+			if b&0x80 != 0 {
+				return out, nil
+			}
+		}
+	}
+
+	next := func() (string, error) {
+		bytes, err := raw()
+		if err != nil {
+			return "", err
+		}
+
+		return charset.Decode(bytes)
+	}
+
+	// The first entry is not a token and is never referred to: every table the
+	// compilers write opens with a byte no text contains, so that the real
+	// tokens start at the number the interpreter expects. It is kept as it was
+	// read rather than decoded — ours is 0x00, which is precisely a byte no
+	// text contains and therefore one the character set has no spelling for.
+	// Decoding it was why this reader refused the databases our own compiler
+	// writes.
+	mark, err := raw()
+	if err != nil {
+		return err
+	}
+
+	r.placeholder = string(mark)
+	// How many tokens there are is not written down anywhere, and 128 is only
+	// the most a byte can name. The databases of 1989 carry all 128, so this
+	// read a fixed 128 and was right about them and wrong about ours: our own
+	// compiler prunes the table, keeping the tokens that earn their place, and
+	// then there are fewer. Reading 128 anyway walks into whatever section
+	// comes next and decodes it as tokens.
+	//
+	// What bounds the table is the section after it. A reference is only ever
+	// to a token the compiler kept, so a short table loses nothing.
+	// Told, if anyone could tell us; worked out if not. The difference is
+	// worth keeping visible rather than hiding behind one path: reading our
+	// own database is an exercise in being told, and reading a tape of 1989 is
+	// an exercise in deduction, and they are not equally trustworthy.
+	wanted := numTokens
+	if r.tokenCount > 0 {
+		wanted = r.tokenCount
+	}
+
+	end := r.sectionAfter(r.Pointer(ptrTokens))
+
+	r.tokens = make([]string, 0, wanted)
+
+	for range wanted {
+		if p >= end {
+			break
+		}
+
+		// A token is characters, and 0x00 is not one of them: the only zero
+		// the table holds is the marker that opens it, and that is already
+		// read. So a zero here is not a token at all — it is the byte a
+		// word-aligned machine pads the section with, and the table ended
+		// before it.
+		if r.data[p] == 0 {
+			break
+		}
+
+		token, err := next()
+		if err != nil {
+			return err
+		}
+
+		r.tokens = append(r.tokens, token)
+	}
+
+	return nil
+}
+
+// sectionAfter is where whatever starts at from has to stop: the nearest
+// address anything else in the database occupies.
+//
+// The header's pointers are not enough on their own, and that is the whole
+// reason this exists. A text table's pointer names its index — a list of
+// addresses — and the strings themselves lie somewhere else entirely, usually
+// just before it. So between the token table and the next header pointer there
+// can be hundreds of bytes that are already spoken for, and a reader that
+// trusted the pointers alone would walk straight into them.
+//
+// What the strings are is written down after all: every one of them is named by
+// an address inside an index. So the indices are read too, and the lowest
+// address any of them names counts just as much as a pointer does.
+func (r *Reader) sectionAfter(from int) int {
+	end := r.DeclaredLength()
+
+	lower := func(at int) {
+		if at > from && at < end {
+			end = at
+		}
+	}
+
+	for i := range (r.headerSize-8)/2 - 1 {
+		lower(r.Pointer(i))
+	}
+
+	for _, table := range []struct {
+		pointer int
+		count   int
+	}{
+		{ptrSysMessageText, r.NumSysMessages()},
+		{ptrMessageText, r.NumMessages()},
+		{ptrObjectText, r.NumObjects()},
+		{ptrLocationText, r.NumLocations()},
+	} {
+		index := r.Pointer(table.pointer)
+		if index == 0 || !r.inRange(index, 2*table.count) {
+			continue
+		}
+
+		for i := range table.count {
+			lower(r.address(index + 2*i))
+		}
+	}
+
+	return end
+}
+
+// Text decodes a string at an address, undoing the obfuscation and expanding
+// compression tokens. A decoded byte with bit 7 set is a token reference; the
+// string ends at 0x0A.
+func (r *Reader) Text(addr int) (string, error) {
+	if !r.inRange(addr, 1) {
+		return "", fmt.Errorf("text address outside the database: %d", addr)
+	}
+
+	return r.textIn(r.data, addr)
+}
+
+// XMessage decodes a text out of an .XMB, which is the file the texts that do
+// not fit in a database are kept in.
+//
+// It reads the same way a text inside the database does, and it has to: the
+// interpreter prints one by handing it to the ordinary message routine, so
+// whatever that routine understands is what an xmessage may hold. What is
+// different is only where the bytes are and how the end is found — there is no
+// index here and no length, just a terminator, which is why a file like this
+// can be read from any offset a condact names.
+//
+// See internal/back/xmessages.go for the writing of it.
+func (r *Reader) XMessage(xmb []byte, offset int) (string, error) {
+	if offset < 0 || offset >= len(xmb) {
+		return "", fmt.Errorf("xmessage at %d, and the file is %d bytes", offset, len(xmb))
+	}
+
+	return r.textIn(xmb, offset)
+}
+
+// textIn is the decoding both of them do: undo the obfuscation, expand a token
+// reference, stop at the byte that ends a text.
+func (r *Reader) textIn(data []byte, addr int) (string, error) {
+	var sb strings.Builder
+
+	for addr < len(data) {
+		code := data[addr] ^ obfuscate
+		addr++
+
+		if code == charset.EndOfText {
+			return sb.String(), nil
+		}
+
+		if code&0x80 != 0 {
+			index := int(code & 0x7F)
+			if index >= len(r.tokens) {
+				return sb.String(), fmt.Errorf("text refers to token %d, out of %d", index, len(r.tokens))
+			}
+
+			sb.WriteString(r.tokens[index])
+
+			continue
+		}
+
+		decoded, err := charset.DecodeByte(code)
+		if err != nil {
+			return sb.String(), fmt.Errorf("text at %d: %w", addr-1, err)
+		}
+
+		sb.WriteString(decoded)
+	}
+
+	return sb.String(), errors.New("unterminated text: reached the end of the file")
+}
+
+// The four text tables, by what they are rather than by which pointer holds
+// them. The pointer indices stay private: which word of the header a table
+// hangs from is this package's business, and a caller that had to know would
+// be reading the format for itself.
+func (r *Reader) SystemMessages() ([]string, error) {
+	return r.TextTable(ptrSysMessageText, r.NumSysMessages())
+}
+
+func (r *Reader) Messages() ([]string, error) {
+	return r.TextTable(ptrMessageText, r.NumMessages())
+}
+
+func (r *Reader) ObjectTexts() ([]string, error) {
+	return r.TextTable(ptrObjectText, r.NumObjects())
+}
+
+func (r *Reader) LocationTexts() ([]string, error) {
+	return r.TextTable(ptrLocationText, r.NumLocations())
+}
+
+// TextTable reads one of the four text tables.
+//
+// The header pointer does not lead to the texts but to an index of one word
+// per message, and the count comes from the header counters. The texts
+// themselves sit before the index and are never walked in order: each one is
+// reached through its own entry.
+func (r *Reader) TextTable(pointerIndex, count int) ([]string, error) {
+	index := r.Pointer(pointerIndex)
+	if !r.inRange(index, 2*count) {
+		return nil, fmt.Errorf("text index out of range: %d for %d entries", index, count)
+	}
+
+	texts := make([]string, 0, count)
+
+	for i := range count {
+		addr := r.address(index + 2*i)
+		if !r.inRange(addr, 1) {
+			return nil, fmt.Errorf("text %d points outside the file: %d", i, addr)
+		}
+
+		text, err := r.Text(addr)
+		if err != nil {
+			return nil, fmt.Errorf("text %d: %w", i, err)
+		}
+
+		texts = append(texts, text)
+	}
+
+	if r.conv != nil {
+		texts = r.conv.Texts(texts)
+
+		// The system messages are the one table where the slot itself matters,
+		// so they get asked about separately.
+		if pointerIndex == ptrSysMessageText {
+			texts = r.conv.SystemMessages(texts)
+		}
+	}
+
+	return texts, nil
+}
+
+// Condact is one instruction of a process, as the database stores it.
+type Condact struct {
+	Opcode byte
+	// Indirect is bit 7 of the opcode byte: the first parameter is then a flag
+	// number and the interpreter uses the flag's content instead.
+	Indirect bool
+	Params   []byte
+}
+
+// Entry is one line of a process table: the verb and noun it answers to, and
+// what to do about it. NoWord in either is the wildcard that matches anything.
+type Entry struct {
+	Verb     byte
+	Noun     byte
+	Condacts []Condact
+}
+
+// Processes reads the whole process section, and converts it for a version 3
+// interpreter when the caller asked for that.
+//
+// The conversion is a different thing from reading and lives in v3.go. What
+// comes back without it is what the binary says.
+func (r *Reader) Processes() ([][]Entry, error) {
+	all, err := r.processes()
+	if err != nil {
+		return nil, err
+	}
+
+	if r.noPictures {
+		all = withoutPictures(all)
+	}
+
+	if r.conv == nil {
+		return all, nil
+	}
+
+	return r.conv.Processes(all), nil
+}
+
+// processes reads the whole process section: three levels deep, a word per
+// process pointing at a table of 4-byte entries, each of which points at a
+// block of condacts.
+func (r *Reader) processes() ([][]Entry, error) {
+	const (
+		entrySize    = 4
+		endOfProcess = 0x00 // in the place of a verb
+	)
+
+	count := r.NumProcesses()
+
+	table := r.Pointer(ptrProcesses)
+	if !r.inRange(table, 2*count) {
+		return nil, fmt.Errorf("process table out of range: %d for %d processes", table, count)
+	}
+
+	all := make([][]Entry, 0, count)
+
+	for i := range count {
+		p := r.address(table + 2*i)
+
+		// A pointer that is not an address at all ends the table early. The
+		// Spectrum edition of Cozumel has one: seventy of its seventy-one
+		// processes read, and the last word of the database, where the
+		// seventy-first should point, holds 0x0091. Everything read so far is
+		// worth keeping, so it is handed back and the gap reported.
+		if !r.inRange(p, entrySize) {
+			r.unreadableProcess = i
+
+			return all, nil
+		}
+
+		var entries []Entry
+
+		for {
+			if !r.inRange(p, entrySize) {
+				return nil, fmt.Errorf("process %d: entries run outside the database", i)
+			}
+
+			if r.data[p] == endOfProcess {
+				break
+			}
+
+			condacts, err := r.condactsAt(r.address(p + 2))
+			if err != nil {
+				return nil, fmt.Errorf("process %d, entry %d: %w", i, len(entries), err)
+			}
+
+			entries = append(entries, Entry{Verb: r.data[p], Noun: r.data[p+1], Condacts: condacts})
+			p += entrySize
+		}
+
+		all = append(all, entries)
+	}
+
+	return all, nil
+}
+
+// condactsAt decodes one block.
+//
+// The arity is not in the binary, so every step depends on the condact table
+// being right: read one parameter too few and everything after it shifts. A
+// block ends at 0xFF, or at a condact that ends it by itself, in which case the
+// compiler saves the byte.
+func (r *Reader) condactsAt(p int) ([]Condact, error) {
+	const endOfCondacts = 0xFF
+
+	var condacts []Condact
+
+	for {
+		if !r.inRange(p, 1) {
+			return nil, errors.New("condacts run outside the database")
+		}
+
+		b := r.data[p]
+		p++
+
+		if b == endOfCondacts {
+			return condacts, nil
+		}
+
+		opcode := b &^ 0x80
+
+		def, found := r.Condact(opcode)
+		if !found {
+			return nil, fmt.Errorf("opcode %d is not a condact", opcode)
+		}
+
+		n := def.NumParams()
+		if p+n > len(r.data) {
+			return nil, fmt.Errorf("%s: parameters run past the end of the file", def.Name)
+		}
+
+		condacts = append(condacts, Condact{
+			Opcode:   opcode,
+			Indirect: b&0x80 != 0,
+			Params:   slices.Clone(r.data[p : p+n]),
+		})
+
+		p += n
+
+		if def.Terminal {
+			return condacts, nil
+		}
+	}
+}
+
+// Object gathers what the database says about one object. There is no object
+// record in a DDB: the data lives in parallel arrays with a pointer each, so
+// this is assembled by indexing every one of them with the same number.
+type Object struct {
+	InitialLocation byte
+	Weight          byte // 0-63
+	Container       bool
+	Wearable        bool
+	Noun            byte // NoWord when it has none
+	Adjective       byte
+	// Attributes are the sixteen extra bits version 2 added, all false in a
+	// version 1 database, which has no table for them.
+	Attributes [16]bool
+}
+
+// Word types, as the database numbers them. WordFor takes them.
+const (
+	KindVerb      = 0
+	KindNoun      = 2
+	KindAdjective = 3
+)
+
+// NoWord marks an absent word, in an object's name as well as in a process
+// entry, where it reads as a wildcard.
+const NoWord = 0xFF
+
+// Objects reads the object arrays and joins them.
+func (r *Reader) Objects() ([]Object, error) {
+	count := r.NumObjects()
+
+	locations := r.Pointer(ptrObjectLocation)
+	names := r.Pointer(ptrObjectName)
+	weights := r.Pointer(ptrObjectWeight)
+
+	for name, table := range map[string]struct{ at, size int }{
+		"initial locations": {locations, count},
+		"names":             {names, 2 * count},
+		"weights":           {weights, count},
+	} {
+		if !r.inRange(table.at, table.size) {
+			return nil, fmt.Errorf("object %s run outside the database", name)
+		}
+	}
+
+	// The extra attributes are a version 2 addition and a table of their own,
+	// one word per object. A version 1 database has no pointer for them.
+	attributes := 0
+	if r.HasObjectAttributes() {
+		attributes = r.Pointer(ptrObjectAttrs)
+		if !r.inRange(attributes, 2*count) {
+			return nil, errors.New("object attributes run outside the database")
+		}
+	}
+
+	objects := make([]Object, 0, count)
+
+	for i := range count {
+		// One byte holds the weight and the two flags: the low 6 bits are the
+		// weight, bit 6 marks a container and bit 7 something wearable.
+		packed := r.data[weights+i]
+
+		o := Object{
+			InitialLocation: r.data[locations+i],
+			Weight:          packed & 0x3F,
+			Container:       packed&0x40 != 0,
+			Wearable:        packed&0x80 != 0,
+			Noun:            r.data[names+2*i],
+			Adjective:       r.data[names+2*i+1],
+		}
+
+		if attributes != 0 {
+			// The source writes them highest bit first, so index 0 of the array
+			// is bit 15 and the columns come out in the order ParseOBJ reads.
+			bits := r.word(attributes + 2*i)
+			for b := range o.Attributes {
+				o.Attributes[b] = bits&(1<<(15-b)) != 0
+			}
+		}
+
+		objects = append(objects, o)
+	}
+
+	return objects, nil
+}
+
+// HasObjectAttributes reports whether the database carries the extra attribute
+// bits. Version 1 has no pointer for them, so there is nothing to read.
+func (r *Reader) HasObjectAttributes() bool {
+	return r.headerSize >= headerSizeV2 && r.Pointer(ptrObjectAttrs) != 0
+}
+
+// Movement is one exit of a location: a word and where it leads.
+type Movement struct {
+	Word byte
+	To   byte
+}
+
+// Connections reads the exits of every location.
+//
+// Same two-level shape as the texts: the header points at an index of one word
+// per location, and each entry is a list of one-byte pairs ending in 0xFF. A
+// location with no exits still has a list, holding just the terminator.
+func (r *Reader) Connections() ([][]Movement, error) {
+	const endOfList = 0xFF
+
+	count := r.NumLocations()
+
+	index := r.Pointer(ptrConnections)
+	if !r.inRange(index, 2*count) {
+		return nil, fmt.Errorf("connection index out of range: %d for %d locations", index, count)
+	}
+
+	all := make([][]Movement, 0, count)
+
+	for i := range count {
+		p := r.address(index + 2*i)
+		if !r.inRange(p, 1) {
+			return nil, fmt.Errorf("location %d points outside the file: %d", i, p)
+		}
+
+		var moves []Movement
+
+		for {
+			if !r.inRange(p, 1) {
+				return nil, fmt.Errorf("location %d: connections run outside the database", i)
+			}
+
+			if r.data[p] == endOfList {
+				break
+			}
+
+			if p+1 >= len(r.data) {
+				return nil, fmt.Errorf("location %d: truncated movement", i)
+			}
+
+			moves = append(moves, Movement{Word: r.data[p], To: r.data[p+1]})
+			p += 2
+		}
+
+		all = append(all, moves)
+	}
+
+	return all, nil
+}
+
+// WordFor names a vocabulary value.
+//
+// A value can be reused across types, so the type is part of the key, and the
+// caller may accept more than one: a movement is "a Verb (or Noun < 20)", and
+// this adventure declares its directions as nouns. Several words can share
+// value and type — they are synonyms — and the first in the table wins, which
+// is also the one the reference decompiler picks.
+func (r *Reader) WordFor(value byte, kinds ...byte) (string, bool) {
+	for _, kind := range kinds {
+		chosen, found := "", false
+
+		for _, e := range r.vocabulary {
+			if e.Value != value || e.Kind != kind {
+				continue
+			}
+
+			if !found {
+				chosen, found = e.Word, true
+
+				continue
+			}
+
+			if isPlainTwin(chosen, e.Word) {
+				return e.Word, true
+			}
+		}
+
+		if found {
+			return chosen, true
+		}
+	}
+
+	return "", false
+}
+
+// The letters the DAAD character set keeps below "A", and what each is without
+// its accent.
+//
+// The ñ is deliberately not here. Its plain twin is a different letter and
+// often a different word — araña and arana, cuña and cuna — and those entries
+// exist so that a player with no ñ key can still be understood, not because the
+// author spelled it that way. Folding it would turn a spider into nothing.
+var plainForm = map[rune]rune{
+	'á': 'A', 'é': 'E', 'í': 'I', 'ó': 'O', 'ú': 'U', 'ü': 'U', 'ç': 'C',
+	'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Ü': 'U', 'Ç': 'C',
+}
+
+// isPlainTwin says whether other is the same word as chosen, written without
+// the accents.
+//
+// It is what decides between two spellings of one word, and it only ever
+// chooses between spellings: a synonym that is a different word — casa beside
+// cabaña — is not a twin and is left alone.
+func isPlainTwin(chosen, other string) bool {
+	if !strings.ContainsFunc(chosen, func(r rune) bool { _, is := plainForm[r]; return is }) {
+		return false
+	}
+
+	if strings.ContainsFunc(other, func(r rune) bool { _, is := plainForm[r]; return is }) {
+		return false
+	}
+
+	return flatten(chosen) == strings.ToUpper(other)
+}
+
+func flatten(word string) string {
+	return strings.ToUpper(strings.Map(func(r rune) rune {
+		if plain, accented := plainForm[r]; accented {
+			return plain
+		}
+
+		return r
+	}, word))
+}
+
+// Byte 2 of the header, and the one place a newer target put something else
+// there.
+//
+// It held the null word the /CTL section declares, which is why every classic
+// database has 95 in it: an underscore. The MSX2 interpreter needs to know
+// which screen mode it was built for and had no room anywhere else, so for
+// that machine the byte is the subtarget instead. See drb.php:1844.
+const (
+	MachineMSX2     = 0x0F
+	classicNullWord = '_'
+	// What the subtarget byte holds: the screen mode as a number from zero,
+	// and bit 7 for the narrower character.
+	msx2ModeMask  = 0x7F
+	msx2FirstMode = 5 // the value zero means SCREEN 5
+	msx2EightWide = 0x80
+)
+
+// nullWord is the character the source writes for "no word".
+//
+// On MSX2 the byte it used to live in is the subtarget, so there is nothing to
+// read and the classic underscore is what the source gets. Reading it anyway
+// put an unprintable character in every entry of those databases, which is
+// what issue #6 was about.
+//
+// NOT VERIFIED AGAINST A REAL DATABASE. There is no MSX2 DDB in the corpus —
+// the only MSX edition we have is machine 4 — so what this rests on is drb.php
+// and nothing else. videoMode below has the same caveat.
+func (r *Reader) nullWord() byte {
+	if r.Machine() == MachineMSX2 {
+		return classicNullWord
+	}
+
+	return r.data[2]
+}
+
+// VideoMode says which MSX2 screen the database was built for, and is empty on
+// every other machine because the byte means something else there.
+//
+// The mode is stored counting from SCREEN 5, and bit 7 asks for the narrower
+// character: see getSubMachineIDByTarget at drb.php:1248-1261.
+func (r *Reader) VideoMode() string {
+	if r.Machine() != MachineMSX2 {
+		return ""
+	}
+
+	b := r.data[2]
+	width := 6
+
+	if b&msx2EightWide != 0 {
+		width = 8
+	}
+
+	return fmt.Sprintf("SCREEN %d, %d-pixel characters", int(b&msx2ModeMask)+msx2FirstMode, width)
+}
+
+// VocabularyEntry is one word of the vocabulary as the database stores it.
+type VocabularyEntry struct {
+	Word  string
+	Value byte
+	Kind  byte
+}
+
+// Vocabulary returns the table as the database stores it, in file order.
+func (r *Reader) Vocabulary() []VocabularyEntry { return r.vocabulary }
+
+// readVocabulary loads the table. Entries are seven bytes and it ends with a
+// single zero where a word would start.
+// looksLikeWord says whether five bytes of the vocabulary are a word.
+//
+// This is what tells a vocabulary from a stretch of bytes that happens to lie
+// where a wrong reading of the header points. A word is letters, padded on the
+// right with spaces to five: the accented codes count, and nothing else does.
+// The padding has to be at the end, so that a run of spaces with rubbish after
+// it is not taken for one.
+func looksLikeWord(raw []byte) bool {
+	padding := false
+
+	for _, b := range raw {
+		c := b ^ obfuscate
+
+		switch {
+		case c == ' ':
+			padding = true
+		case padding:
+			// A letter after the padding started: not a word.
+			return false
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c >= 16 && c < 32:
+			// The accented letters Spanish and Portuguese need.
+		default:
+			return false
+		}
+	}
+
+	// All five spaces is not a word either.
+	return raw[0]^obfuscate != ' '
+}
+
+func (r *Reader) readVocabulary() error {
+	const entrySize = 7
+
+	p := r.Pointer(ptrVocabulary)
+	if p == 0 || p >= len(r.data) {
+		return fmt.Errorf("vocabulary pointer out of range: %d", p)
+	}
+
+	var entries []VocabularyEntry
+
+	for {
+		if p+entrySize > len(r.data) {
+			return errors.New("vocabulary runs past the end of the file")
+		}
+
+		if r.data[p] == 0 {
+			// No adventure has an empty vocabulary: it cannot be played
+			// without one. A pointer that lands on a zero is a reading that
+			// happens to survive the header checks, not a database.
+			if len(entries) == 0 {
+				return errors.New("the vocabulary is empty")
+			}
+
+			r.vocabulary = entries
+
+			return nil
+		}
+
+		if !looksLikeWord(r.data[p : p+5]) {
+			return fmt.Errorf("the vocabulary holds something that is not a word at %d", p)
+		}
+
+		var word strings.Builder
+
+		for _, b := range r.data[p : p+5] {
+			// looksLikeWord has already said these are letters, so a code with
+			// no source form here would mean that guard is wrong.
+			decoded, err := charset.DecodeByte(b ^ obfuscate)
+			if err != nil {
+				return fmt.Errorf("the vocabulary word at %d: %w", p, err)
+			}
+
+			word.WriteString(decoded)
+		}
+
+		entries = append(entries, VocabularyEntry{
+			Word:  strings.TrimRight(word.String(), " "),
+			Value: r.data[p+5],
+			Kind:  r.data[p+6],
+		})
+
+		p += entrySize
+	}
+}

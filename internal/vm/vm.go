@@ -1,0 +1,531 @@
+// Package vm runs a DAAD database.
+//
+// It is an interpreter, not an emulator: it runs the adventure rather than a
+// machine that runs the adventure. What it follows is msx2daad's engine, which
+// is DAAD written in C by Natalia Pujol — work/msx2daad/src/daad_condacts.c and
+// its neighbours — with NextDAAD's assembler as the tie-breaker where the C is
+// unclear. The JavaScript port is not used as a source: it has bugs of its own,
+// so it can confirm a reading and never decide one.
+//
+// One thing is done differently from every interpreter of the period, and on
+// purpose. They walk the database in memory, so a process is a pair of pointers
+// and a jump is pointer arithmetic. Here the database arrives already decoded —
+// ddbfile.Reader hands back entries holding condacts holding operands — so a
+// position is a pair of indices instead. It is the same machine and it cannot
+// read off the end of a block.
+//
+// Nothing here knows what a terminal is. Output goes to a Console and input
+// comes from one, so the same machine serves a person typing, a test asserting,
+// and a program driving it. What it does as it goes is reported to a Watcher,
+// which is what a debugger listens to.
+package vm
+
+import (
+	"fmt"
+	"math/rand"
+	"time"
+
+	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
+)
+
+// The flags DAAD gives a meaning to. The numbers are the format's and are not
+// ours to choose; the names are the ones the 1991 manual uses.
+//
+// Only the ones this package needs by name are here. The rest are flags like
+// any other and the adventure decides what they mean.
+const (
+	FlagDark       = 0  // non-zero when the game is dark; see also object 0
+	FlagCarried    = 1  // how many objects the player is carrying, not counting worn
+	FlagDarkF      = 28 // what the loop sets after working out whether it is dark here
+	FlagGraphics   = 29 // what the machine can do, which here is nothing
+	FlagScore      = 30
+	FlagTurns      = 31 // two bytes, little-endian, with 32
+	FlagVerb       = 33 // the verb of the sentence being answered
+	FlagNoun1      = 34
+	FlagAdject1    = 35
+	FlagAdverb     = 36
+	FlagMaxCarried = 37 // how many objects can be carried at once
+	FlagPlayer     = 38 // where the player is
+	FlagInStream   = 41
+	FlagPrompt     = 42
+	FlagPrep       = 43
+	FlagNoun2      = 44
+	FlagAdject2    = 45
+	FlagCPNoun     = 46 // the noun "it" currently stands for
+	FlagCPAdject   = 47
+	FlagTime       = 48
+	FlagTimeFlags  = 49
+	FlagDoallObj   = 50 // the object a DOALL loop is on
+	FlagCurObj     = 51 // the last object GET, DROP, WEAR and friends touched
+	FlagStrength   = 52 // the most weight the player can carry
+	FlagObjFlags   = 53
+	FlagCurObjLoc  = 54
+	FlagCurObjWei  = 55
+	FlagCurObjCon  = 56
+	FlagCurObjWR   = 57
+	FlagCurObjAtt  = 58
+	FlagKey1       = 60
+	FlagKey2       = 61
+	FlagScreenMode = 62
+	FlagCurWindow  = 63
+)
+
+// The markers that stand where a location would, which are the same four the
+// format uses everywhere. They are repeated rather than imported so that this
+// package reads without one.
+const (
+	LocNotCreated = 252
+	LocWorn       = 253
+	LocCarried    = 254
+	LocHere       = 255
+)
+
+// NoWord is the word value that matches anything, in an entry and in a
+// sentence alike.
+const NoWord = 0xFF
+
+// Console is everything the machine needs of the world outside it.
+//
+// It is small on purpose. A console interpreter, a test and a program driving
+// the adventure from somewhere else differ in what they do with a line of
+// text, not in what the machine asks of them.
+type Console interface {
+	// Print writes text where the player will see it. The machine has already
+	// turned tokens and escapes into characters; what arrives is what should
+	// appear, with "\n" for a new line.
+	Print(text string)
+	// Input asks the player for a line and gives back what was typed. The
+	// second result is false when there is no more input, which ends the game
+	// as surely as QUIT does.
+	Input() (string, bool)
+	// AnyKey waits for a keypress. A driver with nobody at the keyboard
+	// returns straight away.
+	AnyKey()
+}
+
+// Impatient is a console that can be told to stop waiting, which is what a
+// TIME is for: the adventure says how long the player gets, and when the time
+// is up the tables run on without an order.
+//
+// It is an extra rather than part of Console because most drivers have no
+// clock worth the name — a script of commands answers at once, by definition —
+// and a console that cannot do this is not broken, it just never times out.
+type Impatient interface {
+	// InputWithin is Input with a deadline. expired says the wait ran out;
+	// the line is then meaningless and the game has not ended.
+	InputWithin(limit time.Duration) (line string, more, expired bool)
+}
+
+// Watcher is told what the machine does, for a debugger, a test or a
+// transcript to listen to. Every method may be left empty.
+//
+// It is reported to rather than asked, and it cannot change what happens: a
+// debugger that can alter the run by observing it is not showing the run.
+type Watcher interface {
+	// Condact is called before each one runs, with the process and entry it
+	// belongs to.
+	Condact(process, entry int, c ddbfile.Condact)
+	// Flag is called when one changes, with what it held before.
+	Flag(number int, was, now byte)
+	// Process is called when one is pushed, and again with running false when
+	// it is popped.
+	Process(number int, running bool)
+	// Moved is called when an object changes place.
+	Moved(object int, from, to byte)
+}
+
+// NoWatcher ignores everything, which is what a run nobody is watching wants.
+type NoWatcher struct{}
+
+func (NoWatcher) Condact(int, int, ddbfile.Condact) {}
+func (NoWatcher) Flag(int, byte, byte)              {}
+func (NoWatcher) Process(int, bool)                 {}
+func (NoWatcher) Moved(int, byte, byte)             {}
+
+// object is one object's mutable state. Its name and weight come from the
+// database and do not change; where it is does.
+type object struct {
+	location  byte
+	weight    byte
+	container bool
+	wearable  bool
+	noun      byte
+	adjective byte
+}
+
+// frame is one process on the stack: which one, how far through it, and what a
+// DOALL running inside it has to come back to.
+//
+// The C keeps pointers into the database for all of this. Indices say the same
+// thing and cannot point between two condacts.
+type frame struct {
+	process int
+	entry   int // which entry of that process
+	condact int // which condact of that entry
+
+	// running says whether the entry this frame points at has been matched
+	// against the sentence and is being executed. A frame that is not running
+	// has to find its next matching entry before anything happens, which is
+	// what makes a process start at the first entry that answers rather than
+	// at the first entry.
+	//
+	// It is the C's checkEntry, and leaving it out is not a small mistake: a
+	// process would run its entry zero whatever the player typed. In La
+	// Aventura Original that is "> AD _ MESSAGE 139", so every command
+	// answered with the list of people who also worked on the game.
+	running bool
+
+	// doall is where a DOALL in this process sends execution back to, and -1
+	// in the condact when there is no loop running. doallWhere is the place
+	// it is going through, which the operand named and nothing else records.
+	doallEntry   int
+	doallCondact int
+	doallWhere   byte
+}
+
+// Machine runs one database.
+type Machine struct {
+	db *ddbfile.Reader
+
+	processes [][]ddbfile.Entry
+	texts     texts
+	objects   []object
+	conns     [][]ddbfile.Movement
+	vocab     []ddbfile.VocabularyEntry
+
+	flags [256]byte
+	stack []frame
+
+	console Console
+	watch   Watcher
+
+	// done is the "something happened" that ISDONE asks about. Starting a
+	// process clears it; see push.
+	done bool
+	// continuing is false once a condition in the current entry has failed,
+	// which is how an entry gives up without ending the process.
+	continuing bool
+	// finished is set by QUIT and by running out of input, and is what stops
+	// the machine rather than any process returning.
+	finished bool
+	// trouble is a condact that could not do its job, as opposed to one that
+	// decided not to. It stops the machine, because what it means is that the
+	// adventure asked for something this cannot give it — and an adventure
+	// quietly missing a line of text is worse than one that stops and says
+	// which line. Only XMES sets it so far: see exec, which is where it is
+	// turned back into an error.
+	trouble error
+	// restart asks the loop to begin again from process zero.
+	restart bool
+	// inputs is how many lines the player has given, which is the only measure
+	// of whether a turn got anywhere. See Run.
+	inputs int
+
+	// literal is the phrase the player put in quotes, kept back from the
+	// sentence it was typed in so that PARSE 1 can have it.
+	//
+	// It is what talking to somebody is made of. DECIR "SIGUEME" is one line
+	// holding two sentences for two different readers: the verb is the
+	// player's, and the phrase is for whoever the verb hands it to. See
+	// useLiteralSentence, daad_parser_sentences.c:272.
+	literal string
+
+	// indir carries what an INDIR condact left for the one after it.
+	//
+	// Bit 7 of an opcode makes the first operand indirect and there is nowhere
+	// in the encoding to say the same of the second, so version 3 does it with
+	// a condact: INDIR names a flag, and the interpreter writes that flag's
+	// value over the second operand of whatever comes next. In a database that
+	// is literally a poke into the process block, *(pPROC + 2) — see
+	// do_INDIR, daad_condacts.c:2495. Here the condacts arrive decoded, so
+	// what the poke would have changed is held until the next one runs.
+	indir struct {
+		pending bool
+		value   byte
+	}
+	// spanish is what the database was built for, which decides how an
+	// object's article is read out. See objectName.
+	spanish bool
+
+	// picture is the last one the adventure asked for, and pictured whether it
+	// ever asked. There is no screen here, but what it asked for is still worth
+	// knowing: it is the only way a test can tell that the right illustration
+	// goes with the right room. See the PICTURE condact.
+	picture  byte
+	pictured bool
+
+	// random is the dice, made on first use. It is the machine's own rather
+	// than the package-level one so that a run can be repeated: an adventure
+	// with a CHANCE in it gives a different game every time, and a test that
+	// cannot ask for the same game twice is a test that fails on its own
+	// schedule. See SetSeed and dice.
+	random *rand.Rand
+}
+
+// texts is the four tables, read once.
+type texts struct {
+	system    []string
+	messages  []string
+	objects   []string
+	locations []string
+	// xmessages is not a table and is not read once: it is the .XMB whole, the
+	// bytes as they sit in the file. There is no index in it and no count — a
+	// condact names an offset and the text there ends where it ends — so there
+	// is nothing to read in advance. See XMES, and Reader.XMessage.
+	xmessages []byte
+}
+
+// New reads a database and gets it ready to run.
+func New(r *ddbfile.Reader, console Console, watch Watcher) (*Machine, error) {
+	if watch == nil {
+		watch = NoWatcher{}
+	}
+
+	m := &Machine{db: r, console: console, watch: watch}
+
+	var err error
+
+	if m.processes, err = r.Processes(); err != nil {
+		return nil, fmt.Errorf("reading the processes: %w", err)
+	}
+
+	if m.conns, err = r.Connections(); err != nil {
+		return nil, fmt.Errorf("reading the connections: %w", err)
+	}
+
+	if m.texts.system, err = r.SystemMessages(); err != nil {
+		return nil, fmt.Errorf("reading the system messages: %w", err)
+	}
+
+	if m.texts.messages, err = r.Messages(); err != nil {
+		return nil, fmt.Errorf("reading the messages: %w", err)
+	}
+
+	if m.texts.objects, err = r.ObjectTexts(); err != nil {
+		return nil, fmt.Errorf("reading the object texts: %w", err)
+	}
+
+	if m.texts.locations, err = r.LocationTexts(); err != nil {
+		return nil, fmt.Errorf("reading the location texts: %w", err)
+	}
+
+	objects, err := r.Objects()
+	if err != nil {
+		return nil, fmt.Errorf("reading the objects: %w", err)
+	}
+
+	m.objects = make([]object, len(objects))
+	for i, o := range objects {
+		m.objects[i] = object{
+			location: o.InitialLocation, weight: o.Weight,
+			container: o.Container, wearable: o.Wearable,
+			noun: o.Noun, adjective: o.Adjective,
+		}
+	}
+
+	m.vocab = r.Vocabulary()
+
+	const spanish = 1
+
+	m.spanish = r.Language() == spanish
+
+	return m, nil
+}
+
+// Run starts the adventure and returns when it ends.
+//
+// What that means is the whole of the main loop, which in DAAD is four lines:
+// clear the flags, empty the process stack, push process zero and run it. Every
+// game loop a player would recognise is written in the database rather than
+// here — see docs/DAAD_v2_v3_Research/07-daad-v3.md section 11.
+func (m *Machine) Run() error {
+	m.reset()
+
+	// Turns that have gone round without the player saying anything. A RESTART
+	// is how the loop asks for another go, and the one thing it cannot do is
+	// ask forever: a turn that restarts without having read a line has changed
+	// nothing that could make the next turn end differently.
+	//
+	// Left unguarded that is not a hang but a flood, because every one of those
+	// turns prints the location first. One of them wrote 59 GB to a file that
+	// had already been deleted, so nothing on disk showed it and only the
+	// process holding it open did.
+	spins := 0
+
+	const spinLimit = 1000
+
+	for !m.finished {
+		before := m.inputs
+
+		m.restart = false
+		m.stack = m.stack[:0]
+		m.push(0)
+
+		if err := m.runStack(); err != nil {
+			return err
+		}
+
+		// Only a RESTART asks for another turn of this loop. Anything else
+		// that empties the stack has ended the game.
+		if !m.restart {
+			return nil
+		}
+
+		if m.inputs > before {
+			spins = 0
+
+			continue
+		}
+
+		if spins++; spins > spinLimit {
+			return fmt.Errorf("the adventure restarted %d times without reading a line: "+
+				"it is looping, and every turn of it prints", spins)
+		}
+	}
+
+	return nil
+}
+
+// reset puts the machine where initFlags and initializePROC leave it.
+func (m *Machine) reset() {
+	m.flags = [256]byte{}
+	m.stack = m.stack[:0]
+	m.done, m.finished = false, false
+
+	// A half-finished indirection belongs to the condact that was going to
+	// consume it, and that condact is not going to run now. inputs is left
+	// alone on purpose: it counts the player, not the game, and the loop's
+	// guard against restarting forever needs it to carry across. The dice are
+	// left alone too: a seed is asked for from outside and a RESTART is not a
+	// reason to go back on it.
+	m.indir.pending = false
+	m.picture, m.pictured = 0, false
+
+	// What the machine can do. A console has no graphics and no mouse, and
+	// saying so is better than leaving an adventure to find out.
+	m.flags[FlagGraphics] = 0
+}
+
+func (m *Machine) push(process int) {
+	m.watch.Process(process, true)
+
+	// Starting a process forgets whatever was done before it, so that an
+	// ISDONE after a PROCESS answers about that process and nothing else.
+	//
+	// It is the whole use of the condact. The main loop of La Aventura
+	// Original asks "PROCESS 5 / ISDONE / REDO": if the response tables
+	// answered the player, go round for the next order, and if they did not,
+	// fall through to trying it as a movement and then to saying "No puedes
+	// hacerlo". With done left standing, the loop's own turn counter two
+	// entries earlier — "PLUS 31 1", an action like any other — made ISDONE
+	// true for ever, so the fall-through never happened and every order the
+	// tables had no answer for was met with silence.
+	//
+	// Four interpreters of the five clear it here: PCDAAD at condacts.pas:1375
+	// and msx2daad at the foot of pushPROC, daad_condacts.c:126, with jDAAD
+	// and ZXDAAD128 beside them. NextDAAD is the odd one and is odd on
+	// purpose. Popping leaves it alone in all of them, which is what carries
+	// the subprocess's answer back out. See
+	// docs/DAAD_v2_v3_Research/05-flujo-ejecucion.md section 3.
+	m.done = false
+
+	// Entry -1 and not 0: the first thing the process does is step forward to
+	// an entry that matches, and it has to be able to land on entry zero.
+	m.stack = append(m.stack, frame{
+		process: process, entry: -1, condact: 0,
+		doallEntry: -1, doallCondact: -1,
+	})
+}
+
+func (m *Machine) pop() {
+	if len(m.stack) == 0 {
+		return
+	}
+
+	m.watch.Process(m.top().process, false)
+	m.stack = m.stack[:len(m.stack)-1]
+}
+
+func (m *Machine) top() *frame { return &m.stack[len(m.stack)-1] }
+
+// holds says whether f is still the frame on top.
+//
+// It cannot be a comparison against top(), because the thing it is asked about
+// is a condact having changed the stack, and one of the ways it can change it
+// is to empty it: the outermost process is allowed to return. La Aventura
+// Original's second part does exactly that on its first turn, and asking for
+// the frame afterwards read off the end of the slice and crashed.
+func (m *Machine) holds(f *frame) bool {
+	return len(m.stack) > 0 && m.top() == f
+}
+
+// dice is the machine's randomness, made on first use.
+//
+// Lazily rather than in New, because half the tests in this package build a
+// Machine by hand with the two or three fields they are about — which is the
+// right way to test a condact — and a nil generator would turn the first
+// CHANCE any of them reached into a crash a long way from its cause.
+func (m *Machine) dice() *rand.Rand {
+	if m.random == nil {
+		m.random = newDice(time.Now().UnixNano())
+	}
+
+	return m.random
+}
+
+// newDice is where a generator comes from, in one place so that the seeded and
+// the unseeded kind cannot drift apart. See SetSeed.
+//
+//nolint:gosec // a game's dice, not cryptography
+func newDice(seed int64) *rand.Rand { return rand.New(rand.NewSource(seed)) }
+
+// setFlag is the only way a flag changes, so that a watcher sees every one.
+func (m *Machine) setFlag(number int, value byte) {
+	was := m.flags[number&0xFF]
+	m.flags[number&0xFF] = value
+
+	if was != value {
+		m.watch.Flag(number&0xFF, was, value)
+	}
+}
+
+// move is the only way an object changes place, for the same reason.
+//
+// Being sent "here" is resolved to the room the player is in, which is what
+// makes it a place at all. 255 is not somewhere an object can be: it is the
+// word for wherever the player is standing, and what gets left on that floor
+// holds the room's own number — which is what at says, in so many words, two
+// functions down. CREATE is the same movement with the flag written out, and
+// PLACE with a 255 is the same thing said shorter.
+//
+// Resolving it here rather than in each condact is what closes it: PLACE, PUTO
+// and SWAP are the three that can carry a 255 in from an operand and all three
+// come through here. And it holds itself up — nothing stores a 255, so nothing
+// can read one back.
+//
+// Both references store the 255 as it comes. msx2daad does
+// (_internal_placeObject, daad_condacts.c:879) and NextDAAD calls it runtime
+// error 2 outright, "object sent to location 255". Either way the object lands
+// in a room that does not exist, where listObjects will not name it and get
+// will not pick it up. The interpreter of 1989 cannot have done that: the
+// second part of La Aventura Original leaves the dwarf's axe with "PLACE 14
+// 255" so that the player can throw it back at him, and if that never worked
+// the whole of its CARRIED 14 branch — a fifty-fifty, a latch and a count of
+// dead dwarves — was dead code the day it shipped. Three adventures of the
+// five use the idiom, thirteen times between them.
+func (m *Machine) move(object int, to byte) {
+	if object < 0 || object >= len(m.objects) {
+		return
+	}
+
+	if to == LocHere {
+		to = m.flags[FlagPlayer]
+	}
+
+	from := m.objects[object].location
+	m.objects[object].location = to
+
+	if from != to {
+		m.watch.Moved(object, from, to)
+	}
+}

@@ -1,0 +1,87 @@
+# A release, which is what a tag means here.
+#
+# Pushing a tag is the whole trigger: no button, no branch, no input to fill
+# in. The version is not a thing somebody types — it is the tag, and the same
+# tag goes into the archive names and inside the four binaries. One source for
+# it means a download called v1.2.3 cannot hold a qdaad that says anything
+# else.
+#
+# And it publishes. Tagging is already the deliberate act, so asking for a
+# second one would only mean a release sitting unnoticed as a draft while
+# somebody waits for a download that is already built.
+#
+# make dist is the build, not a copy of it written again here. It runs the
+# linters and the suite first, so a release that would not pass CI does not
+# happen, and then cross-compiles the four tools for the six machines. See the
+# Makefile.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      # The whole history, because make dist asks git which tag this is and a
+      # shallow clone of one commit cannot answer. The tag is handed over
+      # explicitly further down anyway — this is so that a build run by hand in
+      # the same checkout agrees with it.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Nothing is installed here on purpose. The Windows archives are made
+      # with zip, which ubuntu-24.04 already carries — and an apt-get install
+      # with stale package lists is a way for a release to fail at the one
+      # moment nobody wants to debug it.
+      #
+      # VERSION comes from the tag that triggered this rather than from git
+      # describe: the two agree, and the one that cannot be wrong is the one
+      # GitHub already knows.
+      - name: Build the release
+        run: make dist VERSION="${GITHUB_REF_NAME}"
+
+      # Said out loud before anything is published, because an archive whose
+      # name and contents disagree about the version is the one mistake this
+      # workflow exists to make impossible.
+      - name: Check the binaries say what the tag says
+        run: |
+          set -e
+          tar -xzf "dist/QDAAD_${GITHUB_REF_NAME}_Linux_amd64.tar.gz" -C dist
+          for tool in qdaad qundaad qpack qrun; do
+            said=$("dist/QDAAD_${GITHUB_REF_NAME}_Linux_amd64/$tool" --version)
+            echo "$said"
+            case "$said" in
+              *"${GITHUB_REF_NAME}"*) ;;
+              *) echo "::error::$tool says '$said', and the tag is ${GITHUB_REF_NAME}"; exit 1 ;;
+            esac
+          done
+          rm -rf "dist/QDAAD_${GITHUB_REF_NAME}_Linux_amd64"
+
+      # Published outright, not as a draft: pushing a tag is already the
+      # deliberate act, and nothing else triggers this. The gate that matters
+      # is the step above — a release whose binaries disagreed with its name
+      # never gets here — rather than somebody pressing a button afterwards.
+      #
+      # The notes are generated from what changed since the last tag. Writing
+      # better ones is editing the release afterwards, which is a thing that
+      # can be done calmly; what cannot be undone calmly is a download that was
+      # never built.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "QDAAD ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/QDAAD_*.tar.gz dist/QDAAD_*.zip dist/QDAAD_*_checksums.txt

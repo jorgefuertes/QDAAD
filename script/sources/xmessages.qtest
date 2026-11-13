@@ -1,0 +1,41 @@
+TEST "Xmensajes, leídos del fichero que los guarda"
+
+; La aventura de script/sources/xmessages.sce, que no tiene más propósito que
+; imprimir xmensajes. Lo que se comprueba aquí es lo que ninguna comparación de
+; bytes puede comprobar: que se leen.
+;
+; Un xmensaje no está en la base de datos. El condacto lleva un desplazamiento
+; dentro de un fichero aparte, y el texto de ahí acaba en un byte terminador en
+; vez de medirse — así que un desplazamiento mal calculado no da un error, da
+; otro texto, o medio texto, o el siguiente. Por eso lo que se mira es el texto
+; completo y no que haya salido algo.
+
+STEP "La biblioteca, y el fichero todavía sin abrir"
+    EXPECT La biblioteca. Hay un libro en la mesa, y una carta junto a él.
+END
+
+STEP "Tres xmensajes seguidos, cada uno en su línea"
+    INPUT leer carta
+    EXPECT La carta está escrita con una letra menuda y apretada.
+    EXPECT Dice que el libro de la mesa no es el que buscas.
+    EXPECT Y que el que buscas no está en la biblioteca.
+END
+
+; La diferencia entre los dos condactos, que es un salto de línea y nada más:
+; el XMES de en medio no lo lleva, así que su texto y el del XMESSAGE que le
+; sigue salen pegados en el mismo renglón.
+STEP "XMES no rompe la línea y XMESSAGE sí"
+    INPUT mirar libro
+    EXPECT El libro de la mesa no es el que buscas.
+    EXPECT Las páginas están en blanco.
+END
+
+STEP "Un xmensaje con el nombre vacío de por medio"
+    INPUT hablar
+    EXPECT No hay nadie en la biblioteca a quien hablar.
+END
+
+STEP "Y lo que no es un xmensaje sigue saliendo de la base de datos"
+    INPUT coger carta
+    EXPECT No puedo hacer eso.
+END

@@ -1,0 +1,12 @@
+version: "2"
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+    - golines
+  settings:
+    golines:
+      max-len: 120
+      tab-len: 4
+      chain-split-dots: true

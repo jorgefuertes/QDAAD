@@ -1,0 +1,704 @@
+# 07 — Qué es exactamente DAAD v3
+
+DAAD v3 es la primera versión nueva de DAAD desde los años noventa
+(`daad-ready/WHATSNEW.TXT:4-5`). Este documento delimita con precisión qué cambia y, sobre todo,
+qué **no** cambia.
+
+---
+
+## 1. La conclusión, primero
+
+**v3 no es un formato nuevo. Es un modo de ejecución nuevo sobre el mismo formato.**
+
+No hay ni un `#ifdef` de formato en el backend. La versión se selecciona con un único byte y se
+despacha **en tiempo de ejecución** dentro del intérprete. La superficie en el compilador es
+pequeña; la superficie semántica, en los intérpretes, es mayor.
+
+### Prueba directa
+
+**[V]** `BLANK_EN.DSF` compilado para ZX/128K con y sin `-v3` produce 2 DDB de **2038 bytes
+cada uno** que difieren en **exactamente un byte**:
+
+```text
+offset 0x0000:  v2 = 02     v3 = 03
+```
+
+Nada más. Mismos punteros, mismas secciones, mismos tamaños.
+
+### Qué NO es v3
+
+Conviene decirlo explícitamente, porque son las suposiciones habituales:
+
+| Suposición | Realidad |
+|---|---|
+| "v3 cambia la cabecera" | No. Los 34 bytes y los 13 vectores son idénticos |
+| "v3 tiene superbancos o paginación" | No. Sigue siendo una imagen plana de ≤64 KB (`drb.php:2074`). La paginación existe solo en el fork ZXDAAD128, que es otra cosa |
+| "v3 sube el límite de 255" | No. `MAX_MESSAGES_PER_TABLE`, `MAX_PROCESSES`, `MAX_OBJECTS`, `MAX_PARAMETER_RANGE` son incondicionales en `UConstants.pas:18-27` |
+| "v3 amplía el espacio de opcodes" | No puede: el bit 7 del opcode está ocupado por la indirección. **Sí añade condactos, pero rellenando 3 huecos que ya existían** (§2) |
+| "ZXDAAD128 es v3" | No. Escribe versión 3 pero es un formato bancarizado distinto. Ver [02-formato-ddb.md](02-formato-ddb.md#9-una-variante-que-no-es-daad-v3-zxdaad128) |
+
+La forma real de superar los 255 mensajes no es v3 sino el modo no-clásico, que derrama MTX en
+STX y LTX reescribiendo el opcode (`UMessageList.pas:76-109`).
+
+---
+
+## 2. Condactos nuevos, opcodes reutilizados
+
+**v3 sí añade condactos.** `WHATSNEW.TXT:57` anuncia "New condact SETAT" y `:65` "New
+metacondact GETKEY". Lo que no añade son **opcodes**: los 3 que estrena ocupaban ya huecos
+llamados `dumb` en la tabla de v2, con cero parámetros y sin efecto.
+
+`ApplyV3Changes` (`UCondacts.pas:276-292`), invocada desde `drf.pas:394` cuando se pasa `-v3`,
+reescribe la tabla **en memoria**:
+
+| Opcode | v2 | v3 | P | Tipos | ¿Lo escribe el autor? |
+|---|---|---|---|---|---|
+| 122 | `dumb` | **`INDIR`** | 1 | value | **No.** Lo genera el compilador ante un `@` en el segundo parámetro (§3) |
+| 124 | `dumb` | **`SETAT`** | 2 | value, value | **Sí.** Es el condacto nuevo de v3 |
+| 120 | `dumb` | **`XMES`** | 2 | — | **Sí**, pero ya existía en v2 como llamada a Maluva; v3 lo hace nativo (§6) |
+
+Y fuera del binario, un pseudo-condacto nuevo: **`GETKEY`** (código 143), que el backend traduce
+a `PAUSE 0` y que **exige `-v3`** (§7).
+
+Resumiendo para un autor: v3 le da `SETAT`, `GETKEY`, `XMES` sin Maluva y la indirección del
+segundo parámetro. Para un implementador de compilador, eso son 3 opcodes que antes no hacían
+nada y un pseudo-condacto más.
+
+`XMES` no aparece en `ApplyV3Changes` porque el frontend nunca lo genera directamente: el
+pseudo-condacto `XMES` (código 128) lo traduce el backend a opcode 120 (`XMES_FINAL_OPCODE`,
+`drb.php:45`).
+
+---
+
+## 3. Indirección del segundo parámetro
+
+Es la novedad más visible para el autor y la más ingeniosa de implementación.
+
+En v2 solo el primer parámetro admite `@`. Con `-v3`, `drf.pas:392` sube
+`MAX_PARAM_ACCEPTING_INDIRECTION` de 1 a 2, y `LET 100 @200` pasa a ser sintaxis válida.
+
+**[V]** Sin `-v3` el frontend rechaza el fuente:
+`295:29:IND.DSF: Indirection is not allowed in this parameter.`
+
+### Cómo funciona: código automodificable
+
+No hay bit disponible en el opcode para señalarlo, así que el compilador **antepone un condacto
+`INDIR`** (`drb.php:1139-1144`):
+
+```php
+if ($hasSecondParameterIndirection)
+{
+    writeByte($outputFileHandler, INDIR_OPCODE); // 122
+    writeByte($outputFileHandler, $condact->Param2);
+    $currentAddress+=2;
+}
+```
+
+Y en tiempo de ejecución `INDIR` **parchea el DDB en RAM** (`PCDAAD/condacts.pas:2182-2189`):
+
+```pascal
+procedure _INDIR;
+begin
+ if (V3CODE) then writeByte(CondactPTR+3, getFlag(Parameter1));
+ done := true;
+end;
+```
+
+La aritmética: cuando `_INDIR` se ejecuta, `CondactPTR` ya apunta a su operando. Sea `P` esa
+posición:
+
+```text
+P     = número de flag (operando de INDIR)
+P+1   = opcode del condacto siguiente
+P+2   = parámetro 1 del siguiente
+P+3   = parámetro 2 del siguiente     ← CondactPTR+3, lo que se parchea
+```
+
+**[V]** `LET 100 @200` compilado para ZX/128K produce, en el offset 1715 del DDB:
+
+```text
+7A C8      INDIR 200          ; opcode 122, flag 200
+33 64 C8   LET 100, 200       ; opcode 51, param1 = 100, param2 = marcador
+```
+
+El marcador del segundo parámetro es el propio número de flag; `INDIR` lo sobrescribe con el
+contenido del flag antes de que `LET` lo lea.
+
+### El marcador es indiferente
+
+DRC escribe ahí el número de flag por comodidad —es el valor que ya tiene a mano
+(`drb.php:1141`)—, pero **su contenido da igual**: el `INDIR` que precede lo sobrescribe siempre
+antes de que nadie lo lea. El propio autor lo formula con un 0 (`DAAD V3 CAMBIOS.txt:13-14`):
+
+```text
+LET 100 @200  =>  INDIR 200   LET 100 0
+```
+
+Para un compilador nuevo esto significa que puede emitir lo que quiera en esa posición. Para un
+intérprete, lo contrario y más importante: **no puede deducir nada del valor del marcador**, ni
+usarlo para detectar que hubo indirección.
+
+### Indirección doble
+
+`@` en los dos parámetros a la vez es válido y **no necesita nada nuevo**: los dos mecanismos son
+ortogonales. El primero va en el bit 7 del opcode y el segundo en el `INDIR` previo
+(`DAAD V3 CAMBIOS.txt:14`):
+
+```text
+LET @100 @200  =>  INDIR 200   LET @100 0
+```
+
+En el backend se ve en el orden de las tres escrituras (`drb.php:1131` y `:1139-1144`): primero
+se calcula `$opcode | 0x80` por la indirección del parámetro 1, después se emite el par
+`INDIR, flagno`, y solo entonces el opcode ya marcado. El `INDIR` queda **delante del opcode con
+el bit 7 puesto**, no entre el opcode y sus parámetros.
+
+### Consecuencia crítica de portabilidad
+
+**El DDB tiene que estar en memoria escribible.** Eso descarta ejecutar desde ROM y complica
+cualquier intérprete que pagine el DDB en una ventana de solo lectura.
+
+NextDAAD, cuyo DDB vive en páginas de 8 KB mapeadas, **no puede parchear**. Implementa `INDIR`
+con un mecanismo de sustitución de un solo uso: guarda el valor en `indirArg2`/`indirValid` y lo
+consume el recorredor de condactos al leer el siguiente parámetro 2
+(`overlay0.asm:505-518`, `engine.asm:426-448`). El resultado observable es idéntico.
+
+Cualquier intérprete nuevo debería seguir el camino de NextDAAD: es más limpio y no obliga a que
+el DDB sea escribible.
+
+---
+
+## 4. `SETAT` y el banco alternativo de atributos
+
+`SETAT valor, operación` manipula un bit del banco de atributos
+(`PCDAAD/condacts.pas:2192-2210`):
+
+```pascal
+if (getFlagBit(FOBJECT_PRINT_FLAGS, 1)) then baseFlag := 91 else baseFlag := 59;
+finalFlag := baseFlag - (Parameter1 div 8);
+bit := Parameter1 mod 8;
+Parameter2 := Parameter2 and 3;
+if (Parameter2 = 3) then Parameter2 := 2;
+case Parameter2 of
+    0: ClearFlagBit(finalFlag, bit);
+    1: SetFlagBit(finalFlag, bit);
+    2: ToggleFlagBit(finalFlag, bit);
+end;
+```
+
+Puntos a fijar:
+
+- El direccionamiento es **descendente**: `flag = base − (valor div 8)`, `bit = valor mod 8`.
+  Es exactamente el mismo esquema que ya usaban `HASAT` y `HASNAT`.
+- La base es **59** normalmente, y **91** si el bit 1 del flag 53 está activo. Es decir, v3
+  abre un segundo banco de atributos que ocupa los **flags 60 a 91**.
+- La operación se enmascara con 3, y el valor 3 se trata como 2. Operaciones: **0 = borrar,
+  1 = activar, 2 = conmutar**.
+
+El uso previsto es dar atributos direccionables por bit a localidades y conexiones.
+`MAX_BLOCKABLE_CONNECTIONS = 128` (`UConstants.pas:21`) es el techo pensado, aunque la constante
+está declarada y nunca se usa.
+
+> **Divergencia real.** `SETAT` está correctamente condicionado a v3 en PCDAAD, pero
+> **`HASAT`/`HASNAT` aplican el banco alternativo sin comprobar la versión**
+> (`PCDAAD/condacts.pas:1213-1226`). Un juego v2 que use el bit 1 del flag 53 como scratch verá
+> sus `HASAT` leyendo los flags 60–91. msx2daad y NextDAAD sí lo condicionan; NextDAAD documenta
+> la discrepancia y elige seguir a msx2daad (`overlay0.asm:436-441`).
+
+---
+
+## 5. Los 5 bits nuevos del flag 53
+
+`msx2daad/include/daad.h:55-62`, confirmado en `NextDAAD/src/nextdaad.inc:555-563`.
+
+| Bit | Valor | Constante | Significado |
+|---|---|---|---|
+| 0 | 1 | `F53_DOALLNONE` | El `DOALL` no encontró ningún objeto |
+| 1 | 2 | `F53_ALTFLAGS` | Banco de atributos con base 91 en vez de 59 |
+| 2 | 4 | `F53_NOPRONOUN` | Sin enclíticos para verbos de valor ≥ 240 |
+| 4 | 16 | `F53_PREPFIRST` | Hubo una preposición antes del nombre 1 |
+| 5 | 32 | `F53_UNRECWRD` | Hubo una palabra no reconocida tras el verbo |
+| 6 | 64 | — | (v2) Listado continuo |
+| 7 | 128 | `F53_LISTED` | (v2) `LISTOBJ` listó objetos |
+
+Los bits 0, 4 y 5 los escribe el intérprete; los bits 1 y 2 los escribe el autor para configurar
+el comportamiento. El bit 3 no se usa.
+
+Estos 5 bits son, en la práctica, la mitad del valor de v3: permiten distinguir
+"no entiendo la palabra X" de "no entiendo la frase", detectar preposiciones adelantadas y
+reaccionar a un `DOALL` vacío.
+
+---
+
+## 6. `XMES` deja de depender de Maluva
+
+En v2, imprimir un mensaje externo (un XMESSAGE, alojado en el fichero `.XMB`) requiere la
+extensión Maluva y se codifica como una llamada `EXTERN` de 3 parámetros
+(`drb.php:854-863`):
+
+```text
+EXTERN offsetLo, 3, offsetHi
+```
+
+En v3 es un condacto nativo de 2 parámetros (`drb.php:840-851`):
+
+```text
+opcode 120, offsetLo, offsetHi
+```
+
+> **El orden es siempre LSB, MSB, con independencia del endianness del target**
+> (`DAAD V3 CAMBIOS.txt:40`). No es una excepción del formato sino una consecuencia de cómo se
+> emite: los dos bytes no son un word, son dos parámetros de condacto sueltos, y `drb.php:849-850`
+> los calcula sin mirar el target ni `$isLittleEndian`:
+>
+> ```php
+> $condact->Param1 = $offset & 0xFF;          // Offset LSB
+> $condact->Param2 = ($offset & 0xFF00) >> 8; // Offset MSB
+> ```
+>
+> Es una trampa real para Amiga y ST, donde todo lo demás del DDB va en big endian. Lo mismo vale
+> para la forma v2 vía `EXTERN`, donde el MSB viaja en `Param3` (`drb.php:860-862`).
+
+El intérprete lee el segundo parámetro directamente en lugar de robar el byte siguiente
+(`PCDAAD/condacts.pas:373-386`). El corolario está explícito en `PCDAAD/pcdaad.pas:291`:
+
+```pascal
+if V3CODE then MaluvaDisabled := true;
+```
+
+Es decir, **en v3 Maluva desaparece del camino**, con lo que se recuperan unos 2 KB de memoria
+en las plataformas de 8 bits.
+
+---
+
+## 7. `PAUSE 0` y `GETKEY`
+
+En v3, `PAUSE 0` deja de ser una pausa de 256/50 segundos y pasa a **esperar una pulsación,
+dejando el código de tecla en los flags 60 y 61** —`fKey1` y `fKey2`, los mismos que usa `INKEY`
+([05-flujo-ejecucion.md §6](05-flujo-ejecucion.md))— (`PCDAAD/condacts.pas:892`).
+
+El pseudo-condacto `GETKEY` es azúcar sintáctico: el backend lo emite como `PAUSE 0`
+(`drb.php:948-956`) y **exige `-v3`**:
+
+```php
+if ((!$v3code)) Error('GETKEY condact requires DAAD v3');
+```
+
+### Dos divergencias entre la especificación y los intérpretes
+
+La especificación del autor dice que `PAUSE 0` espera a que se pulse una tecla **y a que se
+vuelva a soltar** (`DAAD V3 CAMBIOS.txt:26`). **Ningún intérprete revisado espera la soltura:**
+
+```pascal
+procedure _GETKEY;                    { PCDAAD/condacts.pas:2063-2071 }
+var inkey : word;
+begin
+  REPEAT UNTIL Keypressed;
+  inkey := ReadKey;
+  setflag(FKEY1, inkey and $FF);
+  setflag(FKEY2, (inkey and $FF00) SHR 8);
+  done := true;
+end;
+```
+
+NextDAAD hace lo mismo con `key_wait_char` (`overlay0.asm:1877-1894`). La consecuencia práctica
+es el rebote: dos `GETKEY` seguidos pueden devolver los dos la misma pulsación si el jugador
+mantiene la tecla. Un intérprete nuevo debería seguir la especificación y esperar la soltura;
+uno que quiera compatibilidad exacta con lo existente, no.
+
+Y sobre el segundo flag: PCDAAD guarda en `fKey2` el **byte alto del código de tecla**, mientras
+que NextDAAD lo pone **siempre a 0** (`overlay0.asm:1893`). Un juego portable no puede depender de
+`fKey2` para distinguir teclas extendidas.
+
+---
+
+## 8. Cambios de comportamiento y deprecaciones
+
+| Cambio | Detalle |
+|---|---|
+| `SYNONYM` deja de marcar `done` | Alinea el comportamiento con Amiga y Atari ST (`WHATSNEW.TXT:69`) |
+| `XUNDONE` deprecado | Error de compilación con `-v3` (`drb.php:878`) |
+| `XSPLITSCR` renativizado | v3: `GFX x 15`. v2: `EXTERN x 6` vía Maluva (`drb.php:995-1012`) |
+| Plantilla española | `HABLA` pasa al valor 240 y el bit 2 del flag 53 va activo por defecto, resolviendo el bug de HABLA a costa de perder `HABLALO` (`WHATSNEW.TXT:71-72`) |
+
+> **Nota sobre `SYNONYM`.** PCDAAD y jDAAD **nunca marcan `done`**, ni en v2 ni en v3
+> (`condacts.pas:899-903`, `jdaad.js:2988-2992`), así que nunca implementaron correctamente el
+> comportamiento v2. msx2daad y NextDAAD sí distinguen las dos versiones.
+
+---
+
+## 9. Constantes declaradas y nunca usadas
+
+Tres pistas de v3 que quedaron sin implementar en el compilador:
+
+| Constante | Fichero | Estado |
+|---|---|---|
+| `MAX_V3_DIRECTION = 127` | `UConstants.pas:20` | declarada, nunca referenciada |
+| `MAX_BLOCKABLE_CONNECTIONS = 128` | `UConstants.pas:21` | declarada, nunca referenciada |
+| `NUM_PREFIX_CONDACTS = 10` | `UConstants.pas:33` | declarada, nunca referenciada; parece un mecanismo de prefijos previsto y no construido |
+
+Un compilador nuevo no debe implementarlas: no hay intérprete que las entienda.
+
+---
+
+## 10. Resumen ejecutable
+
+Para generar v3, un compilador debe:
+
+1. Escribir `3` en el byte `0x00`.
+2. Admitir `@` en el segundo parámetro y, cuando aparezca, **anteponer `INDIR flagno`** al
+   condacto, dejando en el parámetro 2 un marcador.
+3. Reconocer `SETAT` como opcode 124 con 2 parámetros y `INDIR` como 122 con 1.
+4. Emitir `XMES` como opcode 120 con offset bajo y alto, sin pasar por `EXTERN`.
+5. Emitir `GETKEY` como `PAUSE 0` y rechazarlo si no se pidió v3.
+6. Emitir `XSPLITSCR` como `GFX x 15`.
+7. Rechazar `XUNDONE`.
+
+Y **nada más**. Todo lo demás del binario es idéntico a v2.
+
+Qué intérpretes lo soportan y en qué grado: [08-interpretes.md](08-interpretes.md).
+
+---
+
+## 11. Portar una aventura de DAAD 1 al intérprete v3
+
+Todo lo anterior es de v2 a v3, que es un salto pequeño. De **DAAD 1** —La
+Aventura Original y Jabato, 1989— a v3 hay un salto de otra clase, y no está en
+el formato del fichero: está en **quién lleva el bucle del juego**.
+
+En DAAD 1 el bucle vive en el código del intérprete. Describe la localidad,
+pide la orden, la parsea, ejecuta la tabla de respuestas, mueve al jugador. Las
+tablas de la base de datos son las tres del PAW y nada más. El intérprete v3 no
+tiene bucle propio: apila el proceso 0 y ejecuta lo que encuentre, así que **el
+bucle hay que escribirlo en la base de datos**, y es lo que trae la plantilla
+oficial en sus procesos 0, 1, 2 y 6.
+
+De ahí que compilar un fuente descompilado de AO con `-v3` enlace a la primera
+y resetee la máquina: el intérprete ejecuta el proceso 0, que en AO es la tabla
+de respuestas, cuyas entradas esperan un verbo que todavía no se ha parseado.
+
+### 11.1 Renumerar las tablas
+
+| AO / DAAD 1 | v3 | Qué es |
+|---|---|---|
+| 0 | **5** | la tabla de respuestas |
+| 1 | **3** | tras describir la localidad (proceso 1 del PAW) |
+| 2 | **4** | cada turno (proceso 2 del PAW) |
+| 3…16 | **7…20** | subprocesos, que solo se desplazan |
+| — | 0, 1, 2, 6 | el bucle, los errores del parser y la inicialización |
+
+Hay que renumerar las cabeceras `/PRO n` **y el operando de cada `PROCESS n`**.
+
+Ojo con una cosa que no se ve: **el número de un proceso es su posición en la
+tabla, no su nombre**. `PROCESS 7` indexa el séptimo proceso que escribió el
+enlazador; no busca uno que se llame 7. Así que un fuente con los procesos
+desordenados, o con un hueco, se compila mal sin decir nada. La referencia lo
+resuelve guardándolos en un array indexado por el número y emitiendo del 0 al
+mayor que haya visto (`UProcess.pas:33-40`, `UJSONExport.pas:414`); un hueco
+sale como proceso vacío, que es un proceso perfectamente válido —no lo cumple
+nada y un `PROCESS` que caiga en él retorna—.
+
+### 11.2 El `DESC` a secas es un `RESTART`
+
+El `DESC` sin operando de DAAD 1 describe la localidad **y ahí acaba el turno**,
+como en el PAW. El `DESC` de v3 solo describe, y la entrada sigue cayendo en la
+siguiente.
+
+AO depende de eso en el sitio más visible que hay, el final de su tabla de
+respuestas:
+
+```
+> _  _   LT 33 14          ; el verbo es una dirección
+         MOVE 38
+         DESC               ; se movió: describe y se acabó
+
+> _  _   LT 33 14           ; si llegamos aquí es que no se movió
+         SYSMESS 7          ; "No puedes "
+         ...
+```
+
+Traducido literalmente, el jugador se mueve, ve la descripción nueva, y a
+continuación lee «No puedes ir al Este.». Y ponerle un `DONE` detrás tampoco
+vale: la descripción se imprimiría antes de tiempo. El equivalente v3 de
+«describe aquí y acaba el turno» es
+
+```
+CLS
+RESTART
+```
+
+porque `RESTART` reinicia el proceso 0 y **el proceso 0 es quien describe**. Es
+exactamente lo que hace la plantilla oficial después de un `MOVE`.
+
+### 11.3 Hay ranuras de mensaje que el intérprete se reserva
+
+Y es lo primero que hay que mirar, porque el síntoma no se parece a la causa.
+
+En la plantilla oficial los mensajes de sistema **2, 3, 4 y 5 son los cuatro `"#n"`**, un salto de
+línea, y por eso nunca se ha reparado en ellos: el intérprete v3 los imprime **por su cuenta** como
+separadores —el 3 es el salto que va justo antes del prompt, y el 4 lo acompaña—.
+
+La Aventura Original es de cuando esas ranuras eran del autor, y guarda ahí trozos de frase: el 3
+es `"ir al "` y el 4 es `". "`, que su tabla de respuestas encadena con `SYSMESS 7` para decir «No
+puedes ir al Este. ». Bajo v3 eso aparece impreso en cada turno, sin venir a cuento, y como lo que
+sale es un fragmento suelto —«ir al», o un punto— no se piensa en los mensajes de sistema sino en
+la lógica del juego.
+
+Se tarda en encontrarlo porque es intermitente de puertas afuera: **depende de cuándo el
+intérprete decida emitir el separador**, no de lo que teclee el jugador. Marcar las entradas
+sospechosas de la tabla de respuestas con un mensaje distinto cada una lo zanja en una prueba: si
+el texto sale y ninguna marca con él, no viene de la tabla.
+
+El arreglo es mudar el texto del autor a ranuras que estén vacías **en las dos tablas** —vacías en
+la del juego para no pisarle nada, y vacías en la de la plantilla para no caer en otra que el
+intérprete también se reserve— y dejar `"#n"` donde el intérprete lo espera. En AO sirven la 34 y
+la 11.
+
+### 11.3.1 Y los que no se reserva, casi encajan
+
+Las dos tablas tienen 63 mensajes y los papeles coinciden ranura por ranura en
+casi todas. Lo que cambia es que **DAAD 1 guarda fragmentos donde v3 guarda
+frases**, porque el intérprete de 1989 montaba la frase en código:
+
+| n | AO (DAAD 1) | v3 |
+|---|---|---|
+| 3 | `"ir al "` | `"#n"` |
+| 4 | `". "` | `"#n"` |
+| 7 | `"No puedes "` | `"No puedo ir en esa dirección."` |
+| 17-20 | `"Has dado "`, `" orden"`, `"es"`, `".#n"` | vacíos |
+
+Así que un andamiaje que haga `SYSMESS 7` esperando una frase imprime `No
+puedes ` y se queda ahí. En AO no hace falta tocar nada: su propia tabla de
+respuestas ya monta la frase entera —`SYSMESS 7`, `SYSMESS 3`, el nombre de la
+dirección desde `MES @200`, y `SYSMESS 4`— y lo que sobra es el camino de
+movimiento del proceso 1 de la plantilla, que nunca llega a ejecutarse.
+
+### 11.4 `QUIT` acababa la partida, y ahora solo pregunta
+
+El `QUIT` de v3 imprime el mensaje de sistema 12 («¿Estás seguro?»), lee la respuesta, y si el
+jugador confirma **deja que la entrada siga**. Quien acaba la partida es `END`, que imprime el
+mensaje 13 y vuelve a la inicialización o sale. La plantilla oficial escribe los 2 seguidos.
+
+La Aventura Original **no tiene un solo `END` en sus tablas**. Su respuesta al «fin» es:
+
+```
+> ABAND    _        QUIT
+                    DPRINT 21
+
+> ABAND    _        OK
+```
+
+Bajo el intérprete v3 eso no termina nada: confirmar ejecuta el `DPRINT 21` —que imprime los flags
+21 y 22 como un número de 2 bytes, y en pantalla sale un `0` suelto—, el bloque se acaba, y la
+ejecución cae en la entrada siguiente, cuyo `OK` contesta «Vale.» y devuelve al jugador al juego.
+
+Conviene saber por qué la descompilación no es la sospechosa, porque la tentación es leer esos
+bytes como `QUIT` + `DPRINT` + `END`. **Lo decide el `0xFF`**: el compilador de referencia se
+ahorra ese byte cuando el bloque acaba en un condacto terminal (`drb.php:1050`), y el binario de AO
+lo lleva puesto —`14 1B 15 FF`—, así que el último condacto no es terminal. `DPRINT 21` lo es;
+`END` no estaría ahí.
+
+Portar la aventura pide, pues, **insertar un `END` detrás de cada `QUIT`**.
+
+#### Y ese `0` es un fallo de la aventura, de un dígito
+
+El `0` sobrevivió a la inserción del `END`, porque el otro `DPRINT 21` de la aventura no lleva
+`QUIT` delante: está al final de la tabla 1, es la pantalla de muerte, y el fuente original lo dice
+igual (`PART1.SCE:1978`, y la muerte llega por `/PRO 5` → `GOTO 29` / `DESC 255`).
+
+```
+_       _               AT      29
+                        CLS
+                        DPRINT  21
+```
+
+**Lo zanja el intérprete de 1989.** `AD.EXE` viene en el mismo directorio que los 2 DDB de la AO y
+cuenta los turnos en una instrucción, una vez por turno, en el `0x16b` de su segmento de código:
+
+```asm
+16b: ff 06 49 01    inc word [0x0149]
+```
+
+Sus banderas empiezan en `DS:0x12a` —la indirección del `0x264` carga esa dirección—, luego el
+`0x0149` es la bandera 31 y la palabra es la pareja 31/32. La rutina de fin de partida la lee para
+el informe, con singular y plural, y de paso la puntuación:
+
+```asm
+466: 8b 3e 49 01    mov di,[0x0149]   ; el contador
+46a: e8 85 11       call 0x15f2       ; impreso como numero de 2 bytes
+46d: 8b 0e 49 01    mov cx,[0x0149]
+474: 49             dec cx            ; un turno, o mas de uno
+48f: a0 48 01       mov al,[0x0148]   ; y la bandera 30 es la puntuacion
+```
+
+Y las banderas **21 y 22 no se referencian en ningún sitio del binario**, mientras la 30, la 31 y la
+32 sí. O sea que la pareja del contador nunca se mudó entre versiones: aquel `DPRINT 21` es una
+errata de un dígito.
+
+En 1989 casi no se notaba, y conviene separar los 2 caminos. El del `QUIT` **no llegaba a correr
+nunca**, porque el `QUIT` de v1 acababa la partida ahí mismo: era código muerto, y lo que el jugador
+veía era el informe del intérprete —«Has dado 5 ordenes.», comprobado sobre la cinta original—. El
+de la muerte sí corre, porque está en la tabla de cada turno y no lleva `QUIT` delante. Bajo v3 el
+`END` que se inserta deja el primero muerto otra vez, y el segundo es el que sacaba el `0`.
+
+Las 2 aventuras de 1989 traen la errata —5 veces entre las 2, y ninguna escribe nunca la 21 ni la
+22— y las 3 posteriores de la misma casa, ya en v2, escriben `DPRINT 31` en el mismo sitio:
+
+| Aventura | DAAD | `DPRINT` |
+|---|---|---|
+| La Aventura Original | v1 | 21 |
+| El Jabato | v1 | 21 |
+| Cozumel | v2 | **31** |
+| Chichén Itzá | v2 | **31** |
+| Los Templos Sagrados | v2 | **31** |
+
+La conversión a v3 lo repara, y es **la única diferencia con el original que el binario no pide**:
+el resto de §11 dice en términos de v3 lo que la base ya decía. La reja que lo hace seguro es que
+sólo dispara cuando **nada más en la base nombra la pareja**, ni para escribirla ni para leerla,
+porque en v1 esas banderas son del autor: una aventura que lleve de verdad un número suyo en la
+21/22 nombra esas banderas en los condactos que lo cuentan, y entonces su `DPRINT` se queda como
+está. El contador lo rellena el bucle que se escribe para el port, que lleva el acarreo de 16 bits
+—`EQ 31 255` / `PLUS 32 1` / `CLEAR 31`, y si no, `PLUS 31 1`—.
+
+#### Y lo que se imprimía ahí era una frase, no un número
+
+El jugador de 1989 no leía un número suelto: leía «Has dado 5 ordenes.», y la montaba el intérprete
+en la misma rutina de arriba, con 4 mensajes de sistema de la propia aventura —el 17 «Has dado », el
+18 « orden», el 19 «es» y el 20 «.»— y el singular elegido contando hacia atrás desde el total
+(`474: dec cx` / `475: je`). El intérprete v3 no lo hace, así que hay que escribirlo.
+
+Va en **una tabla propia que la conversión añade detrás de las de la aventura**, de modo que no se
+renumera ninguna. Tiene que ser una tabla y no unos condactos en línea porque el plural es una
+condición, y en DAAD una condición es una entrada: `SKIP` salta entradas enteras, no condactos, así
+que dentro de un bloque no se bifurca.
+
+```
+/PRO 21
+
+> _        _        SYSMESS 17
+                    DPRINT 31
+
+> _        _        EQ 32 0
+                    EQ 31 1
+                    SYSMESS 18
+                    SYSMESS 20
+                    SKIP 1
+
+> _        _        SYSMESS 18
+                    SYSMESS 19
+                    SYSMESS 20
+```
+
+Donde estaba el `DPRINT` muerto va ahora un `PROCESS` a ella. Y en el caso del `QUIT` los 2 van
+juntos, porque el informe tiene que imprimirse **antes** del `END`: lo que sale es
+`QUIT / PROCESS 21 / END`, y en pantalla el orden del original —la cuenta, y después «¿Hace otra
+partidita?»—.
+
+La mitad de la puntuación de aquella rutina no está aquí: lee la bandera 30, que estas aventuras no
+escriben nunca, y la imprime entre 2 mensajes de sistema que La Aventura Original deja vacíos.
+
+### 11.4.1 `PICTURE` dibujaba, y ahora sólo prepara
+
+En v3 `PICTURE` busca la imagen y la deja lista, y **quien la pinta es `DISPLAY 0`**
+(`daad_condacts.c:2609` y `2631`). En DAAD 1 dibujaba él. Así que una base de 1989 pide imágenes que
+no llega a pintar nadie.
+
+Que la vieja dibujaba lo prueba la propia aventura: La Aventura Original tiene **5 `PICTURE` y ni un
+solo `DISPLAY`**, y las 5 van encerradas entre un `WINDOW 0` y un `WINDOW 1` —entrar a la ventana
+gráfica y salir—, luego el dibujado pasaba ahí mismo:
+
+```
+_       _               AT      26
+                        EQ      14 0
+                        WINDOW  0
+                        PICTURE 46
+                        WINDOW  1
+                        MES     53
+                        MES     55            ; " cerrada con un candado"
+```
+
+Y lo que se pierde al convertirlas literalmente se ve bien en esas 5. La 44 es **el marco** que rodea
+el texto de presentación, así que la intro sale desnuda. Y la 46, la 47 y la 48 son la reja de la
+localidad 26, **una por estado del candado** según la bandera 14 —cerrada, con el candado abierto,
+sin él, y la reja abierta—, así que el candado no se abre nunca en pantalla. Las 3 hacen
+`CALL 26,0,0` antes de su detalle, o sea que arrastran su propia base y no hay nada que aplanar: lo
+que faltaba era pintarlas.
+
+La conversión mete, pues, **un `DISPLAY 0` detrás de cada `PICTURE`**, justo donde estaba. Con una
+diferencia que se lleva puesta: el `PICTURE` de v3 es una condición y **falla si no existe la
+imagen**, llevándose por delante el resto de la entrada, donde el viejo habría seguido. Las 5 de la
+AO existen.
+
+### 11.4.2 El flag 40: «esta localidad tiene dibujo»
+
+Pintar los `PICTURE` destapó lo que tapaba no pintarlos. En la primera localidad salía la cabaña y
+acto seguido la borraba una imagen genérica —el logotipo de AD entre los árboles, que es el dibujo
+27—, y la captura del juego de 1989 dice que ahí se queda la cabaña.
+
+Viene de 2 bloques de la tabla 1 de la AO que no están en la edición de PC:
+
+```
+> _       _     NEWLINE
+                ZERO 0
+                ABSENT 0
+                LISTOBJ
+                ZERO 40
+                WINDOW 0
+                PICTURE 27          ; la generica
+                WINDOW 1
+```
+
+**La bandera 40 no la escribe nunca ninguna de las 2 aventuras: sólo la leen.** La ponía el
+intérprete del Spectrum, y lo que significa lo dicen las 2 a la vez. La AO pinta su genérica cuando
+vale 0, y El Jabato, en la misma posición de su tabla, hace esto:
+
+```
+> _       _     SET 92
+                NOTZERO 40
+                CLEAR 92
+
+> _       _     ZERO 40
+                WINDOW 0
+                CLS
+                WINDOW 1
+```
+
+O sea: **distinta de cero, la localidad tiene dibujo; cero, no lo tiene**, y entonces una pone la
+genérica y la otra limpia la ventana gráfica. Ninguna otra lectura casa con las 2.
+
+Y eso contesta de paso qué se veía en las localidades sin dibujo. En la parte 1 hay **8 entradas de
+la tabla de dibujos que son un solo `RET`** —la 0, la 1, la 6, la 8, la 9, la 12, la 17 y la 43—, y
+no son detalles sin base ni hay nada que aplanar: son localidades sin ilustración, y el jugador de
+1989 veía allí la genérica. El sitio donde eso se decide es el flag.
+
+El bucle del port tiene que reponerlo, porque el intérprete v3 no lo hace: **`CLEAR 40` al limpiar
+la pantalla y `SET 40` detrás del `DISPLAY 0`**, que sólo se alcanza si el `PICTURE` encontró la
+imagen. Sin eso el `ZERO 40` se cumple siempre y la genérica tapa todas las localidades.
+
+**Ojo con el choque**: en v2 y v3 las banderas 39 y 40 son `fO2Att`, los atributos del objeto 2, y
+las escribe el intérprete al resolver un segundo nombre. Por eso el `SET 40` va en el bucle, que
+corre cada turno justo antes de la tabla que lo lee.
+
+### 11.5 Una frase sin verbo deja `fVerb` a cero, no a 255
+
+Las entradas comodín del final de una tabla de respuestas de DAAD 1 dan por hecho que `fVerb` trae
+una dirección, y lo comprueban con `LT 33 14`. Un cero cumple esa condición igual que un 3.
+
+Y cero es lo que deja el intérprete v3 cuando el jugador escribe una frase **sin verbo**, que es
+más frecuente de lo que parece: en el vocabulario de AO, `I` e `INVEN` son **nombres** de valor 14,
+no verbos. Al escribir «I» se respondía correctamente «No tienes nada.» y acto seguido se colaba
+basura, porque los comodines disparaban y `MES @200` —que vale `fVerb + 100`— imprimía el mensaje
+100, que resulta existir.
+
+Que el valor correcto es 255 no hay que deducirlo: lo dice la propia aventura. Su respuesta a
+`LLAVE` prueba `EQ 33 255` justamente para distinguir la frase sin verbo, así que el intérprete de
+1989 dejaba ahí el 255.
+
+El arreglo va en el bucle que se escribe para el port, no en las tablas de la aventura:
+
+```
+> _       _     ZERO    33
+                LET     33 255
+
+> _       _     PROCESS 5          ; la tabla de respuestas
+```

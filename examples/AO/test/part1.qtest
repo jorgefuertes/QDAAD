@@ -1,0 +1,189 @@
+; La Aventura Original, part one, played to the end.
+;
+; This is the walkthrough the Go tests play — internal/vm/play_test.go,
+; TestFinishingTheFirstPartOfLaAventuraOriginal — written in the language it
+; asked for. The two have to agree, and if they ever disagree one of them is
+; lying.
+;
+; Finishing the adventure is worth more than every smaller test together: 84
+; commands, every kind of condact, a conversation, a puzzle chain with four
+; stages, and an ending that will not come unless all of it worked. The access
+; code is the adventure's own answer, so there is no judging what counts as
+; winning — either it says TIMACUS or it does not.
+;
+;   qdaad compile -i examples/AO/ZXSpectrum/+3/part1/game.sce -m pc -s vga -f ddb -o tmp/AO1
+;   qrun -i tmp/AO1.ddb -T examples/AO/test/part1.qtest
+
+TEST "La Aventura Original\nParte I      Español"
+
+; The dice are fixed, so that the one CHANCE in the adventure cannot make this
+; pass on Tuesday and fail on Wednesday.
+SEED 1989
+
+; Three pauses before the game starts, and the script answers all three. A
+; pause is the adventure's own behaviour: it asked for a key, so it waits for
+; one, and a walkthrough that stops working the day somebody adds a fourth is
+; a walkthrough that noticed.
+STEP "Pantalla de título y bosque"
+  EXPECT "?"                                ; message 18: it asks before it shows anything
+  KEY    SPACE
+
+  EXPECT "AVENTURA ORIGINAL"                ; the credits
+  KEY    SPACE
+
+  EXPECT "LA RESPUESTA DEPENDE DE TU VALOR" ; what the game is about
+  KEY    SPACE
+
+  EXPECT "Estás en el bosque"
+  ASSERT AT = 3
+  ASSERT PICTURE = 3
+END
+
+STEP "Ir al valle a coger la botella y volver"
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  COGER BOTELLA
+  INPUT  N
+  INPUT  N
+  INPUT  N
+
+  EXPECT "Has cogido la botella"
+  ASSERT CARRIED 4
+  ASSERT AT = 24
+END
+
+STEP "Ir a por las botas"
+  INPUT  E
+  INPUT  E
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  COGER BOTAS
+  INPUT  N
+  INPUT  N
+  INPUT  N
+  INPUT  N
+  INPUT  O
+  INPUT  O
+  INPUT  N
+  INPUT  N
+
+  EXPECT "Has cogido la pareja de botas"
+END
+
+STEP "Coger la pila, y obtener la linterna a cambio de las botas"
+  INPUT  E
+  INPUT  E
+  INPUT  S
+  INPUT  COGER PILA
+  EXPECT "Has cogido la pila"
+  INPUT  N
+  INPUT  N
+  INPUT  DAR BOTAS
+  EXPECT "Don Enano se calza y agradecido te deja una linterna"
+  INPUT  COGER LINTERNA
+  EXPECT "Has cogido la linterna"
+  INPUT  PONER PILAS
+  EXPECT "Vale, linterna lista."
+  INPUT  ENCENDER LINTERNA
+END
+
+STEP "Coger la llave del árbol"
+  INPUT  S
+  INPUT  O
+  INPUT  O
+  INPUT  O
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  E
+  INPUT  E
+  INPUT  SE
+  INPUT  S
+  INPUT  SUBIR ARBOL
+  INPUT  EXAMINAR RAMAS
+  INPUT  SACUDIR RAMAS
+  EXPECT "ha caido al suelo"
+  INPUT  BAJAR ARBOL
+  INPUT  COGER LLAVE
+  EXPECT "Has cogido la llave"
+END
+
+STEP "Coger moneda del charco"
+  INPUT  N
+  INPUT  S
+  INPUT  O
+  INPUT  N
+  INPUT  E
+  INPUT  BAJAR
+  INPUT  EXAMINAR CHARCO
+  EXPECT "una moneda"
+  INPUT  COGER MONEDA
+  EXPECT "Has cogido la moneda"
+  INPUT  SUBIR
+  INPUT  O
+  INPUT  S
+  INPUT  LLENAR BOTELLA
+  EXPECT "Vale."
+END
+
+STEP "Decir al elfo que me siga"
+  INPUT  E
+  INPUT  E
+  INPUT  S
+  INPUT  EXAMINAR FIGURA
+  EXPECT "Es un elfo que llora"
+  INPUT  DECIR "QUE TE PASA?"
+  INPUT  DECIR "SIGUEME"
+  EXPECT "Vale."
+END
+
+STEP "Entrada en la caverna con el elfo"
+  INPUT  N
+  INPUT  O
+  INPUT  O
+  INPUT  S
+  INPUT  S
+  INPUT  ABRIR CANDADO
+  EXPECT "candado abierto"
+  INPUT  COGER CANDADO
+  EXPECT "desaparece de tus manos"
+  INPUT  EMPUJAR REJA
+  EXPECT "Tienes ante tí la entrada a La Gran Caverna."
+  EXPECT "Mi agradecimiento está sobre la mesa."
+END
+
+STEP "Ir a por la tortilla y entrar en la caverna."
+  INPUT  N
+  INPUT  N
+  INPUT  E
+  EXPECT "Estás en la Zona de picnic."
+  EXPECT "Puedes ver Una tortilla"
+
+  INPUT  COGER TORTILLA
+  INPUT  O
+  EXPECT "Has cogido la tortilla"
+
+  INPUT  S
+  INPUT  S
+  EXPECT "La Gran Caverna"
+
+  INPUT  I
+  ASSERT FLAG 1 = 5
+  EXPECT "linterna encendida"
+  EXPECT "moneda"
+  EXPECT "tortilla"
+  EXPECT "botella con agua"
+  EXPECT "llave"
+
+  INPUT  ENTRAR CAVERNA
+  EXPECT "FELICIDADES"
+  EXPECT "CLAVE DE ACCESO: TIMACUS"
+END
+
+STEP "and nothing in all of that reached a condact we have not written"
+  EXPECT NOT "not implemented"
+END

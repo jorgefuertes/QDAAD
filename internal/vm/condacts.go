@@ -1,0 +1,912 @@
+package vm
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/jorgefuertes/QDAAD/internal/ddbfile"
+)
+
+// The condacts, which are the instruction set.
+//
+// Each one is a method taking its operands already resolved. Resolving them is
+// exec's job and not each condact's, because indirection is a property of the
+// opcode byte rather than of what it does: bit 7 says the first operand names a
+// flag and the flag's content is the real operand. Doing it once here is what
+// keeps a hundred and thirty condacts from each getting it slightly wrong.
+//
+// A condact that is a condition fails by calling m.fail, which stops the entry
+// without ending the process. Anything that "does something" says so with
+// m.did, which is what ISDONE asks about afterwards.
+
+// fail gives up on the current entry. The process carries on with the next one.
+func (m *Machine) fail() { m.continuing = false }
+
+// did records that this entry acted, which is what ISDONE reports.
+func (m *Machine) did() { m.done = true }
+
+// plus and minus are the arithmetic the flags are counted with, which stops at
+// each end of the byte instead of going round it.
+//
+// Go's own addition wraps, and the difference is not academic. A flag is as
+// often a switch as a counter, and the way an adventure latches one on for good
+// is SET — which is 255 — while the same flag is read by a process that adds
+// one to it every turn. Wrapping turns 255 into 0 on the very next turn, so the
+// switch silently goes off and whatever it was holding back comes back.
+//
+// La Aventura Original's second part is exactly that: flag 104 is the snake in
+// the elf kings' chamber, SET by letting the bird out, and with a wrapping PLUS
+// the snake returned the turn after it fled, bit the player, and the poison
+// killed them seven turns later.
+//
+// The manual leaves no room — "if the result exceeds 255 the flag is set to
+// 255", "if the result is negative the flag is set to 0" — and the reference
+// does it with the carry by hand: do_PLUS, daad_condacts.c:1445.
+func plus(flag, value byte) byte {
+	if sum := flag + value; sum >= flag {
+		return sum
+	}
+
+	return 255
+}
+
+func minus(flag, value byte) byte {
+	if value > flag {
+		return 0
+	}
+
+	return flag - value
+}
+
+// need is a condition: it fails the entry unless the test holds.
+func (m *Machine) need(ok bool) {
+	if !ok {
+		m.fail()
+	}
+}
+
+// exec runs one condact.
+func (m *Machine) exec(c ddbfile.Condact) error {
+	def, found := m.db.Condact(c.Opcode)
+	if !found {
+		return fmt.Errorf("opcode %d is not a condact", c.Opcode)
+	}
+
+	// Indirection reaches the first operand only, and turns it into the
+	// content of the flag it names.
+	args := make([]byte, len(c.Params))
+	copy(args, c.Params)
+
+	if c.Indirect && len(args) > 0 {
+		args[0] = m.flags[args[0]]
+	}
+
+	// And an INDIR in front reaches the second, which is the one bit 7 of the
+	// opcode cannot say anything about. See indir.
+	if m.indir.pending {
+		m.indir.pending = false
+
+		if len(args) > 1 {
+			args[1] = m.indir.value
+		}
+	}
+
+	run, known := condacts[c.Opcode]
+	if !known {
+		// Saying so is better than doing nothing quietly: an adventure that
+		// leans on a condact we have not written would otherwise look like it
+		// merely behaves oddly.
+		return fmt.Errorf("%s is not implemented yet", def.Name)
+	}
+
+	run(m, args)
+
+	// A condact that could not do its job rather than one that chose not to.
+	// Nearly none can: a condact moves flags and objects about, and all of
+	// that is inside the database. XMES is the first that reads a file of its
+	// own, so it is the first that can be asked for something that is not
+	// there. See trouble.
+	if m.trouble != nil {
+		err := m.trouble
+		m.trouble = nil
+
+		return fmt.Errorf("%s: %w", def.Name, err)
+	}
+
+	return nil
+}
+
+// arg is an operand that may not be there, for the condacts whose arity
+// changed between the versions.
+func arg(args []byte, i int) byte {
+	if i < len(args) {
+		return args[i]
+	}
+
+	return 0
+}
+
+// condacts maps an opcode to what it does. The numbers are the format's; see
+// docs/DAAD_v2_v3_Research/04-condactos.md for the whole table.
+var condacts = map[byte]func(*Machine, []byte){
+	// ---- conditions about where the player is ----
+	0:   func(m *Machine, a []byte) { m.need(m.flags[FlagPlayer] == a[0]) },    // AT
+	1:   func(m *Machine, a []byte) { m.need(m.flags[FlagPlayer] != a[0]) },    // NOTAT
+	2:   func(m *Machine, a []byte) { m.need(m.flags[FlagPlayer] > a[0]) },     // ATGT
+	3:   func(m *Machine, a []byte) { m.need(m.flags[FlagPlayer] < a[0]) },     // ATLT
+	4:   func(m *Machine, a []byte) { m.need(m.present(int(a[0]))) },           // PRESENT
+	5:   func(m *Machine, a []byte) { m.need(!m.present(int(a[0]))) },          // ABSENT
+	6:   func(m *Machine, a []byte) { m.need(m.at(int(a[0]), LocWorn)) },       // WORN
+	7:   func(m *Machine, a []byte) { m.need(!m.at(int(a[0]), LocWorn)) },      // NOTWORN
+	8:   func(m *Machine, a []byte) { m.need(m.at(int(a[0]), LocCarried)) },    // CARRIED
+	9:   func(m *Machine, a []byte) { m.need(!m.at(int(a[0]), LocCarried)) },   // NOTCARR
+	10:  func(m *Machine, a []byte) { m.need(m.dice().Intn(100) < int(a[0])) }, // CHANCE
+	11:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] == 0) },             // ZERO
+	12:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] != 0) },             // NOTZERO
+	13:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] == a[1]) },          // EQ
+	14:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] > a[1]) },           // GT
+	15:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] < a[1]) },           // LT
+	16:  func(m *Machine, a []byte) { m.need(m.flags[FlagAdject1] == a[0]) },   // ADJECT1
+	17:  func(m *Machine, a []byte) { m.need(m.flags[FlagAdverb] == a[0]) },    // ADVERB
+	55:  func(m *Machine, a []byte) { m.need(m.at(int(a[0]), a[1])) },          // ISAT
+	68:  func(m *Machine, a []byte) { m.need(m.flags[FlagPrep] == a[0]) },      // PREP
+	69:  func(m *Machine, a []byte) { m.need(m.flags[FlagNoun2] == a[0]) },     // NOUN2
+	70:  func(m *Machine, a []byte) { m.need(m.flags[FlagAdject2] == a[0]) },   // ADJECT2
+	76:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] == m.flags[a[1]]) }, // SAME
+	79:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] != a[1]) },          // NOTEQ
+	80:  func(m *Machine, a []byte) { m.need(m.flags[a[0]] != m.flags[a[1]]) }, // NOTSAME
+	88:  func(m *Machine, a []byte) { m.need(!m.at(int(a[0]), a[1])) },         // ISNOTAT
+	112: func(m *Machine, a []byte) { m.need(m.flags[a[0]] > m.flags[a[1]]) },  // BIGGER
+	113: func(m *Machine, a []byte) { m.need(m.flags[a[0]] < m.flags[a[1]]) },  // SMALLER
+	114: func(m *Machine, _ []byte) { m.need(m.done) },                         // ISDONE
+	115: func(m *Machine, _ []byte) { m.need(!m.done) },                        // ISNDONE
+
+	// ---- flags ----
+	47:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), 255); m.did() },                                 // SET
+	48:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), 0); m.did() },                                   // CLEAR
+	49:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), plus(m.flags[a[0]], a[1])); m.did() },           // PLUS
+	50:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), minus(m.flags[a[0]], a[1])); m.did() },          // MINUS
+	51:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), a[1]); m.did() },                                // LET
+	71:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), plus(m.flags[a[1]], m.flags[a[0]])); m.did() },  // ADD
+	72:  func(m *Machine, a []byte) { m.setFlag(int(a[1]), minus(m.flags[a[1]], m.flags[a[0]])); m.did() }, // SUB
+	95:  func(m *Machine, a []byte) { m.setFlag(int(a[0]), byte(m.dice().Intn(100)+1)); m.did() },          // RANDOM
+	125: func(m *Machine, a []byte) { m.setFlag(int(a[1]), m.flags[a[0]]); m.did() },                       // COPYFF
+	126: func(m *Machine, a []byte) { m.setFlag(int(a[1]), 255-m.flags[a[0]]); m.did() },                   // COPYBF
+
+	// ---- where things are ----
+	37: func(m *Machine, a []byte) { m.setFlag(FlagPlayer, a[0]); m.did() },         // GOTO
+	39: func(m *Machine, a []byte) { m.moveObject(int(a[0]), LocNotCreated) },       // REMOVE... see below
+	43: func(m *Machine, a []byte) { m.moveObject(int(a[0]), LocNotCreated) },       // DESTROY
+	44: func(m *Machine, a []byte) { m.moveObject(int(a[0]), m.flags[FlagPlayer]) }, // CREATE
+	46: func(m *Machine, a []byte) { m.moveObject(int(a[0]), a[1]) },                // PLACE
+	45: func(m *Machine, a []byte) { // SWAP
+		if int(a[0]) < len(m.objects) && int(a[1]) < len(m.objects) {
+			one, two := m.objects[a[0]].location, m.objects[a[1]].location
+			m.move(int(a[0]), two)
+			m.move(int(a[1]), one)
+		}
+
+		m.did()
+	},
+	106: func(m *Machine, a []byte) { m.need(m.movePlayer(int(a[0]))) },              // MOVE
+	102: func(m *Machine, a []byte) { m.moveObject(int(m.flags[FlagCurObj]), a[0]) }, // PUTO
+
+	// ---- text ----
+	52: func(m *Machine, _ []byte) { m.console.Print("\n") },                      // NEWLINE
+	57: func(m *Machine, _ []byte) { m.console.Print(" ") },                       // SPACE
+	53: func(m *Machine, a []byte) { m.console.Print(fmt.Sprint(m.flags[a[0]])) }, // PRINT
+	27: func(m *Machine, a []byte) { // DPRINT, a two-byte number from a flag pair
+		m.console.Print(fmt.Sprint(int(m.flags[a[0]]) + 256*int(m.flags[a[0]+1])))
+	},
+	38: func(m *Machine, a []byte) { m.say(m.texts.messages, int(a[0]), true); m.did() },  // MESSAGE
+	77: func(m *Machine, a []byte) { m.say(m.texts.messages, int(a[0]), false); m.did() }, // MES
+	54: func(m *Machine, a []byte) { m.say(m.texts.system, int(a[0]), false); m.did() },   // SYSMESS
+	19: func(m *Machine, a []byte) { // DESC
+		m.say(m.texts.locations, int(arg(a, 0)), true)
+		m.did()
+	},
+	// XMES, and the one the author wrote is not this: what reaches a database
+	// is opcode 120 with the offset of the text in the .XMB, low byte first.
+	// See internal/back/xmessages.go for the other end of it.
+	120: func(m *Machine, a []byte) { m.xmessage(int(a[0]) | int(a[1])<<8) },
+
+	// ---- the turn and the game ----
+	22:  func(m *Machine, _ []byte) { m.doneOrLoop() },                                    // DONE
+	23:  func(m *Machine, _ []byte) { m.say(m.texts.system, 15, true); m.did(); m.pop() }, // OK
+	103: func(m *Machine, _ []byte) { m.done = false; m.pop() },                           // NOTDONE
+	108: func(m *Machine, _ []byte) { m.redo() },                                          // REDO
+	117: func(m *Machine, _ []byte) { m.restart = true },                                  // RESTART
+	116: func(m *Machine, a []byte) { m.skip(int(int8(a[0]))) },                           // SKIP
+	75:  func(m *Machine, a []byte) { m.push(int(a[0])) },                                 // PROCESS
+	20:  func(m *Machine, _ []byte) { m.need(m.confirm(12)) },                             // QUIT
+	21:  func(m *Machine, _ []byte) { m.end() },                                           // END
+	24:  func(m *Machine, _ []byte) { m.console.AnyKey() },                                // ANYKEY
+	// PARSE carries on with the entry when the sentence made no sense, which
+	// is the opposite way round from how it reads. The loop every adventure
+	// writes is "PARSE 0 / PROCESS 2 / REDO", and process 2 is what says "I
+	// don't understand" — so the condact has to succeed precisely when there
+	// is nothing to answer, and fail when there is.
+	// PARSE: 0 takes the player's next sentence, anything else the phrase
+	// they put in quotes. A format 1 database carries no operand at all, and
+	// the decompiler's version 3 conversion writes the 1 — see parseOperand in
+	// cmd/qundaad/decompiler.
+	73:  func(m *Machine, a []byte) { m.need(m.parse(arg(a, 0))) }, // PARSE
+	92:  func(m *Machine, _ []byte) {},                             // NEWTEXT: nothing to flush here
+	127: func(m *Machine, _ []byte) { m.resetObjects(); m.did() },  // RESET
+
+	58:  func(m *Machine, a []byte) { m.need(m.hasBit(a[0])) },  // HASAT
+	59:  func(m *Machine, a []byte) { m.need(!m.hasBit(a[0])) }, // HASNAT
+	124: func(m *Machine, a []byte) { m.setBit(a[0], a[1]) },    // SETAT
+
+	85: func(m *Machine, a []byte) { m.doall(a[0]) }, // DOALL
+
+	30: func(m *Machine, _ []byte) { m.dropAll() },                                 // DROPALL
+	32: func(m *Machine, _ []byte) { m.whatO(); m.drop(int(m.flags[FlagCurObj])) }, // AUTOD
+	40: func(m *Machine, a []byte) { m.get(int(a[0])) },                            // GET
+	41: func(m *Machine, a []byte) { m.drop(int(a[0])) },                           // DROP
+	31: func(m *Machine, _ []byte) { m.whatO(); m.get(int(m.flags[FlagCurObj])) },  // AUTOG
+	60: func(m *Machine, _ []byte) { m.listObjects(m.flags[FlagPlayer], true) },    // LISTOBJ
+	74: func(m *Machine, a []byte) { m.listObjects(a[0], false) },                  // LISTAT
+	93: func(m *Machine, a []byte) { // ABILITY: how much can be carried, and how heavy
+		m.setFlag(FlagMaxCarried, a[0])
+		m.setFlag(FlagStrength, a[1])
+	},
+	// INPUT: say which window the player's next line comes from, and how to
+	// treat it. It reads nothing itself, which is the surprising part and the
+	// reason it sat unimplemented — the name promises a prompt and what it
+	// does is set two flags. See do_INPUT, daad_condacts.c:1630.
+	//
+	// La Aventura Original's second part is the first thing in the corpus to
+	// use it: it asks for the access code the first part gives you.
+	96: func(m *Machine, a []byte) {
+		// Eight windows, numbered from zero. A stream that is not one of them
+		// is left alone rather than clamped, which is what the reference does.
+		const windows = 8
+
+		if a[0] >= windows {
+			return
+		}
+
+		m.setFlag(FlagInStream, a[0])
+
+		// Three option bits, moved into the middle of the timeout flags where
+		// the interpreter keeps them: clear the window afterwards, reprint the
+		// line, reprint after a timeout.
+		const (
+			optionMask = 0x07
+			optionAt   = 3
+			keepRest   = 0xC7
+		)
+
+		options := (a[1] & optionMask) << optionAt
+		m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]&keepRest|options)
+	},
+
+	100: func(m *Machine, _ []byte) { m.whatO() }, // WHATO
+	35:  nothing,                                  // PAUSE: a console has no frames to wait for
+
+	// SETCO: make an object the one the messages mean by "_", without moving
+	// it or saying anything. do_SETCO is one line — referencedObject — and
+	// notably does not mark anything done.
+	56: func(m *Machine, a []byte) { m.note(int(a[0])) },
+
+	// WEIGH: what one object really weighs, into a flag. WEIGHT: what the
+	// player is carrying and wearing, into a flag. Both go through the same
+	// sum, which is why a bag of rocks is heavy and a magic bag is not — see
+	// objectWeight.
+	89: func(m *Machine, a []byte) { m.setFlag(int(a[1]), byte(m.objectWeight(int(a[0])))) },
+	94: func(m *Machine, a []byte) { m.setFlag(int(a[0]), byte(m.weightCarried())) },
+
+	// EXIT: leave for good on zero, start the game over on anything else.
+	// See do_EXIT, daad_condacts.c:2367.
+	110: func(m *Machine, a []byte) { m.exit(a[0]) },
+
+	// INDIR: the flag whose value belongs in the next condact's second
+	// operand. See the indir field on Machine.
+	122: func(m *Machine, a []byte) {
+		m.indir.pending = true
+		m.indir.value = m.flags[a[0]]
+	},
+
+	// ---- things a console has no use for, said plainly rather than omitted ----
+	18: nothing, // SFX
+	25: nothing, // SAVE
+	26: nothing, // LOAD
+	28: nothing, // DISPLAY
+	29: nothing, // CLS: a scrolling console has no screen to clear
+	64: nothing, // BEEP
+	65: nothing, // PAPER
+	66: nothing, // INK
+	67: nothing, // BORDER
+	81: nothing, // MODE
+	// TIME: how long the player gets before the tables run on without an
+	// order, in seconds, and where else the clock is allowed to run out.
+	//
+	// The duration goes in flag 48 and the three option bits in the bottom of
+	// flag 49, below the three INPUT writes above them. A duration of zero
+	// turns the whole thing off, which is what the manual means by "no
+	// timeout" and what every adventure starts with.
+	83: func(m *Machine, a []byte) {
+		const optionMask = 0x07
+
+		m.setFlag(FlagTime, a[0])
+		m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]&^optionMask|a[1]&optionMask)
+	},
+	// PICTURE: there is no screen, so nothing is drawn — but which illustration
+	// the adventure asked for is remembered, because it is the one thing about
+	// a picture that can be wrong without the text showing it. See Picture.
+	//
+	// It does not fail the entry, and that is a decision rather than an
+	// omission. The C ends on "checkEntry = gfxPicturePrepare(pic)" —
+	// _internal_picture, daad_condacts.c:2609 — so there a picture that is not
+	// in the file stops the entry where it stands. Here there is no file to
+	// look in, so every picture is taken to exist: a database whose
+	// illustrations have not been packed yet would otherwise play differently
+	// from the same database once they are, and the one thing this is for is
+	// playing the adventure rather than the build.
+	84: func(m *Machine, a []byte) {
+		m.picture, m.pictured = a[0], true
+	},
+	86:  nothing, // MOUSE
+	87:  nothing, // GFX
+	78:  nothing, // WINDOW
+	82:  nothing, // WINAT
+	107: nothing, // WINSIZE
+	109: nothing, // CENTRE
+	118: nothing, // TAB
+	97:  nothing, // SAVEAT
+	98:  nothing, // BACKAT
+	99:  nothing, // PRINTAT
+	62:  nothing, // RAMSAVE
+	63:  nothing, // RAMLOAD
+}
+
+// nothing is a condact a console has no use for. It is written out rather than
+// left out of the table so that the difference between "does nothing here" and
+// "not written yet" stays visible: the second is an error.
+func nothing(_ *Machine, _ []byte) {}
+
+// at is whether an object is in a given place.
+//
+// Location 255 is not a location: it is "wherever the player is standing", and
+// an object lying on that floor holds the room's own number rather than 255.
+// So asking for it has to compare against the player's flag as well, which is
+// what do_ISAT does — daad_condacts.c:376 — and what being strict about it
+// cost: "ISNOTAT 13 255", the pillow not being here, was true with the pillow
+// at the player's feet, and the china vase broke every time it was put down on
+// it.
+func (m *Machine) at(object int, where byte) bool {
+	if object < 0 || object >= len(m.objects) {
+		return false
+	}
+
+	at := m.objects[object].location
+
+	return at == where || (where == LocHere && at == m.flags[FlagPlayer])
+}
+
+// present is whether an object is somewhere the player can reach: carried,
+// worn, or lying in the room.
+func (m *Machine) present(object int) bool {
+	if object < 0 || object >= len(m.objects) {
+		return false
+	}
+
+	switch at := m.objects[object].location; at {
+	case LocCarried, LocWorn:
+		return true
+	default:
+		return at == m.flags[FlagPlayer]
+	}
+}
+
+// moveObject is PLACE and its relatives, which all end by noting which object
+// was last touched.
+func (m *Machine) moveObject(object int, to byte) {
+	m.move(object, to)
+	m.setFlag(FlagCurObj, byte(object))
+	m.did()
+}
+
+// movePlayer is MOVE, and its two halves come from different places.
+//
+// The operand names the flag holding the location to move FROM, and the new
+// location is written back into that same flag. The direction is not in the
+// operand at all: it is whatever fVerb holds.
+//
+// Getting that round the wrong way is not a small error and does not look like
+// one. Matching the connection against the operand's flag means matching it
+// against the location, so "salir" from location 10 found a connection whose
+// word happened to be 10 and went to location 0 — and location 0 is where the
+// main loop starts a new game, so leaving the cabin looked like the adventure
+// ending.
+//
+// That the flag is the location and not the direction is also what makes AO's
+// own exit-lister work: it does "COPYFF 38 202" and then "MOVE 202", walking a
+// copy of where the player is while fVerb counts through the directions.
+func (m *Machine) movePlayer(flag int) bool {
+	from := int(m.flags[flag])
+	if from < 0 || from >= len(m.conns) {
+		return false
+	}
+
+	for _, c := range m.conns[from] {
+		if c.Word == m.flags[FlagVerb] {
+			m.setFlag(flag, c.To)
+			m.did()
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// resetObjects is RESET: every object back where the database says it starts.
+func (m *Machine) resetObjects() {
+	objects, err := m.db.Objects()
+	if err != nil {
+		return
+	}
+
+	for i, o := range objects {
+		if i < len(m.objects) {
+			m.move(i, o.InitialLocation)
+		}
+	}
+
+	// And the count with them. An adventure may well start the player holding
+	// something — the second part of La Aventura Original hands over the lamp,
+	// a key and the food the first part ended with — and until this was here
+	// the first INVENTARIO of the game answered "no llevas nada" while the
+	// player was holding four things.
+	m.setFlag(FlagCarried, byte(m.carrying()))
+}
+
+// say prints one text of a table, with a new line after it when the condact is
+// the kind that adds one.
+func (m *Machine) say(table []string, number int, newline bool) {
+	if number < 0 || number >= len(table) {
+		return
+	}
+
+	text := table[number]
+	if newline {
+		text += "\n"
+	}
+
+	m.console.Print(m.fill(expand(text)))
+}
+
+// xmessage prints a text that lives outside the database.
+//
+// There is no table to index and no number to bound: the offset is into a file
+// and the text there ends at a terminator, which is the whole of why an .XMB
+// needs no index. So the checking is the file's — is there one, and does the
+// offset land in it — and the printing afterwards is the ordinary one, because
+// that is what the interpreter does too: it copies the message down into
+// memory and hands it to the routine that prints every other message.
+//
+// No new line after it. XMES is the variant that adds none, and XMESSAGE is
+// the one that does — by having had the line break put into its text when it
+// was compiled, which is why only one of them reaches here.
+func (m *Machine) xmessage(offset int) {
+	if len(m.texts.xmessages) == 0 {
+		m.trouble = errors.New(
+			"this adventure keeps texts in an .XMB and none was given: qrun looks for " +
+				"one beside the database, with the same name and an .xmb extension")
+
+		return
+	}
+
+	text, err := m.db.XMessage(m.texts.xmessages, offset)
+	if err != nil {
+		m.trouble = err
+
+		return
+	}
+
+	m.console.Print(m.fill(expand(text)))
+	m.did()
+}
+
+// fill puts the object a message is about where the message leaves room for
+// it. See objectName.
+func (m *Machine) fill(text string) string {
+	if !strings.ContainsAny(text, "_@") {
+		return text
+	}
+
+	var sb strings.Builder
+
+	for _, r := range text {
+		switch r {
+		case '_':
+			sb.WriteString(m.objectName(false))
+		case '@':
+			sb.WriteString(m.objectName(true))
+		default:
+			sb.WriteRune(r)
+		}
+	}
+
+	return sb.String()
+}
+
+// expand turns the escapes a source writes into what a console should show.
+//
+// The text arrives already decoded by internal/charset, so what is left is the
+// handful that mean something to a screen rather than to a character set.
+//
+// #g and #t are the interesting pair: they switch to the graphics half of a
+// character set and back, and an adventure of 1989 used that half for two
+// quite different things.
+//
+// One is a display face for titles — "#gAVENTURA ORIGINAL I#t", and the access
+// code the first part of La Aventura Original prints as "#gTIMACUS#t". Those
+// glyphs are the letters, drawn larger, and what they say is what they spell.
+//
+// The other is a drawing: "Una llave#g#f,-#t" is the key followed by two cells
+// of a picture of one, where the comma and the hyphen are not punctuation at
+// all. Those come out named — [UDG:44][UDG:45] — because there is no character
+// set here and nothing to draw with. Dropping them would hide that the
+// adventure drew something; letting them through puts punctuation in the
+// middle of a sentence where the author put a picture, and nothing in a
+// transcript then tells a reader which is which.
+//
+// What tells the two apart is the case, and that is measured rather than
+// supposed. Of the 84 distinct graphics runs in the five Aventuras AD
+// adventures, across every edition, 56 are words in capitals and the other 28
+// are one or two characters of lower case, digits or punctuation — "ab cd ef
+// gh ij kl m no pq rs ut vw x yz" and "01 23 45 67 89", a sheet of sprites in
+// pairs of consecutive slots. The display face is a capitals-only font, so the
+// slots a capital never needs were free for the little pictures.
+//
+// The number is the character's code point, which for every one of these is
+// the byte the database holds, so it is the slot to look up in the .chr.
+func expand(text string) string {
+	if !strings.ContainsRune(text, '#') {
+		return text
+	}
+
+	var out strings.Builder
+
+	graphics := false
+
+	for at := 0; at < len(text); {
+		if text[at] == '#' && at+1 < len(text) {
+			switch text[at+1] {
+			case 'n', 'r':
+				out.WriteByte('\n')
+			case 'f', 's':
+				// The forced space, which is a space anywhere with no font.
+				out.WriteByte(' ')
+			case 'g':
+				graphics = true
+			case 't':
+				graphics = false
+			default:
+				// Anything else is not an escape this knows, and it is left
+				// exactly as it was found.
+				out.WriteByte('#')
+
+				at++
+
+				continue
+			}
+
+			at += 2
+
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(text[at:])
+		at += size
+
+		if graphics && !unicode.IsUpper(r) && r != ' ' {
+			fmt.Fprintf(&out, "[UDG:%d]", r)
+
+			continue
+		}
+
+		out.WriteRune(r)
+	}
+
+	return out.String()
+}
+
+// end is END: ask whether to play again, and either start over or stop.
+//
+// The answer that stops it is "no", and the word it is held against is system
+// message 31 rather than the 30 that QUIT uses — see do_END,
+// daad_condacts.c:2340. That is why this does not go through confirm: the
+// question is not the same shape. "¿Hace otra partidita?" answered with
+// anything but "N" means another game, including an empty line.
+//
+// Having it the other way round was not a subtle wrong. Typing FIN, confirming
+// it, and then saying you had had enough started a fresh game instead of
+// giving the terminal back, which is the opposite of both things a machine of
+// the period did: load it again, or drop you back to BASIC.
+func (m *Machine) end() {
+	if m.declined(13) {
+		m.finished = true
+
+		return
+	}
+
+	// A new game is a new game: the flags go back to nothing and the objects
+	// go back where the database says they start. do_END calls do_RESET for
+	// the second of those and we were leaving it out, so an object picked up
+	// in one game was still gone in the next.
+	m.reset()
+	m.resetObjects()
+	m.restart = true
+	m.continuing = false
+}
+
+// exit is EXIT, which is two condacts wearing one name.
+//
+// Zero leaves the interpreter altogether — no asking, no new game, the way a
+// loading screen's menu quits rather than the way END does. Anything else
+// starts the adventure over: the flags go back to nothing, the objects go back
+// where they began, and the loop begins again at process zero.
+//
+// It asks nothing in either case, which is the whole difference from END. See
+// do_EXIT, daad_condacts.c:2367.
+func (m *Machine) exit(value byte) {
+	if value == 0 {
+		m.finished = true
+
+		return
+	}
+
+	m.reset()
+	m.resetObjects()
+	m.restart = true
+
+	// The entry it was written in has nothing more to say: whatever follows
+	// belongs to the game that just ended.
+	m.continuing = false
+}
+
+// The two slots an adventure writes its own words for yes and no into. They
+// are a letter each, upper case, and a translation puts "Y" and "N" there
+// where a Spanish one puts "S" and "N".
+const (
+	sysYes = 30
+	sysNo  = 31
+)
+
+// confirm prints a system message and reports whether the reply means yes,
+// which is what QUIT asks.
+func (m *Machine) confirm(message int) bool {
+	return m.answered(message, sysYes, "S")
+}
+
+// declined prints a system message and reports whether the reply means no,
+// which is what END asks. The two questions are not each other's negation —
+// "anything but N" is a yes to one and "anything but S" is not a no to the
+// other — so each looks for its own word rather than inverting the other.
+func (m *Machine) declined(message int) bool {
+	return m.answered(message, sysNo, "N")
+}
+
+// answered asks a question and reports whether the reply begins with the
+// letter the named system message holds.
+//
+// fallback is for a database with nothing in that slot, which no real one has;
+// comparing against an empty string would match every reply including none.
+func (m *Machine) answered(message, word int, fallback string) bool {
+	m.say(m.texts.system, message, true)
+
+	answer, ok := m.console.Input()
+	if !ok {
+		// Running out of input is the answer that stops the game, and it is
+		// that for both questions: yes to "are you sure?", no to "another
+		// game?". Either way there is nobody left to play.
+		m.finished = true
+
+		return true
+	}
+
+	// This counts as the player having spoken, so that ending a game is not
+	// mistaken for a turn that got nowhere.
+	m.inputs++
+
+	want := fallback
+	if word < len(m.texts.system) && m.texts.system[word] != "" {
+		want = m.texts.system[word]
+	}
+
+	answer = strings.TrimSpace(strings.ToUpper(answer))
+
+	return answer != "" && strings.HasPrefix(answer, strings.ToUpper(want[:1]))
+}
+
+// redo starts the current process again from its first entry.
+func (m *Machine) redo() {
+	f := m.top()
+	f.entry, f.condact, f.running = -1, 0, false
+	m.continuing = false
+}
+
+// skip jumps a number of entries, forwards or back. The operand is signed,
+// which is the one place in DAAD where a byte is.
+func (m *Machine) skip(by int) {
+	f := m.top()
+
+	// The operand is a delta the compiler works out as "target - here - 1", so
+	// the entry it means is here + delta + 1. One less than that is set,
+	// because what happens next is the step forward that looks for a matching
+	// entry and it will add the one back.
+	f.entry += by
+	f.condact, f.running = 0, false
+	m.continuing = false
+}
+
+// doallNext is what a DOALL does with the end of its table: go round again
+// with the next object, or give up and let the process return.
+// doneOrLoop is DONE, which ends the process — except inside a DOALL, where it
+// is how one turn of the loop finishes and the next one begins.
+//
+// That exception is the whole of why "dejar todo" dropped one object. DOALL
+// sets the loop up and the entry that does the work ends with DONE, so taking
+// DONE at face value pops the process after the first object and the other
+// nine stay where they are. Nothing complains: one object really was dropped.
+//
+// See do_DONE, daad_condacts.c:2389, which tries the loop first and falls
+// through to the ordinary pop only when the objects are exhausted.
+func (m *Machine) doneOrLoop() {
+	if f := m.top(); f.doallCondact >= 0 && m.doallNext() {
+		return
+	}
+
+	m.did()
+	m.pop()
+}
+
+func (m *Machine) doallNext() bool {
+	if m.doallSearch() {
+		return true
+	}
+
+	m.top().doallCondact = -1
+
+	return false
+}
+
+// parse takes the next sentence from the player. It reports whether the
+// sentence could not be understood, which is the way round PARSE is used:
+// "PARSE 0 / PROCESS 2" runs process 2 when the input made no sense.
+func (m *Machine) parse(which byte) bool {
+	// PARSE 1 reads the phrase the player put in quotes, which is already in
+	// hand: it asks nothing and takes nothing from the line still being
+	// answered. See useLiteralSentence, daad_parser_sentences.c:272.
+	//
+	// Nothing in quotes is not an error either. It leaves the sentence empty,
+	// which is a sentence the conversation's entries do not match, so the
+	// adventure's own "I did not understand that" answers it.
+	if which != 0 {
+		return !m.words(m.literal)
+	}
+
+	m.prompt()
+
+	line, ok, expired := m.waitForLine()
+
+	if expired {
+		// The clock ran out, so the tables run on with no order at all. The
+		// bit is how they find out: the loop's own table asks for it with
+		// HASAT 87 and answers with the adventure's "time passes" message
+		// rather than its "I do not understand".
+		m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]|timedOut)
+		m.words("")
+
+		return true
+	}
+
+	if !ok {
+		m.finished = true
+
+		return true
+	}
+
+	m.inputs++
+
+	return !m.sentence(line)
+}
+
+// timedOut is bit 7 of the timeout flags, which the interpreter sets and the
+// adventure reads. See 05-flujo-ejecucion.md §6.
+const timedOut = 0x80
+
+// waitForLine asks the player for a line, giving up if the adventure has said
+// how long to wait and the console can be told to.
+//
+// The bit it clears first is the one it may set afterwards: a timeout is news
+// about this turn, and leaving last turn's would have the adventure announce
+// the clock every turn once it had run out once.
+func (m *Machine) waitForLine() (line string, more, expired bool) {
+	m.setFlag(FlagTimeFlags, m.flags[FlagTimeFlags]&^timedOut)
+
+	seconds := m.flags[FlagTime]
+
+	impatient, canWait := m.console.(Impatient)
+	if !canWait || seconds == 0 {
+		line, more = m.console.Input()
+
+		return line, more, false
+	}
+
+	return impatient.InputWithin(time.Duration(seconds) * time.Second)
+}
+
+// prompt writes what goes in front of the player's line.
+//
+// Which system message that is lives in a flag, so an adventure can change it
+// as it goes — a sinking ship asking differently from a quiet room. Zero means
+// the interpreter picks one of the first four at random, which is a flourish
+// nobody used; the usual answer is 33.
+func (m *Machine) prompt() {
+	const defaultPrompt = 33
+
+	which := int(m.flags[FlagPrompt])
+	if which == 0 {
+		which = defaultPrompt
+	}
+
+	m.say(m.texts.system, which, false)
+}
+
+// A bit, the way HASAT, HASNAT and SETAT name one.
+//
+// The operand is not a flag number and a bit number side by side: it is one
+// byte that packs both, counting flags downwards from 59. Nothing says so in
+// the manual, but msx2daad spells out five of them as constants — timeout is
+// flag 49 bit 7 and is written 87, graphics mode is flag 29 bit 7 and is
+// written 247 — and this is the only arithmetic that gives all five.
+const bitsPerFlag = 8
+
+func bitOf(value byte) (flag, bit int) {
+	return FlagCurObjAtt + 1 - int(value)/bitsPerFlag, int(value) % bitsPerFlag
+}
+
+func (m *Machine) hasBit(value byte) bool {
+	flag, bit := bitOf(value)
+	if flag < 0 || flag > 255 {
+		return false
+	}
+
+	return m.flags[flag]&(1<<bit) != 0
+}
+
+// setBit is SETAT, whose second operand says what to do: clear, set, or turn
+// the bit over.
+func (m *Machine) setBit(value, how byte) {
+	flag, bit := bitOf(value)
+	if flag < 0 || flag > 255 {
+		return
+	}
+
+	const (
+		clear = 0
+		set   = 1
+	)
+
+	was := m.flags[flag]
+
+	switch how {
+	case clear:
+		m.setFlag(flag, was&^(1<<bit))
+	case set:
+		m.setFlag(flag, was|(1<<bit))
+	default:
+		m.setFlag(flag, was^(1<<bit))
+	}
+
+	m.did()
+}

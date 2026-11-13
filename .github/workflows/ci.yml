@@ -1,0 +1,98 @@
+# What can be checked from a clone, which is less than what can be checked here.
+#
+# Four of this project's comparisons hold our output against DAAD READY's, and
+# none of them can run from here: they read work/, which is somebody else's
+# checkouts and some gigabytes of original games, and is not in the repository.
+# Worse, their scripts exit 0 when the tools they need are missing — so running
+# them on a hired runner would paint a green tick over nothing compared at all.
+# They stay a local job. See the README.
+#
+# What is left is still most of it: the suite, the linters, the adventures
+# played through, and the tapes and disks built from the sources in examples/.
+# The pictures are in the repository — 151 screens, the fonts and the loading
+# screens — so a clone builds the same six artefacts, byte for byte, as this
+# machine does.
+# The runner is named and not "latest", which is the same decision the
+# comparison scripts make when they pin WHEN: a build that changes under you is
+# a build whose two runs cannot be compared. ubuntu-latest is migrating to
+# Ubuntu 26 gradually over a month or two, and when it arrives it brings another
+# machine speed with it — and the one number in this project that is a
+# measurement of a machine is TEST_TIMEOUT. So the version moves when somebody
+# moves it, in a commit, with the run that proves it.
+#
+# ubuntu-24.04 is where ubuntu-latest points today, so this pins what is
+# already running rather than choosing something else.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # The linters and the suite. Both read nothing but the repository.
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # go-version-file rather than a number written here: the toolchain is
+      # already pinned in go.mod and two places to change it is one too many.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # golangci-lint and govulncheck are tool directives in go.mod, so this
+      # installs nothing: go tool fetches what it needs.
+      - run: make lint
+
+      - run: make test
+
+      # How much of the suite did not run, which a green tick does not say.
+      #
+      # About seventy tests ask for an original game or a reference source out
+      # of work/ and skip when it is not there — correctly, and silently. The
+      # number belongs in the log so that nobody reads this job as "everything
+      # was checked": it was not, and the part that was not is the part that
+      # holds us against the real thing.
+      - name: Say what was skipped for want of work/
+        if: always()
+        run: |
+          skipped=$(go test -v ./... -timeout 300s 2>&1 | grep -cE '^\s*--- SKIP' || true)
+          echo "$skipped tests skipped: they need the originals in work/, which is not in the repository." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  # The adventures: played, and then built into the tapes and disks a machine
+  # would load.
+  play:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Five scripts: both parts of La Aventura Original in two trees, and the
+      # xmessages, which are the one thing no edition of 1989 exercises.
+      - run: make qtest
+
+      # And the real output. This is the step that would catch a packager that
+      # still passes its own tests and writes a tape nothing loads.
+      - run: make example-ao
+
+      # Kept, so that any commit can be fetched and loaded in an emulator
+      # without building it first.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aventura-original
+          path: |
+            tmp/*.tap
+            tmp/*.tzx
+            tmp/*.dsk
+          if-no-files-found: error

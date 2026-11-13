@@ -1,0 +1,28 @@
+# IDE
+.idea
+.vscode
+
+# Working
+/work
+/build
+/decompiled
+.build
+
+# Output, wherever it is: the root's, and the one each example's own Makefile
+# writes beside its sources.
+tmp/
+dist/
+
+# IA
+CLAUDE.md
+AGENTS.md
+.claude
+.rtk
+/docs/plan
+
+# OS
+.DS_Store
+
+# Decompiled sources dropped in the root by a "-o <name>" with no path.
+# They are output, not source: the place for them is work/port/.
+/ao-*/
