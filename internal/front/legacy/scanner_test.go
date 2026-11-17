@@ -55,6 +55,16 @@ func TestScannerReadsToTheLastQuote(t *testing.T) {
 	require.Equal(t, `Te dice: "hola", y se va.`, got[1].Text)
 }
 
+// Two quoted runs on one line are one string and not two, by that same rule:
+// what looks like a gap between them is text. Fragments of a text only join
+// across lines, never along one.
+func TestScannerDoesNotSplitTwoStringsOnALine(t *testing.T) {
+	got := scanText(t, `/0 "one" "two"`)
+
+	require.Equal(t, []Kind{ListEntry, String}, kinds(got))
+	require.Equal(t, `one" "two`, got[1].Text)
+}
+
 // A comment ends the line wherever it starts, but a semicolon inside a string
 // is text and does not open one.
 func TestScannerComments(t *testing.T) {

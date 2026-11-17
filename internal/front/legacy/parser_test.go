@@ -114,6 +114,48 @@ func TestParsesEverySectionButProcesses(t *testing.T) {
 	})
 }
 
+// A text longer than a line is comfortable with can come in quoted fragments on
+// the lines after its number. Every fragment here is cut where the join has to
+// be exact to put the original back together — after a space, before one, and
+// in the middle of a word — so anything inserted or trimmed shows up.
+func TestTextsMayComeInFragments(t *testing.T) {
+	split := strings.NewReplacer(
+		`/0 "It is dark."`, "/0 \"It is \"\n   \"dark.\"",
+		`/0 "You cannot."`, "/0 \"You \"\n   \"cannot.\"",
+		`/0 "a key"`, "/0 \"a\"\n   \" key\"",
+		`/0 "A cave."`, "/0 \"A cave\"\n   \".\"",
+	).Replace(bare)
+
+	db, err := parse(t, split)
+	require.NoError(t, err)
+
+	got, ok := db.Messages().GetMessage(ddb.SystemMessage, 0)
+	require.True(t, ok)
+	require.Equal(t, "It is dark.", got, "/STX")
+
+	got, ok = db.Messages().GetMessage(ddb.UserMessage, 0)
+	require.True(t, ok)
+	require.Equal(t, "You cannot.", got, "/MTX")
+
+	o, err := db.Objects().Get(0)
+	require.NoError(t, err)
+	require.Equal(t, "a key", o.Description, "/OTX")
+
+	l, err := db.Locations().Get(0)
+	require.NoError(t, err)
+	require.Equal(t, "A cave.", l.Description, "/LTX")
+}
+
+// The cost of fragments: a number left out by mistake is not an error where it
+// happened, because the text joins to the entry above it. What catches it is the
+// numbering, which no longer adds up.
+func TestAForgottenEntryNumberBreaksTheNumbering(t *testing.T) {
+	_, err := parse(t, strings.Replace(bare,
+		"/0 \"A cave.\"\n/1 \"A hall.\"",
+		"/0 \"A cave.\"\n\"A hall.\"\n/2 \"A den.\"", 1))
+	require.ErrorContains(t, err, "consecutively from zero: 1 expected, 2 found")
+}
+
 func TestParserRefusesWhatTheFormatCannotHold(t *testing.T) {
 	for _, tc := range []struct{ name, swap, with, says string }{
 		{"a gap in the text numbering", `/0 "A cave."`, `/1 "A cave."`, "consecutively from zero"},

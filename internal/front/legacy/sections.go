@@ -130,7 +130,7 @@ var accentedCaps = map[rune]rune{
 }
 
 // textSection reads one of the four text tables, which all share a grammar:
-// a numbered list entry and the text it names, on one line.
+// a numbered list entry and the text it names.
 //
 // The numbering has to run consecutively from zero. The compiler of reference
 // insists on it, and the binary could not hold anything else: a text table is
@@ -163,7 +163,20 @@ func (p *parser) textSection(open, close SectionID, store func(ddb.ID16, string)
 			return err
 		}
 
-		if err := store(ddb.ID16(entry.Num), text.Text); err != nil {
+		// A text too long for a line may come in quoted fragments on the lines
+		// after it, joined exactly as written. Whoever breaks a sentence in two
+		// puts the space at the start of the next fragment, where it shows and
+		// where no editor trimming line ends can eat it. This is ours: the
+		// compiler of reference wants the whole text on one line.
+		var whole strings.Builder
+
+		whole.WriteString(text.Text)
+
+		for p.peek().Kind == String {
+			whole.WriteString(p.next().Text)
+		}
+
+		if err := store(ddb.ID16(entry.Num), whole.String()); err != nil {
 			return p.errorf("entry %d: %w", entry.Num, err)
 		}
 
