@@ -179,7 +179,7 @@ type imagePage struct {
 // Each picture is cut to its own height, which the self-describing blocks make
 // free: a block carries where it goes and how long it is, so nothing downstream
 // has to know that two pictures are different sizes.
-func buildImagePage(images map[int][]byte, at, room int) (imagePage, []int, error) {
+func buildImagePage(images map[int][]byte, at, room int, report Progress) (imagePage, []int, error) {
 	page := imagePage{at: at, starts: map[int]int{}}
 
 	numbers := make([]int, 0, len(images))
@@ -191,7 +191,9 @@ func buildImagePage(images map[int][]byte, at, room int) (imagePage, []int, erro
 
 	var dropped []int
 
-	for _, n := range numbers {
+	for i, n := range numbers {
+		report.at(i+1, len(numbers), fmt.Sprintf("compressing picture %03d", n))
+
 		blocks, err := cutScreen(images[n], pictureLines(images[n]))
 		if err != nil {
 			return imagePage{}, nil, fmt.Errorf("picture %d: %w", n, err)

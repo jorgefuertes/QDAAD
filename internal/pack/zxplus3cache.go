@@ -204,7 +204,9 @@ const plus3OtherFiles = 4
 // spoken for. Neither is read from anywhere here: the first belongs to the disk
 // the caller is writing, and the tests use a small one so that overrunning a
 // directory does not mean packaging a hundred and thirty-four whole screens.
-func chooseCached(pictures map[int][]byte, names, others int) (cached []plus3Cached, loose []int, err error) {
+func chooseCached(
+	pictures map[int][]byte, names, others int, report Progress,
+) (cached []plus3Cached, loose []int, err error) {
 	numbers := make([]int, 0, len(pictures))
 	for n := range pictures {
 		numbers = append(numbers, n)
@@ -214,7 +216,9 @@ func chooseCached(pictures map[int][]byte, names, others int) (cached []plus3Cac
 
 	bodies := make(map[int][]byte, len(numbers))
 
-	for _, n := range numbers {
+	for i, n := range numbers {
+		report.at(i+1, len(numbers), fmt.Sprintf("compressing picture %03d", n))
+
 		body, err := plus3Picture(pictures[n])
 		if err != nil {
 			return nil, nil, fmt.Errorf("picture %d: %w", n, err)

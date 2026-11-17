@@ -164,7 +164,9 @@ func cpcPictureFiles(opts Options) ([]media.File, error) {
 
 	files := make([]media.File, 0, len(numbers))
 
-	for _, number := range numbers {
+	for i, number := range numbers {
+		opts.Progress.at(i+1, len(numbers), fmt.Sprintf("packing picture %03d", number))
+
 		name := cpcPictureName(number)
 
 		body, err := cpcPicture(opts.Images[number], opts.Palettes[number], opts.Lines)

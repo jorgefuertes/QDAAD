@@ -211,7 +211,7 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 	// A +3 disk and so a +3 directory, which is the only reason this knows the
 	// number: chooseCached decides how many pictures have to move and the disk
 	// decides how many names there are to move them out of.
-	cached, loose, err := chooseCached(opts.Images, media.Plus3Names(), others)
+	cached, loose, err := chooseCached(opts.Images, media.Plus3Names(), others, opts.Progress)
 	if err != nil {
 		return nil, err
 	}

@@ -139,6 +139,32 @@ type Options struct {
 	// build that silently carries four of forty-one looks like a build that
 	// carries them all until somebody plays it.
 	Note func(string)
+	// Progress is told what is being worked on while it is. See Progress.
+	Progress Progress
+}
+
+// Progress is told what a packager is working on, while it is working on it.
+//
+// It is here because some of this is slow and none of it used to say so. An
+// Amstrad picture is a whole 16K screen and ZX0 parses it as a shortest path,
+// which is a second and a half apiece; an adventure with forty of them is a
+// minute of a tool that looks hung.
+//
+// done counts from one, total is how many there are in this run of them, and
+// what is the work itself in a short phrase.
+//
+// What it is told is for showing and not for keeping, which is the difference
+// from Note: a caller is expected to draw each of these over the last, and one
+// with nowhere to draw passes nil.
+type Progress func(done, total int, what string)
+
+// at tells it, if there is anyone to tell.
+func (p Progress) at(done, total int, what string) {
+	if p == nil {
+		return
+	}
+
+	p(done, total, what)
 }
 
 // tapeBlock is one CODE block of a tape: the letter that tells it apart in the
@@ -185,7 +211,8 @@ func zxBlocks(target runtime.Target, database []byte, opts Options) (zxParts, er
 	// drift apart. A Spectrum's base does not depend on its subtarget.
 	databaseOrigin := int(arch.ZX.BaseAddress(""))
 
-	page, dropped, err := zxPictures(opts.Images, databaseOrigin+len(database), len(stub))
+	page, dropped, err := zxPictures(opts.Images, databaseOrigin+len(database), len(stub),
+		opts.Progress)
 	if err != nil {
 		return zxParts{}, err
 	}
@@ -253,7 +280,7 @@ type zxParts struct {
 // when the database has already run past that, which is what pager48k.php
 // works out and what the interpreter assumes. What is left over for them is
 // everything up to the stub.
-func zxPictures(images map[int][]byte, databaseEnd, stub int) (imagePage, []int, error) {
+func zxPictures(images map[int][]byte, databaseEnd, stub int, report Progress) (imagePage, []int, error) {
 	const pictureData = 0xC000
 
 	at := pictureData
@@ -271,7 +298,7 @@ func zxPictures(images map[int][]byte, databaseEnd, stub int) (imagePage, []int,
 
 	room := topOfMemory - at - stub - indexFixed
 
-	return buildImagePage(images, at, room)
+	return buildImagePage(images, at, room, report)
 }
 
 func ZX48(database []byte, opts Options) ([]byte, error) {

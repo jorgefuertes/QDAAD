@@ -162,7 +162,9 @@ func cpcPictureBank(opts Options, gameEnd int) (cpcBank, error) {
 
 	var index []byte
 
-	for _, number := range numbers {
+	for i, number := range numbers {
+		opts.Progress.at(i+1, len(numbers), fmt.Sprintf("compressing picture %03d", number))
+
 		entry, err := cpcBankEntry(number, opts, cpcPictureRows(opts.Images[number], opts.Lines))
 		if err != nil {
 			return cpcBank{}, err

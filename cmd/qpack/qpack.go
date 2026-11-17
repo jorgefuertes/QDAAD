@@ -187,7 +187,8 @@ func assemble(
 		Language: b.Language, Name: name,
 		Charset: b.Charset, Images: b.Images, Palettes: b.Palettes, Loading: b.Loading,
 		XMessages: b.XMessages, Lines: lines, Memory: memory, LoadingPalette: loadingPalette,
-		Note: func(said string) { fmt.Println(said) },
+		Note:     func(said string) { fmt.Println(said) },
+		Progress: progress(),
 	}
 
 	switch format {
@@ -289,6 +290,49 @@ func assemble(
 		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s, %s, %s or %s",
 			format, formatDir, formatTAP, formatTZX, formatCDT, formatDSK, formatQRun)
 	}
+}
+
+// progressWidth is how wide the line is drawn. Every line is drawn to the same
+// width so that the next one covers the whole of the last, with no tail of a
+// longer phrase left behind it.
+const progressWidth = 48
+
+// progress draws what the packager is working on, each line over the last, and
+// rubs the line out when the work it was about is done.
+//
+// It goes to the error stream and only when there is a person on the other end
+// of it. A log wants the result and not the sixty-seven lines it took to get
+// there, and a progress line in a file is sixty-seven lines with carriage
+// returns in them.
+func progress() pack.Progress {
+	if !isTerminal(os.Stderr) {
+		return nil
+	}
+
+	// "7 of 28" rather than "7/28", because the two numbers of a picture are
+	// not the same number: the pictures are numbered as the adventure asks for
+	// them and that numbering has holes, so picture 011 is the seventh of the
+	// twenty-eight a part carries. A slash between them reads like a fraction
+	// of something and invites being read as the picture's own number.
+	return func(done, total int, what string) {
+		fmt.Fprintf(os.Stderr, "\r%-*s", progressWidth,
+			fmt.Sprintf("  %s   %d of %d", what, done, total))
+
+		if done >= total {
+			fmt.Fprintf(os.Stderr, "\r%*s\r", progressWidth, "")
+		}
+	}
+}
+
+// isTerminal says whether there is a person on the other end of a file. A
+// character device is a terminal; a redirected file or a pipe is not.
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 func notPackaged(machine arch.Machine) error {

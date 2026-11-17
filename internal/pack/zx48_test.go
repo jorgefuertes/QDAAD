@@ -66,7 +66,7 @@ func TestADatabaseThatDoesNotFitIsRefused(t *testing.T) {
 // interpreter reads uninitialised memory the first time a PICTURE runs, and the
 // official template runs one before printing anything.
 func TestTheEmptyIndexStillSaysThereAreNoPictures(t *testing.T) {
-	page, _, err := zxPictures(nil, 0x8400+2000, 2099)
+	page, _, err := zxPictures(nil, 0x8400+2000, 2099, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, []byte{
@@ -78,7 +78,7 @@ func TestTheEmptyIndexStillSaysThereAreNoPictures(t *testing.T) {
 
 	// Once the database runs past 0xC000 the pictures go after it instead, so
 	// that the two never overlap.
-	page, _, err = zxPictures(nil, 0xD000, 2099)
+	page, _, err = zxPictures(nil, 0xD000, 2099, nil)
 	require.NoError(t, err)
 	require.Equal(t, []byte{0x01, 0xD0}, imageIndex(page)[4:], "0xD001, still backwards")
 }
@@ -89,7 +89,7 @@ func TestTheIndexPointsAtEachPicture(t *testing.T) {
 	page, dropped, err := zxPictures(map[int][]byte{
 		3: make([]byte, screenSize),
 		7: make([]byte, screenSize),
-	}, 0x8400+2000, 2099)
+	}, 0x8400+2000, 2099, nil)
 	require.NoError(t, err)
 	require.Empty(t, dropped, "two blank screens fit in a 48K with room to spare")
 

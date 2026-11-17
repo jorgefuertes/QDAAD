@@ -37,6 +37,31 @@ func cpcBankOptions(pictures int) Options {
 	}
 }
 
+// Which picture it is on, said as it goes. Compressing one is about a second
+// and a half, so a bank of forty is a minute of a tool that would otherwise
+// look hung — and what makes the wait readable is the counting, not the phrase.
+func TestTheBankSaysWhichPictureItIsOn(t *testing.T) {
+	opts := cpcBankOptions(3)
+	for n := range opts.Images {
+		opts.Images[n] = cpcScreenOf(12)
+	}
+
+	var said []string
+
+	opts.Progress = func(done, total int, what string) {
+		said = append(said, fmt.Sprintf("%d/%d %s", done, total, what))
+	}
+
+	_, err := cpcPictureBank(opts, 0x6000)
+	require.NoError(t, err)
+
+	require.Equal(t, []string{
+		"1/3 compressing picture 000",
+		"2/3 compressing picture 001",
+		"3/3 compressing picture 002",
+	}, said)
+}
+
 // What goes into memory: the code and the index under the loader, and the
 // pictures themselves in a block of their own.
 func TestWhatIsInACPCPictureBank(t *testing.T) {

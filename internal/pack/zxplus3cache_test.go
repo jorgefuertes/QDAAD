@@ -69,7 +69,7 @@ const (
 var overrun = sync.OnceValue(func() overrunFixture {
 	pictures := screens(fewOverruns)
 
-	cached, loose, err := chooseCached(pictures, fewNames, plus3OtherFiles)
+	cached, loose, err := chooseCached(pictures, fewNames, plus3OtherFiles, nil)
 	if err != nil {
 		return overrunFixture{err: err}
 	}
@@ -321,7 +321,7 @@ func TestTheBufferIsOnlyThereWhenTheDirectoryWouldOverrun(t *testing.T) {
 		{pictures: names + 6, cached: 11},
 	} {
 		t.Run(fmt.Sprint(tc.pictures), func(t *testing.T) {
-			cached, loose, err := chooseCached(screens(tc.pictures), names, plus3OtherFiles)
+			cached, loose, err := chooseCached(screens(tc.pictures), names, plus3OtherFiles, nil)
 			require.NoError(t, err)
 
 			require.Len(t, cached, tc.cached, tc.note)
@@ -372,12 +372,12 @@ func TestWhatThePlus3DirectoryHoldsToday(t *testing.T) {
 
 // An adventure with no pictures at all has no buffer to write.
 func TestTheEdgesOfTheBuffer(t *testing.T) {
-	cached, loose, err := chooseCached(screens(3), fewNames, plus3OtherFiles)
+	cached, loose, err := chooseCached(screens(3), fewNames, plus3OtherFiles, nil)
 	require.NoError(t, err)
 	require.Empty(t, cached, "three names fit without help")
 	require.Len(t, loose, 3)
 
-	cached, loose, err = chooseCached(nil, fewNames, plus3OtherFiles)
+	cached, loose, err = chooseCached(nil, fewNames, plus3OtherFiles, nil)
 	require.NoError(t, err)
 	require.Empty(t, cached)
 	require.Empty(t, loose)
