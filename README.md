@@ -234,6 +234,29 @@ other way round. Each shape is tried and the one that adds up is kept: an
 archive lays its first picture exactly where its table of slots ends, and only
 the right reading puts it there.
 
+### The drawings of the eight-bit editions
+
+The Spanish adventures of 1989 shipped no bitmaps. A drawing there is a program:
+a strip of orders an engine runs to trace it, with a flat table of pointers in
+the tail of the block saying where each one starts. Nothing marks the block, so
+it is found by trying every offset as its end and letting the arrangement accept
+or reject it — a table that is ordered, self-terminating and bounded by itself,
+a record per drawing that agrees with it to the byte, and then every drawing
+having to run to its return exactly where the next one begins.
+
+Both engines are read, and they are the same design twice. The Spectrum's puts
+the opcode in the low three bits, traces with the ROM's own `DRAW` and colours
+by attribute; **the Amstrad's puts it in bits 1 to 3**, calls the firmware, and
+colours with four pens and a palette of 27 inks that each drawing's record sets.
+Its block ends at `0x9E00` rather than at the top of memory, because above
+`0xC000` is the screen, and its canvas is anchored by a `GRA SET ORIGIN 0,32`
+the interpreter does before anything runs — which is what makes the frame every
+scene opens with land on the fourteen character rows its record asks for.
+
+Each drawing comes out as a listing, a PNG and the screen as the machine held
+it: 6912 bytes for a Spectrum, a mode 1 display and its four inks for an
+Amstrad. The whole format is in `docs/DAAD_v2_v3_Research/09-graficos.md` §9.
+
 **1798 pictures** are converted as things stand: character sets, loading screens
 and illustrations, on every machine whose databases can be read.
 
@@ -250,7 +273,8 @@ qpack -f tap -o GAME --name GAME build/      # GAME.tap
 The two were one command and were split because they are two jobs. Compiling is
 about one source and gives a database; packaging is about a **release**, which
 is about a machine. `qpack` writes `tap`, `tzx`, `dsk`, `dir` — everything the
-machine needs as loose files — and `qrun`, our own container.
+machine needs as loose files — `cdt` for an Amstrad tape, and `qrun`, our own
+container.
 
 What goes into a release beyond the database is declared by the source, so the
 same build directory packages for any of them:
@@ -281,6 +305,66 @@ The specification is La Aventura Original's own, read off its disk, with that
 one byte changed. Verified on a +3: the menu loads the disk, a `CAT` lists
 every name, and the free space it reports is the arithmetic of the fields that
 moved and not of their defaults.
+
+A **CPC disk** is the interpreter, the database and the graphics block glued
+into one binary the way MCRF glues them, and then the pictures beside it, one
+file each: the interpreter opens them by name as a `PICTURE` asks for one. They
+are what runs out of room, because nothing compresses a picture on this
+machine — the interpreter reads one straight into video memory — so a drawing
+of fourteen character rows is sixteen kilobytes of a disk with a hundred and
+seventy-eight. `--lines` is where that is traded, and it is DAAD's own
+`IMGLINES` under another name: twelve rows halve the size of every picture,
+because twelve is the most that lets two bands of one share a 2K record.
+Whatever is left out is named rather than dropped quietly.
+
+Asking a CPC release for a loading screen turns it from one file into three —
+the loader, the picture and the game — because showing something before the
+interpreter starts means a program that runs before it. The loader is a single
+page up at the top of memory; it sets the mode and the palette, drops the
+picture onto the display and pulls the rest in underneath it, and the one thing
+in it that nothing on paper suggests is its first four instructions: `RUN`
+enters a binary through MC START PROGRAM, which resets the firmware and takes
+AMSDOS's patches with it, so a loader that just opens a file is told to press
+PLAY with the disk in the drive. Walking the background ROMs, asking which one
+answers to `DISC`, restarting with every ROM on and then initialising that one
+by number is what puts it back — and it is the interpreter's own sequence, read
+out of it at 0x2458.
+
+A tape loader gets none of that, and the reason is the same sequence read the
+other way round. The walk alone brings AMSDOS back on any machine that has a
+drive at all, and from then on every file the loader asks for is asked of a
+disk that is not there. Left as MC START PROGRAM handed it over, the firmware
+is already reading the tape the `RUN` came from, which is the whole of what a
+tape needs.
+
+A **CPC tape** is a `cdt`, and it is not the Spectrum's tape wrapped: the
+Amstrad has a tape format of its own — a file cut into 2K blocks, each written
+as a header record and a data record, each record in segments of 256 with a
+CRC-16/CCITT after every one of them. The pulses and the checksum are read off
+La Aventura Original's own Amstrad tape.
+
+What it does with the adventure's pictures is the other half. A tape cannot be
+asked in any order, so they do not go on it: they go **into memory with the
+game**, compressed with ZX0, and two patches of three bytes point the
+interpreter at them instead of at a file. A picture comes down to about 1300
+bytes that way, and what is free between the end of the game and the
+interpreter's graphics block holds a dozen or so of them; the rest are named.
+It already asks whether a picture is there before it draws, and already takes
+no for an answer, so one that did not fit comes out as no picture rather than
+as a crash — and where none fit at all, the asking is taken out of the
+interpreter altogether so that the tape never stops for a cassette.
+
+`--ram 128` is where the dozen becomes all of them, on a tape as much as on a
+disk. A 6128's four spare banks
+are 64K that the interpreter never touches — it writes to no port but the PPI's
+and leaves the gate array's memory configuration alone from beginning to end —
+so the pictures go there, one bank filled after another, and the loader pages
+each one into the window at 0x4000 as it reads it. The 28 pictures of the first
+part of La Aventura Original fit with room over. It is worth as much to a disk
+as to a tape and `--ram 128` says so on either: a 128K disk is read once and
+never again, where a 64K one opens a file every time the player walks into a
+room. The release will not run on a 464 or a 664, which is the whole of the
+price.
 
 ## qrun, the interpreter
 

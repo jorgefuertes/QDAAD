@@ -82,6 +82,14 @@ type Build struct {
 	// none is the usual case: most of the corpus illustrates with nothing, or
 	// with vectors that version 3 cannot draw.
 	Images map[int][]byte
+	// Palettes are the colours each picture is read through, for the machines
+	// whose pictures do not carry their own.
+	//
+	// Only the Amstrad has them so far, and it needs them: a mode 1 screen is
+	// two bits to the pixel and says nothing about what those two bits are
+	// worth, so the drawing and its four inks are two files and travel as two.
+	// A Spectrum screen carries its attributes and leaves this empty.
+	Palettes map[int][]byte
 }
 
 // Write lays the build out in a directory, making it if it is not there.
@@ -160,13 +168,22 @@ func (b Build) writeImages(dir string) error {
 		}
 	}
 
+	// The inks go beside the picture they belong to rather than inside it, so
+	// that each file is still the one thing its name says it is.
+	for number, body := range b.Palettes {
+		name := fmt.Sprintf("%03d.pal", number)
+		if err := os.WriteFile(filepath.Join(into, name), body, 0o644); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 // readImages takes them back out. A directory that is not there is a build
 // with no pictures, which is not a problem.
-func readImages(dir string) (map[int][]byte, error) {
-	names, err := filepath.Glob(filepath.Join(dir, imagesDir, "*.scr"))
+func readImages(dir, extension string) (map[int][]byte, error) {
+	names, err := filepath.Glob(filepath.Join(dir, imagesDir, "*"+extension))
 	if err != nil || len(names) == 0 {
 		return nil, err
 	}
@@ -174,7 +191,7 @@ func readImages(dir string) (map[int][]byte, error) {
 	out := make(map[int][]byte, len(names))
 
 	for _, name := range names {
-		number, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(name), ".scr"))
+		number, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(name), extension))
 		if err != nil {
 			return nil, fmt.Errorf("%s: a picture is named by its number: %w", name, err)
 		}
@@ -251,7 +268,11 @@ func Read(dir string) (Build, error) {
 		return Build{}, err
 	}
 
-	if out.Images, err = readImages(dir); err != nil {
+	if out.Palettes, err = readImages(dir, ".pal"); err != nil {
+		return out, err
+	}
+
+	if out.Images, err = readImages(dir, ".scr"); err != nil {
 		return Build{}, err
 	}
 

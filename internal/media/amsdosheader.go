@@ -82,6 +82,19 @@ func AMSDOSHeader(name string, load, run, length int) ([]byte, error) {
 // The checksum decides. A CPC file is as likely to be headerless as not — the
 // interpreters DAAD ships are raw Z80 and the graphics blocks are not — so
 // guessing from the length or the first byte would be guessing.
+// AMSDOSAddresses reads where a headered file loads and is entered.
+//
+// It is here rather than worked out again by whoever needs it: a tape carries
+// those two numbers in a record of its own, so turning a disk file into a tape
+// file means reading them back out of the header the disk file carries.
+func AMSDOSAddresses(data []byte) (load, entry int, ok bool) {
+	if !hasAMSDOSHeader(data) {
+		return 0, 0, false
+	}
+
+	return int(data[21]) | int(data[22])<<8, int(data[26]) | int(data[27])<<8, true
+}
+
 func WithoutAMSDOSHeader(data []byte) []byte {
 	if !hasAMSDOSHeader(data) {
 		return data

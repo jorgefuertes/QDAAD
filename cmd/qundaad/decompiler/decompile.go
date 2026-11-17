@@ -71,6 +71,13 @@ type database struct {
 	// of the above: their illustrations travel in the same block as the
 	// interpreter, as strips of drawing orders rather than as pictures.
 	vectors *vectors
+	// cpcVectors is the same thing for the Amstrad, which has its own format
+	// and its own renderer. See cpcvector.go.
+	cpcVectors *cpcVectors
+	// cpcLoading is the picture the Amstrad shows while this part loads. It
+	// belongs to no table and nothing asks for it by number: it is a dump of
+	// video memory the loader drops on the screen. See cpcloading.go.
+	cpcLoading *cpcLoadingScreen
 }
 
 // The kinds of file that travelled alongside a database. A database found by
@@ -312,7 +319,17 @@ func databasesIn(path string) ([]database, error) {
 		// the same way the databases were and in the same blob. It has to be the
 		// same blob: an offset only means anything within the one it was read
 		// from, and a disk that gives up its files gives up one blob apiece.
-		attachVectors(found[first:], findVectors(b.data))
+		//
+		// Which format to look for is the machine's business. The two blocks
+		// are anchored at different addresses and nothing in either says which
+		// it is, so searching for both would be searching for a coincidence;
+		// the database already says what machine it was built for.
+		if isCPC(found[first:]) {
+			attachCPCVectors(found[first:], findCPCVectors(b.data))
+			attachCPCLoading(found[first:], findCPCLoadingScreens(b.data))
+		} else {
+			attachVectors(found[first:], findVectors(b.data))
+		}
 	}
 
 	if len(found) == 0 {
@@ -424,6 +441,22 @@ func decompileOne(db database, outputDir string, opts Options) error {
 				}
 			}
 
+			if db.cpcVectors != nil {
+				dir := filepath.Join(outputDir, graphicsDir)
+				if pictures.drawings, err = writeCPCVectors(*db.cpcVectors, dir, opts); err != nil {
+					return err
+				}
+			}
+
+			if db.cpcLoading != nil {
+				dir := filepath.Join(outputDir, graphicsDir)
+				if err := writeCPCLoading(*db.cpcLoading, dir, opts); err != nil {
+					return err
+				}
+
+				pictures.pictures++
+			}
+
 			return nil
 		},
 	)
@@ -449,7 +482,7 @@ func decompileOne(db database, outputDir string, opts Options) error {
 
 	// Only the eight-bit editions have these, and a row of zeroes everywhere
 	// else would say nothing.
-	if db.vectors != nil {
+	if db.vectors != nil || db.cpcVectors != nil {
 		t.Row("Vector drawings", strconv.Itoa(pictures.drawings))
 	}
 	if r.Base() == 0 {

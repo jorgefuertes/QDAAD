@@ -200,6 +200,163 @@ antes esta tabla —que el CPC empaqueta sus imágenes dentro del `DAAD.BIN`— 
 recibe siempre `ASSETS\CPC\BLANK.GRA`, el bloque de gráficos vacío, y las imágenes se añaden
 al disco una por fichero. El +3 hace lo mismo con las suyas.
 
+### Formato `.CPC`
+
+Leído del intérprete que empotramos, `DCPCISF3.BIN`, en `0x09C0`. Conoce dos formas.
+
+La primera se toma cuando el fichero mide **exactamente 16384 bytes**: `CAS IN DIRECT` lo
+suelta entero en `0xC000` y la paleta sale de sus últimos dieciséis bytes, que caen en la
+parte de la memoria de vídeo que no se ve.
+
+La segunda es la única que puede ocupar menos que una pantalla, y es la que escribimos:
+
+```
+byte 0        cuántas bandas vienen en cada registro de 2K
+bytes 1-16    la paleta, una tinta de firmware por pluma
+bytes 17-18   cuántos bytes de cada banda se llevan
+después       las bandas, y cada registro rellenado hasta 2048
+```
+
+Una banda es uno de los ocho grupos entrelazados en que está la memoria de vídeo: la banda
+*b* empieza en `0xC000 + b*0x800` y lleva una línea de barrido de cada fila de carácter. El
+bucle de `0x0A16` copia las ocho a esas direcciones, **sin comprimir**, y lee otro registro
+cada vez que ha gastado las que tenía a mano —de ahí que los registros haya que rellenarlos y
+que el número de bandas de cada uno vaya escrito en el fichero en vez de deducirse—.
+
+Así que lo único que hace pequeña a una imagen aquí es llevarse menos filas de ella. El
+`IMGLINES` de DAAD vale 96 por omisión, y la razón de que sean 96 y no otra cosa sale de la
+aritmética: doce filas de carácter son 960 bytes por banda, que es lo máximo que deja que dos
+bandas compartan registro.
+
+### La pantalla de carga del CPC y su cargador
+
+Una release de CPC es un solo binario y `RUN"NOMBRE"` entra directamente al intérprete, que no
+pinta nada antes de arrancar. Enseñar algo primero exige **un programa que corra antes que él**, y
+escribirlo tiene una trampa que no está en ningún papel.
+
+`RUN"` sobre un binario pasa por `MC START PROGRAM`, que **reinicia el firmware** antes de entrar
+—y un firmware reiniciado es uno cuyos vectores de casete vuelven a apuntar a la casete, sin los
+parches de AMSDOS—. Un cargador que simplemente abra un fichero recibe «Press PLAY then any key»
+con el disco metido en la unidad.
+
+Lo que lo arregla son cuatro pasos, y son los del propio intérprete en `0x2458`:
+
+```asm
+ld de,<libre bajo> / ld hl,<libre alto>
+call 0xBCCB        ; KL ROM WALK      — inicializa las ROM de fondo
+ld hl,<"DISC">
+call 0xBCD4        ; KL FIND COMMAND  — qué ROM responde a |DISC
+ld c,0xFF
+jp  0xBD16         ; MC START PROGRAM — reinicia con todas las ROM activas
+reentrada:
+ld c,<esa ROM>
+call 0xBCCE        ; KL INIT BACK     — e inicializa ésa por número
+```
+
+**Ojo con el jumpblock**: `0xBCC8` es `KL CHOKE OFF`, no `KL ROM WALK`. Están corridos una entrada
+respecto a lo que uno escribe de memoria, y llamar al de al lado no da error: simplemente no hace
+nada. El reinicio del medio tampoco es opcional — recorrer las ROM sin él deja la máquina en el
+prompt de BASIC.
+
+En cinta no hay nada que responda a `DISC`, la ranura se queda a cero, el último paso se salta, y
+el mismo cargador sirve para los dos soportes. Lo que sí hace falta en cinta es callar al gestor
+de casete, o imprime «Loading NNN.SCR block 3» encima del dibujo recién pintado:
+
+```asm
+ld a,1 / call 0xBC6B   ; CAS NOISY — cualquier cosa distinta de cero es silencio
+```
+
+Y de paso se ahorra la parada entre ficheros: con los mensajes apagados el firmware no pregunta ni
+espera tecla, así que el motor sigue y los ficheros entran por debajo de la imagen.
+
+#### Las imágenes de la aventura en cinta: en memoria
+
+El intérprete **pregunta si la imagen existe antes de pintarla**: la rutina de `0x095E` abre el
+fichero y un acarreo limpio a la vuelta significa que no, cosa que quien la llama acepta sin
+quejarse. Eso es lo que abre la puerta.
+
+A una cinta no se le puede preguntar en cualquier orden, así que las imágenes no van en ella: van
+**a memoria con el juego**, comprimidas, y al intérprete se le apunta hacia ellas con dos parches
+de tres bytes en los dos sitios donde llama a la rutina que abre el fichero:
+
+```
+095F: cd ca 0c  call 0x0cca  ->  cd xx xx   ¿está esta imagen? el acarreo contesta
+09C0: cd ca 0c  call 0x0cca  ->  cd xx xx   ponla en pantalla
+09C3: 3e ff     ld a,0xff    ->  c3 36 0a   y sáltate el lector de ficheros entero
+```
+
+Lo que hace que quepan es la compresión. Una imagen es una pantalla de modo 1 con las filas donde
+escribe la aventura en blanco, y eso baja a unos **1300 bytes con ZX0** —las 28 de la primera
+parte de La Aventura Original son 37K contra los 215K que ocupan en crudo—. Entre el final del
+juego y el bloque de gráficos que el intérprete se sube a `0xA600` quedan unos quince, así que
+trece de las veintiocho viajan y las demás se nombran.
+
+Se comprime la **pantalla entera** y no solo las filas que se usan: cuesta un cuatro por ciento
+más y descomprime directa a `0xC000`, sin tener que recomponer las ocho bandas entrelazadas de la
+memoria de vídeo. El descompresor es el de Einar Saukas, 68 bytes, montado instrucción a
+instrucción desde su fuente en `work/ZXDAAD128/src/asm/dzx0_standard.asm`.
+
+Y cuando no cabe ninguna, se le quita la pregunta al intérprete, que también son tres bytes:
+
+```
+095F: cd ca 0c  call 0x0cca  ->  b7 00 00   or a / nop / nop
+0962: 30 0e     jr nc,0x0972  ->  tomado: la salida de «no está»
+```
+
+Sin eso la aventura corre bien hasta el primer `PICTURE` y entonces para a pedir PLAY en mitad de
+la Gran Caverna.
+
+#### Los bancos libres del 6128
+
+El intérprete **no pagina nunca**. Los únicos `out (c),c` que tiene van a los puertos `0xF4` y
+`0xF6`, que son el PPI, y la configuración de memoria de la puerta lógica se queda como la dejó el
+firmware de principio a fin. Eso deja libres los cuatro bancos de 16K de un 6128, 64K que no son
+de nadie.
+
+Ahí van las imágenes cuando se pide `--ram 128`, y entonces caben todas: las 28 de la primera
+parte y las 39 de la segunda. La paginación se hace en dos sitios y es la misma en ambos:
+
+```
+ld bc,0x7fc4    el banco 0 en la ventana de 0x4000..0x7fff
+out (c),c
+...
+ld bc,0x7fc0    y la memoria como el intérprete cree que está
+out (c),c
+```
+
+El cargador lo hace entre el `CAS IN OPEN` y el `CAS IN DIRECT` de cada bloque, y la rutina que
+pinta lo hace después de buscar la imagen en el índice y antes de descomprimirla. En la ventana no
+hay nada que importe mientras tanto: el código del banco y su índice están en las dos páginas de
+debajo del cargador, el búfer de registro del firmware está en `0x0040`, su área de trabajo por
+encima de `0xB100`, y la pila del intérprete en `0xBEDD`.
+
+El índice son cuatro bytes por imagen —número, configuración de memoria, y dirección— y un `0xFF`
+que lo cierra. Con la configuración dentro del índice la misma rutina sirve para los dos casos: en
+64K todas las entradas dicen `0xC0` y la paginación no cambia nada.
+
+Vale igual para disco que para cinta, y por el mismo motivo por el que la cinta lo necesitaba: un
+disco de 128K se lee una vez y no se vuelve a tocar la unidad.
+
+#### Los huecos de la cinta
+
+Entre el registro de cabecera y el de datos bastan 15 ms, que es lo que deja la cinta original.
+**Entre un bloque y el siguiente no**: el firmware para el motor al acabar un registro y lo vuelve
+a arrancar para el próximo, y con 15 ms no le da tiempo a encontrar el tono piloto. El síntoma es
+que se salta bloques y pide rebobinar. Con 1500 ms carga en orden.
+
+#### AMSDOS en el cargador: en disco sí, en cinta no
+
+La secuencia de `0x2458` —recorrer las ROM de fondo, preguntar cuál responde a `DISC`, reiniciar
+con todas activas e inicializar esa por número— devuelve AMSDOS después de que `MC START PROGRAM`
+se lo haya llevado por delante, y en disco es imprescindible.
+
+En cinta es exactamente lo contrario. El paseo por las ROM, él solo, inicializa AMSDOS en cualquier
+máquina que tenga unidad, y AMSDOS engancha los vectores de casete a la disquetera: a partir de
+ahí el cargador le pide sus ficheros a un disco que no está y sale **«Drive A: disc missing»**
+sobre la pantalla de carga, ya en modo 0, que es lo que delata que el cargador había arrancado
+bien. Tal como lo deja `MC START PROGRAM` el firmware ya está leyendo la cinta por la que entró el
+`RUN`, así que el cargador de cinta no hace nada de esto.
+
 ### Formato `.128` del +3
 
 Un fichero por imagen, con tres dígitos y esa extensión: el intérprete lleva el molde del
@@ -1296,12 +1453,11 @@ no contar las tramas corridas, y es lo que dejó pasar un fallo de trazado duran
 disfrazado de fallo de relleno. Cuando una medida se estanca en un suelo que se explica solo como
 «ruido de la captura», conviene desconfiar del suelo.
 
-### 9.9. El Amstrad CPC: localizado, sin descodificar
+### 9.9. El Amstrad CPC: descodificado
 
-Todo lo anterior es del Spectrum. Aquí se decía que en la carga útil del Amstrad la firma del
-despachador no aparecía, y de ahí se concluía que su motor estaría ensamblado de otra forma o
-llegaría comprimido. Lo primero es cierto y lo segundo no hacía falta: **el motor está ahí, sin
-comprimir, y es el mismo diseño**. Lo que hacía falta eran dos correcciones.
+Todo lo anterior es del Spectrum. Del Amstrad se decía aquí que el motor estaba localizado y sin
+descodificar, y ya no: **está leído, portado y verificado**, y las 157 ilustraciones de las dos
+partes de La Aventura Original salen dibujadas. Lo que sigue es el formato entero.
 
 #### Por qué la firma no aparecía
 
@@ -1309,39 +1465,33 @@ El despachador del Spectrum aísla el opcode con `and 7` y lo duplica con `sla a
 tabla de saltos. El del CPC se ahorra el desplazamiento:
 
 ```asm
-1EBE: dd 7e 00     ld a,(ix+0)
-1EC1: e6 0e        and 0x0e         ; el opcode va en los bits 1-3, ya duplicado
-1EC3: fe 08        cp 0x08
-1EC5: ca ca 1f     jp z,0x1fca      ; un opcode con manejador aparte
-1EC8: 21 de 1e     ld hl,0x1ede     ; tabla de 8 manejadores
-1ECB: 85 6f        add a,l / ld l,a
-1ECD: 5e 23 66 6b  ld e,(hl) / inc hl / ld h,(hl) / ld l,e
-1ED1: e9           jp (hl)
+1EC3: dd 7e 00     ld a,(ix+0)
+1EC6: e6 0e        and 0x0e         ; el opcode va en los bits 1-3, ya duplicado
+1EC8: fe 08        cp 0x08
+1ECA: ca c3 1f     jp z,0x1fc3      ; redundante: la entrada 4 de la tabla es esa misma
+1ECD: 21 d7 1e     ld hl,0x1ed7     ; tabla de 8 manejadores
+1ED0: 85 6f        add a,l / ld l,a
+1ED2: 5e 23 66 6b  ld e,(hl) / inc hl / ld h,(hl) / ld l,e
+1ED6: e9           jp (hl)
 ```
 
-Mismo mecanismo, otra colocación de bits, así que **el opcode de una orden del CPC no está en los
-bits 0-2 sino en los 1-3**, y con él se corren los flags de escala, espejo y color. Los ocho
-manejadores de El Jabato caen en `0x1EEE`, `0x1F24`, `0x1F4E`, `0x1FA5`, `0x1FCA`, `0x1FE1`,
-`0x1FFF` y `0x2061`, contiguos y en orden.
+Las direcciones son las de La Aventura Original; las de El Jabato están cinco bytes más abajo. Lo
+que importa es el mecanismo: **el opcode de una orden del CPC está en los bits 1-3**, y con él se
+corren todos los demás campos del byte.
 
-Y en vez de llamar a la ROM del Spectrum llama al firmware: `GRA PLOT ABSOLUTE` (`0xBBEA`),
-`GRA MOVE ABSOLUTE` (`0xBBC0`), `GRA LINE RELATIVE` (`0xBBF9`), `GRA MOVE RELATIVE` (`0xBBC3`),
-`GRA SET PEN` (`0xBBDE`) y `SCR SET INK` (`0xBC32`). Buscar esas llamadas es lo que localiza el
-motor en las cinco aventuras sin saber nada más.
+#### El bloque se ancla en 0x9E00
 
-#### El bloque se ancla en 0x9E00, no en el techo de la memoria
+El manejador de `CALL` lee la tabla de dibujos con `ld de,(0x9df1)`, y nadie escribe nunca esa
+dirección: el puntero viaja con el bloque, igual que en el Spectrum. Y `0x9E00 − 0x9DF1 = 15`, **el
+mismo desplazamiento** que `0x10000 − 0xFFF1`. La cola es idéntica salvo en dónde acaba el bloque,
+que en el CPC no puede ser el techo de la memoria porque de `0xC000` para arriba está la pantalla.
 
-Esta es la corrección que abre la puerta. El manejador de `CALL` lee la tabla de dibujos así:
-
-```asm
-1F8B: ed 5b f1 9d  ld de,(0x9df1)
-```
-
-Y nadie escribe nunca esa dirección, exactamente igual que en el Spectrum: el puntero viaja con el
-bloque. Ahora bien, `0x9E00 − 0x9DF1 = 15`, **el mismo desplazamiento** que `0x10000 − 0xFFF1`. O
-sea que la cola es idéntica —tabla de dibujos, fin de tabla, fin de propiedades y UDG en −15, −13,
-−11 y −9— y lo único que cambia es dónde acaba el bloque. En el CPC no puede acabar en el techo
-porque de `0xC000` para arriba está la pantalla.
+| Dirección | Qué es |
+|---|---|
+| `0x9DF1` | base de la tabla de dibujos |
+| `0x9DF3` | fin de esa tabla, y base de los registros |
+| `0x9DF5` | fin de los registros |
+| `0x9DF7`, `0x9DF9` | dos tramas de 8 bytes que el motor no lee |
 
 Cambiando solo el ancla, la búsqueda de §9.5 encuentra los bloques:
 
@@ -1353,30 +1503,181 @@ Cambiando solo el ancla, la búsqueda de §9.5 encuentra los bloques:
 | Cozumel | 2 | 31 y 34 |
 | El Jabato | ninguno | — |
 
-Los 49 y 108 de La Aventura Original son **exactamente los del Spectrum**, y las longitudes de los
-dibujos coinciden en 18 de los 49 de la primera parte y en 62 de los 108 de la segunda. Es el mismo
-arte recodificado, no los mismos bytes.
+Los 49 y 108 de La Aventura Original son exactamente los del Spectrum. Es el mismo arte
+recodificado, no los mismos bytes.
 
-#### Lo que falta para descompilarlos
+#### Las ocho órdenes
 
-Nada de esto se ha llevado al descompilador, y no es un cambio de una línea. Falta:
+A diferencia del Spectrum, **las longitudes no varían de una compilación a otra**: cada manejador
+termina cargando `E` con la suya y saltando a `0x1EBF`, que la suma a `IX`, y lo que carga es una
+constante. No hay dialectos que probar.
 
-1. **La codificación de las órdenes**, que hay que sacar desensamblando los ocho manejadores: con el
-   opcode corrido un bit, las longitudes y el significado de los operandos están sin confirmar.
-2. **El color.** El CPC no tiene atributos por celda de 8×8: tiene plumas y una paleta. El modelo de
-   pantalla de §9.6 no le sirve.
-3. **El lienzo.** El firmware trabaja en coordenadas de usuario de 0-639 × 0-399 sea cual sea el
-   modo, mientras que el modo 1 son 320×200 píxeles reales. La escala no es la del Spectrum.
-4. **El relleno.** El CPC no tiene un `FILL` en la ROM, así que el motor trae el suyo y hay que
-   encontrarlo y portarlo. Después de lo que costó el del Spectrum (§9.8), esta es la parte que más
-   cuidado pide.
-5. **El Jabato no aparece**, y de camino salió otra cosa: la dirección de carga que leemos de la
+| Opcode | Orden | Bytes | Codificación |
+|---|---|---|---|
+| 0 | `PEN` / `RET` | 1 | bit 6 puesto es el retorno; si no, pluma = bit 7 + bit 0×2 |
+| 1 | `CHAR` | 4 | x = byte1 + bit7×256, y = byte2, carácter = byte3 |
+| 2 | `CALL` | 2 | dibujo = byte1; escala = bit6 + bit7×2 + bit0×4; espejo = bits 4-5, en XOR |
+| 3 | `PLOT` / `MOVE` | 3 | absolutas: x = byte1 + bit7×256, y = byte2; bit 6 traza |
+| 4 | `LINE` / `STEP` | 3 | relativas: dx = byte1 + bit7×256 con signo en bit 5, dy = byte2 con signo en bit 4; bit 6 traza |
+| 5 | `FILL` | 3 | relleno macizo con la pluma en curso, desde un desplazamiento relativo |
+| 6 | `FILL` con trama | 4 | lo mismo, con byte3 = glifo y el color de los huecos en bit6 + bit0×2 |
+| 7 | `BOX` | 5 | `SCR FLOOD BOX`: dirección de pantalla (2), alto en líneas, ancho en bytes |
+
+El espejo se aplica haciendo XOR contra los bits de signo, así que **solo afecta a las relativas**:
+una `PLOT` dentro de un `CALL` espejado sale donde dice.
+
+De las ocho, La Aventura Original usa seis: no hay una sola `CHAR` ni una sola `BOX` en sus 157
+dibujos, de modo que esas dos están portadas según el firmware y sin contrastar contra ninguna
+imagen.
+
+#### El color: plumas y paleta
+
+El CPC no tiene atributos por celda. Tiene cuatro plumas en modo 1 y una paleta de 27 tintas, y el
+**registro de cada dibujo mide 8 bytes**, no 5:
+
+```
+40 0b 19 09 | 00 04 0e 20
+|  |  |  |    |  |  |  '- ancho de la ventana de texto, en columnas
+|  |  |  |    |  |  '---- alto, en filas
+|  |  |  |    |  '------- columna izquierda
+|  |  |  |    '---------- fila superior
+'--'--'--'--------------- las tintas de las cuatro plumas
+```
+
+Una tinta de 27 o más significa «deja esa pluma como está» (`0x22D2` compara contra 27 y se la
+salta), y **el bit 7 del primer byte significa que no se prepara nada**: ni paleta, ni ventana, ni
+borrado, ni reposición de la pluma. Son los dibujos pensados para estamparse dentro de una escena.
+
+De la paleta base solo sabemos dos entradas de primera mano, porque el cargador BASIC que fija el
+modo no está en la carga útil: **la pluma 1 es blanco brillante** porque el intérprete lo escribe
+(`SCR SET INK` con A=1 y BC=0x1A1A antes que nada), y la 0 se toma negra porque los registros del
+Spectrum dicen `PAPER 0` en todos sus dibujos menos dos.
+
+#### El lienzo: 320×184 anclado en `GRA SET ORIGIN`
+
+Esta es la pieza que costó encontrar y la que lo coloca todo. El intérprete mueve el origen y
+estrecha la ventana gráfica antes de que se dibuje nada:
+
+```asm
+24AB: ld de,0 / ld hl,0x20 / call 0xbbc9       ; GRA SET ORIGIN  0, 32
+24B4: ld de,0x20 / ld hl,0x18f / call 0xbbd2   ; GRA WIN HEIGHT  32 a 399
+```
+
+32 unidades de usuario son 16 píxeles, así que la `y` del motor empieza 16 píxeles por encima del
+pie de la pantalla y la ventana son las 184 filas de ahí para arriba. La rutina de direcciones del
+propio relleno lo dice en una instrucción —`ld a,0xb7 / sub d` en `0x228E`, que es 183 menos y— y
+los dibujos lo confirman: **el marco con el que abre cada escena de la primera parte** va de y=72 a
+y=183, o sea las filas 0 a 111 de la pantalla, que son las 14 filas de carácter que pide su
+registro.
+
+```
+PLOT 32,72 / LINE 0,111 / LINE 255,0 / LINE 0,-111 / LINE -255,0 / RET
+```
+
+#### El cursor va en coordenadas del firmware, no en píxeles
+
+Las coordenadas que trae un dibujo son píxeles, pero **el cursor que el motor arrastra no**. El
+firmware trabaja en 0-639 × 0-399 sea cual sea el modo, así que todo lo que sale hacia él va
+doblado: `add hl,hl` sobre la x y otro sobre la y, en `0x1F31` y `0x1F33` para una orden absoluta y
+en `0x208F` y `0x20A0` para un incremento. La escala se aplica **después** de doblar, con
+desplazamiento aritmético: `(2·v·escala) >> 3`.
+
+Y sólo hay un sitio en todo el motor que vuelve a pedir un píxel: el relleno, en `0x20D3`, que
+divide entre dos la x y la y del punto donde va a sembrar.
+
+```asm
+20CA: call 0xbbc6        ; GRA ASK CURSOR -> DE = x, HL = y, en unidades del firmware
+20CF: add hl,bc          ; mas el incremento ya doblado y escalado
+20D3: srl h / rr l       ; y AQUI, una sola vez, a pixeles
+20D7: srl b / rr c
+```
+
+Que la división sea una sola y al final, y no una en cada paso, es justo lo que decide de qué lado
+de un contorno cae la semilla. Llevar el cursor en píxeles redondea en cada orden, y el error se
+acumula hasta que una semilla aterriza un píxel más allá de la línea que debía contenerla: el
+relleno se escapa y tiñe el fondo entero. Con el cursor en las unidades del firmware, la escena
+inicial de La Aventura Original sale **idéntica al original píxel a píxel** salvo 82 de 35.520, que
+son el muestreo de la captura.
+
+El cursor, además, puede quedarse en un medio píxel, y el motor lo sabe: al volver de un `CALL`
+fuerza los dos bits bajos a cero (`res 0,e / res 0,l` en `0x1F10`) antes de restaurarlo.
+
+Lo que **no** es cierto es que la línea se trace también en esas unidades. El firmware coge los dos
+extremos, calcula en qué píxeles caen y traza entre ésos; trazar en unidades del firmware pintando
+cada punto a la mitad convierte toda diagonal en escalera y deja ocho dibujos desbordados en vez de
+siete.
+
+#### El relleno
+
+Es el mismo algoritmo que el del Spectrum, orden por orden: barrido por líneas en un solo sentido
+vertical, sembrando la siguiente donde encuentra hueco, y después una segunda pasada al revés
+empezando una línea más allá. Treinta ramas como mucho (`ld a,0x1e` en `0x2139`), y la
+trigésimo primera no se toma —de ahí los rellenos que se quedan a medias en los originales—.
+
+Lo que cambia es **qué es una pared**. El del Spectrum para donde hay tinta; este para donde el
+color no es el color en el que empezó (`0x2132` hace XOR del byte de pantalla contra el del punto
+de partida), así que se extiende por una región de una pluma en vez de por papel sin pintar.
+
+Y la trama no es tinta sobre papel: cada fila se construye como `(glifo AND pluma) OR (NOT glifo AND
+fondo)` **sobre los bytes**, que en modo 1 significa que los dos bits de un píxel se eligen por
+separado. El valor del píxel del glifo dice, bit a bit, de cuál de los dos colores viene cada bit
+del resultado, y eso es lo que hace que estas tramas parezcan tener tres colores.
+
+#### Dónde para un relleno que no tiene pared
+
+El motor no recorta el relleno a nada: la única frontera es el color. Y la máquina no lo necesita,
+porque **nunca dibuja sobre una pantalla vacía** —el intérprete solo borra la ventana de texto— así
+que al otro lado de cualquier hueco está la imagen que el jugador tenía delante hace un momento, y
+el relleno para en cuanto el color cambia.
+
+Siete de los 157 dibujos se aprovechan de eso. El 026 es un rectángulo y nada más:
+
+```
+PLOT 32,72 / LINE 0,111 / LINE 255,0 / LINE 0,-111 / LINE -255,0 / RET
+```
+
+y el 027 y el 028 lo dibujan, rellenan por dentro y **lo vuelven a dibujar en pluma 0**. En la
+máquina esa línea de pluma 0 es una pared porque lo de fuera no es pluma 0; dibujada sobre una
+pantalla en blanco es exactamente el color por el que el relleno se está extendiendo, y el relleno
+se marcha por ella hasta el pie del lienzo.
+
+La frontera que sí tenemos es **la ventana que declara el registro del dibujo**, y en estos dibujos
+es el rectángulo del marco al píxel: 14 filas de 32 en la fila 0, columna 4, que son x de 32 a 287
+e y de 72 a 183. Es además lo que recorta el empaquetador, así que es a lo que se sujeta el relleno.
+Con eso, ninguno de los 157 se sale.
+
+#### Las tramas son el juego de caracteres
+
+El manejador lee la trama de `0x9E00 + 8n`, con `n` entre 128 y 146 en La Aventura Original, y
+`0x9E00` es justo donde acaba el bloque. No es casualidad: el intérprete copia ahí 2048 bytes
+(`ld hl,0x40 / ld de,0x9e00 / ld bc,0x800 / ldir`), que son **el juego de caracteres**, y las tramas
+son sus glifos del 128 en adelante. En las dos partes están los mismos diecinueve, y son los
+dameros y las diagonales que cabía esperar: `aa55aa55`, `cc33cc33`, `8040201008040201`.
+
+Es la misma disposición que en el Spectrum, donde `udg.chr` eran los primeros 2048 bytes de la tabla
+de UDG. Por eso el descompilador los escribe en `gfx/chr/udg.chr`, que es un juego de caracteres
+que se le puede devolver al compilador tal cual.
+
+#### Lo que queda sin cerrar
+
+Dos cosas, y están anotadas donde se notan:
+
+1. **La rutina de línea del firmware no la tenemos**, así que se traza como la del Spectrum: un
+   recorrido por el eje largo, un punto por paso, entre los dos extremos ya pasados a píxeles.
+   Trazarla en las unidades del firmware, al doble de resolución, sale peor —ocho dibujos
+   desbordados en vez de siete—, pero ninguna de las dos está contrastada contra la máquina.
+2. **El Jabato no aparece**, y de camino salió otra cosa: la dirección de carga que leemos de la
    cabecera AMSDOS de `JABATO.B01` está 12 bytes corrida. El desensamblado solo cuadra con `0x0811`
    y la cabecera declara `0x0805`. Puede ser cosa nuestra al reconstruir el fichero, y si lo es
    afecta a más que a los gráficos.
 
-En conjunto son prácticamente un segundo renderizador. Queda anotado y de momento nos quedamos con
-los vectoriales del Spectrum, que están cerrados.
+#### Lo que escribe el descompilador
+
+Un `.plot` por dibujo, como en el Spectrum, y al lado la imagen en dos formas: `gfx/png/nnn.png`
+para mirarla y `gfx/scr/nnn.scr` para empaquetarla —la pantalla de modo 1 tal como la tiene la
+máquina, 16384 bytes con sus huecos—, más `gfx/scr/nnn.pal` con las cuatro tintas. El `.pal` son 16
+bytes crudos, uno por pluma: **no es el `.PAL` de OCP Art Studio** y no lo pretende, que ese lleva
+una animación de paleta y esto son cuatro números.
 
 #### El PCW no lleva vectores: lleva mapas de bits
 

@@ -17,12 +17,20 @@ ZXSpectrum/48/           README.md, part1/, part2/   two tapes
 ZXSpectrum/+3/           README.md, part1/, part2/   two disks
 ZXSpectrum/+3_Extended/  README.md, part1/, part2/   the same two disks, with
                                                      the 16-bit editions' texts
+AmstradCPC/CPC/          README.md, part1/, part2/   two disks and two tapes,
+                                                     with the Amstrad's own
+                                                     drawings and font
 ```
 
 Each tree has a `Makefile` of its own — `dist`, `test` and `clean`, run from
 the tree's own directory, writing into a `dist/` and a `tmp/` beside the
 sources — and a README with the commands it stands for. From the root,
-`make example-ao` builds all six releases at once into `tmp/`.
+`make example-ao` builds all ten releases at once into `tmp/`.
+
+The Amstrad tree is the +3 Extended one with its pictures swapped: same text,
+and everything drawn taken out of the Amstrad edition of 1989 instead of the
+Spectrum's. It is the one place the two engines can be held against each other
+scene by scene.
 
 ## Where each file comes from
 

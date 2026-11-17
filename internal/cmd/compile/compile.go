@@ -175,7 +175,7 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	images, err := readPictures(read.Settings.Images)
+	images, palettes, err := readPictures(read.Settings.Images)
 	if err != nil {
 		return err
 	}
@@ -231,6 +231,7 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 			Charset:   charset,
 			Loading:   loading,
 			Images:    images,
+			Palettes:  palettes,
 			XMessages: layout.XMessages,
 		}
 
@@ -294,24 +295,51 @@ func options(cmd *cli.Command) (legacy.Options, error) {
 // them: the eight-bit editions in the corpus illustrate with vector drawings
 // that version 3 has no engine for, and the decompiler writes those out as
 // screens precisely so that a build can carry them as bitmaps instead.
-func readPictures(dir string) (map[int][]byte, error) {
+//
+// Beside each picture there may be a .pal of the same number, and on the
+// Amstrad there has to be: a mode 1 screen is two bits to the pixel and nothing
+// in it says what those two bits are worth. A Spectrum screen carries its own
+// attributes and the directory holds no .pal at all.
+func readPictures(dir string) (pictures, palettes map[int][]byte, err error) {
 	if dir == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	names, err := filepath.Glob(filepath.Join(dir, "*.scr"))
-	if err != nil {
+	if pictures, err = numberedFiles(dir, ".scr"); err != nil {
+		return nil, nil, err
+	}
+
+	if len(pictures) == 0 {
+		return nil, nil, fmt.Errorf("%s holds no pictures: they are named 000.scr and upwards", dir)
+	}
+
+	if palettes, err = numberedFiles(dir, ".pal"); err != nil {
+		return nil, nil, err
+	}
+
+	for number := range palettes {
+		if _, drawn := pictures[number]; !drawn {
+			return nil, nil, fmt.Errorf(
+				"%s holds %03d.pal and no %03d.scr: a palette is the colours of a picture",
+				dir, number, number)
+		}
+	}
+
+	return pictures, palettes, nil
+}
+
+// numberedFiles reads a directory's files of one extension, by the number they
+// are named with.
+func numberedFiles(dir, extension string) (map[int][]byte, error) {
+	names, err := filepath.Glob(filepath.Join(dir, "*"+extension))
+	if err != nil || len(names) == 0 {
 		return nil, err
-	}
-
-	if len(names) == 0 {
-		return nil, fmt.Errorf("%s holds no pictures: they are named 000.scr and upwards", dir)
 	}
 
 	out := make(map[int][]byte, len(names))
 
 	for _, name := range names {
-		number, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(name), ".scr"))
+		number, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(name), extension))
 		if err != nil {
 			return nil, fmt.Errorf("%s: a picture is named by its number: %w", name, err)
 		}

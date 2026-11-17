@@ -104,6 +104,22 @@ type Options struct {
 	// compressed and indexed; what will not fit is left out and said so
 	// through Note.
 	Images map[int][]byte
+	// Palettes are the inks each picture is read through, for a machine whose
+	// pictures do not carry their own. Only the Amstrad has them: a mode 1
+	// screen is two bits to the pixel and nothing in it says what those two
+	// bits are worth.
+	Palettes map[int][]byte
+	// Memory is how much the machine has, in kilobytes. Only the Amstrad reads
+	// it, and only to decide where its pictures live: 64 puts them in what is
+	// left above the game, and 128 in the four spare banks of a 6128, where
+	// the whole of an adventure fits. A 128K release will not run on a 64K
+	// machine.
+	Memory int
+	// Lines is how many pixel rows of each picture to carry, or zero to carry
+	// each one down to its own last row with a pixel in it. Only the Amstrad
+	// reads it: it is the one machine whose pictures travel uncompressed, so
+	// it is the one where their height is what decides how many fit.
+	Lines int
 	// XMessages is the .XMB a +3 release carries: the texts the processes read
 	// off disk instead of out of the database. Empty for an adventure with
 	// none, which is most of them. A machine with no filesystem cannot have
@@ -113,6 +129,10 @@ type Options struct {
 	// Spectrum screen of 6912 bytes, sent straight to video memory so that it
 	// paints itself as it arrives. Empty for a tape that shows nothing.
 	Loading []byte
+	// LoadingPalette is the colours that picture is read through, for a
+	// machine whose screens do not carry their own: sixteen pens and the
+	// border, as the firmware numbers its colours. Only the Amstrad wants it.
+	LoadingPalette []byte
 	// Note is told anything the person packaging should know but that is not
 	// an error — which so far is one thing, and it is the one thing a
 	// packager must never do quietly: pictures left out for want of room. A

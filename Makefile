@@ -1,4 +1,4 @@
-.PHONY: version dist build test qtest doc compiler decompiler packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker compare-zx0 example-ao example-ao-48 example-ao-p3
+.PHONY: version dist build test qtest doc compiler decompiler packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker compare-zx0 example-ao example-ao-48 example-ao-p3 example-ao-p3x example-ao-cpc
 
 # The release this is, which is the tag git last saw and not a number written
 # anywhere in the source. A tree with no tags at all still builds, and says so:
@@ -242,7 +242,24 @@ example-ao-p3x:
 		go run cmd/qpack/qpack.go -f dsk -o tmp/AOP3X-$$part --name AO$$part tmp/ao-p3x-part$$part; \
 	done
 
-example-ao: example-ao-48 example-ao-p3 example-ao-p3x
+# The Amstrad, which is the same adventure with the Amstrad edition's own
+# drawings decompiled into it: a disk with as many of them as fit, a tape with
+# the dozen that travel in memory, and a 6128 disk with every one of them in the
+# spare banks. See examples/AO/AmstradCPC/CPC/README.md.
+example-ao-cpc:
+	@for part in 1 2; do \
+		go run cmd/qdaad/qdaad.go compile -i examples/AO/AmstradCPC/CPC/part$$part/game.sce \
+			-o tmp/ao-cpc-part$$part -f build -m cpc -v 3 --part $$part; \
+		go run cmd/qpack/qpack.go -f dsk --lines 96 -o tmp/AOCPC-$$part --name AO$$part \
+			tmp/ao-cpc-part$$part; \
+		go run cmd/qpack/qpack.go -f cdt --lines 112 -o tmp/AOCPC-$$part --name AO$$part \
+			tmp/ao-cpc-part$$part; \
+		go run cmd/qpack/qpack.go -f dsk --ram 128 --lines 112 \
+			--loading examples/AO/AmstradCPC/CPC/part$$part/gfx/loading.scr \
+			-o tmp/AOCPC128-$$part --name AO$$part tmp/ao-cpc-part$$part; \
+	done
+
+example-ao: example-ao-48 example-ao-p3 example-ao-p3x example-ao-cpc
 
 # Plays the walkthroughs in examples/AO/test, which is the first part of La
 # Aventura Original won and the second part entered, in the test language qrun

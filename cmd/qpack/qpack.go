@@ -35,6 +35,7 @@ const (
 	formatDir  = "dir"
 	formatTAP  = "tap"
 	formatTZX  = "tzx"
+	formatCDT  = "cdt"
 	formatDSK  = "dsk"
 	formatQRun = "qrun"
 )
@@ -51,8 +52,8 @@ func main() {
 				Aliases: []string{"f"},
 				Value:   formatDir,
 				Usage: "What to write: " + formatDir + " for everything the machine " +
-					"needs as files, " + formatTAP + " or " + formatTZX +
-					" for a tape, " + formatDSK + " for a disk, or " + formatQRun +
+					"needs as files, " + formatTAP + ", " + formatTZX + " or " +
+					formatCDT + " for a tape, " + formatDSK + " for a disk, or " + formatQRun +
 					" for a container our own interpreter reads without guessing " +
 					"at anything.",
 			},
@@ -65,13 +66,38 @@ func main() {
 				Name:  "name",
 				Usage: "The name the machine shows while loading, and the name of the files on a disk.",
 			},
+			&cli.IntFlag{
+				Name:  "lines",
+				Value: 0,
+				Usage: "How many pixel rows of each picture to carry, for the " +
+					"machines that carry them whole. Zero, which is the default, " +
+					"carries each picture down to its own last row with a pixel " +
+					"in it. It is worth setting on an Amstrad and nowhere else: " +
+					"nothing compresses a CPC picture, so a tall one is sixteen " +
+					"kilobytes of a disk with a hundred and seventy-eight, and " +
+					"the 96 lines DAAD's own IMGLINES defaults to are 96 because " +
+					"that is the most that lets two bands share a record.",
+			},
+			&cli.IntFlag{
+				Name:  "ram",
+				Value: 64,
+				Usage: "How much memory the machine has, in kilobytes. Only the " +
+					"Amstrad reads it, and only to decide where the pictures go: " +
+					"64 keeps them in what is left above the game, which is about " +
+					"a dozen of them, and 128 puts them in a 6128's four spare " +
+					"banks, where a whole adventure fits and no drive or tape is " +
+					"touched once it is running. A 128 release will not run on a " +
+					"464 or a 664.",
+			},
 			&cli.StringFlag{
 				Name:    "loading",
 				Aliases: []string{"l"},
 				Usage: "A screen to show while the rest loads, as the 6912 bytes of " +
 					"a Spectrum's video memory. The build directory may carry one " +
 					"already — the source names it with \"; qdaad: loading=\" — and " +
-					"this wins over that one.",
+					"this wins over that one. On an Amstrad the colours come with " +
+					"it: a .pal of the same name beside it, which is what qundaad " +
+					"writes.",
 			},
 		},
 		Action: run,
@@ -121,6 +147,8 @@ func run(_ context.Context, cmd *cli.Command) error {
 	// The flag wins over what the build carries, the same way the compiler's
 	// --charset wins over what the source says: the picture belongs to the
 	// adventure nearly always, and "nearly" is why there is a flag.
+	loadingPalette := []byte(nil)
+
 	if path := cmd.String("loading"); path != "" {
 		loading, err := os.ReadFile(path)
 		if err != nil {
@@ -128,9 +156,18 @@ func run(_ context.Context, cmd *cli.Command) error {
 		}
 
 		parts[0].Loading = loading
+
+		// The Amstrad's screens carry no colours of their own, so they travel
+		// as a pair: qundaad writes loading.scr and loading.pal beside each
+		// other and this picks the second one up without being told twice.
+		beside := strings.TrimSuffix(path, filepath.Ext(path)) + ".pal"
+		if palette, err := os.ReadFile(beside); err == nil {
+			loadingPalette = palette
+		}
 	}
 
-	release, err := assemble(cmd.String("format"), parts[0], name)
+	release, err := assemble(cmd.String("format"), parts[0], name,
+		cmd.Int("lines"), cmd.Int("ram"), loadingPalette)
 	if err != nil {
 		return err
 	}
@@ -143,12 +180,14 @@ func run(_ context.Context, cmd *cli.Command) error {
 // Everything comes back as a release even when it is one file, so that there
 // is one thing to write and --format dir works for every format without each
 // one knowing about it.
-func assemble(format string, b build.Build, name string) (*pack.Release, error) {
+func assemble(
+	format string, b build.Build, name string, lines, memory int, loadingPalette []byte,
+) (*pack.Release, error) {
 	opts := pack.Options{
 		Language: b.Language, Name: name,
-		Charset: b.Charset, Images: b.Images, Loading: b.Loading,
-		XMessages: b.XMessages,
-		Note:      func(said string) { fmt.Println(said) },
+		Charset: b.Charset, Images: b.Images, Palettes: b.Palettes, Loading: b.Loading,
+		XMessages: b.XMessages, Lines: lines, Memory: memory, LoadingPalette: loadingPalette,
+		Note: func(said string) { fmt.Println(said) },
 	}
 
 	switch format {
@@ -186,6 +225,25 @@ func assemble(format string, b build.Build, name string) (*pack.Release, error) 
 		default:
 			return nil, notPackaged(b.Machine)
 		}
+
+	// The Amstrad's tape is not the Spectrum's wrapped: the machine has a tape
+	// format of its own, records and checksums and all, so it is built rather
+	// than converted.
+	case formatCDT:
+		if b.Machine != arch.CPC {
+			return nil, fmt.Errorf("a CDT is an Amstrad tape, and this build is for a %s",
+				b.Machine)
+		}
+
+		body, err := pack.CPCTape(b.Database, opts)
+		if err != nil {
+			return nil, err
+		}
+
+		return pack.NewRelease(pack.File{
+			Name: name + ".cdt", Body: body,
+			Note: `tape for a 464: RUN"` + name + `"`,
+		}), nil
 
 	// A TZX is the tape that was going to be written anyway, wrapped. Building
 	// it any other way would be a second assembly of the same blocks and a
@@ -228,8 +286,8 @@ func assemble(format string, b build.Build, name string) (*pack.Release, error) 
 		return pack.NewRelease(pack.File{Name: name + ".dsk", Body: body, Note: note}), nil
 
 	default:
-		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s, %s or %s",
-			format, formatDir, formatTAP, formatTZX, formatDSK, formatQRun)
+		return nil, fmt.Errorf("%q is not a format: it is %s, %s, %s, %s, %s or %s",
+			format, formatDir, formatTAP, formatTZX, formatCDT, formatDSK, formatQRun)
 	}
 }
 
