@@ -191,12 +191,10 @@ func buildImagePage(images map[int][]byte, at, room int, report Progress) (image
 
 	var dropped []int
 
-	for i, n := range numbers {
-		report.at(i+1, len(numbers), fmt.Sprintf("compressing picture %03d", n))
-
+	built, err := compressPictures(numbers, report, func(n int) ([]byte, error) {
 		blocks, err := cutScreen(images[n], pictureLines(images[n]))
 		if err != nil {
-			return imagePage{}, nil, fmt.Errorf("picture %d: %w", n, err)
+			return nil, fmt.Errorf("picture %d: %w", n, err)
 		}
 
 		var one []byte
@@ -211,7 +209,16 @@ func buildImagePage(images map[int][]byte, at, room int, report Progress) (image
 
 		// The end of the blocks, which the interpreter reads as a destination
 		// of zero.
-		one = append(one, 0, 0)
+		return append(one, 0, 0), nil
+	})
+	if err != nil {
+		return imagePage{}, nil, err
+	}
+
+	// Filling the page is a pass of its own, after all of them are compressed:
+	// whether one fits depends on what the ones before it took.
+	for i, n := range numbers {
+		one := built[i]
 
 		// Three bytes for the entry this picture will take in the index, on
 		// top of the data itself.

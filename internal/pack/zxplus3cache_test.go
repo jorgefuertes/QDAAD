@@ -62,10 +62,12 @@ const (
 // directory holds, already sorted into the ones the buffer took and the ones
 // that stayed files, with each picture's packaged size beside it.
 //
-// Shared because every one of those screens goes through the coder twice over
-// — once for chooseCached to sort by size and once for the sizes here — and a
-// whole screen is a quarter of a second. Nothing in it is written to, which is
-// what makes handing the same maps to four tests safe rather than a trap.
+// Shared because every one of those screens goes through the coder, and a whole
+// screen is an eighth of a second. Nothing in it is written to, which is what
+// makes handing the same maps to four tests safe rather than a trap.
+//
+// The sizes are read off what chooseCached already built, both lists together,
+// rather than compressing every screen a second time to measure it.
 var overrun = sync.OnceValue(func() overrunFixture {
 	pictures := screens(fewOverruns)
 
@@ -76,13 +78,8 @@ var overrun = sync.OnceValue(func() overrunFixture {
 
 	sizes := make(map[int]int, len(pictures))
 
-	for n, body := range pictures {
-		one, err := plus3Picture(body)
-		if err != nil {
-			return overrunFixture{err: err}
-		}
-
-		sizes[n] = len(one)
+	for _, one := range append(append([]plus3Packed(nil), cached...), loose...) {
+		sizes[one.number] = len(one.body)
 	}
 
 	return overrunFixture{pictures: pictures, cached: cached, loose: loose, sizes: sizes}
@@ -90,8 +87,8 @@ var overrun = sync.OnceValue(func() overrunFixture {
 
 type overrunFixture struct {
 	pictures map[int][]byte
-	cached   []plus3Cached
-	loose    []int
+	cached   []plus3Packed
+	loose    []plus3Packed
 	// sizes is what each picture comes to as a file, by picture number.
 	sizes map[int]int
 	err   error
@@ -170,9 +167,9 @@ func TestTheSmallestPicturesAreTheOnesBuffered(t *testing.T) {
 		biggest = max(biggest, sizes[one.number])
 	}
 
-	for _, n := range loose {
-		require.GreaterOrEqual(t, sizes[n], biggest,
-			"picture %d stayed out while a bigger one went in", n)
+	for _, one := range loose {
+		require.GreaterOrEqual(t, sizes[one.number], biggest,
+			"picture %d stayed out while a bigger one went in", one.number)
 	}
 
 	// Nothing is lost between the two: every picture is in one place or the

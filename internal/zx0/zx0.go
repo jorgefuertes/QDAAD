@@ -48,10 +48,15 @@
 // the number stays in the report rather than becoming an assertion: two coders
 // for one format are two programs, and a tie is a result, not a contract.
 //
-// It costs what his costs. The search looks at every offset at every position,
-// so a 6912-byte screen takes about a quarter of a second here against about a
-// fifth in his C — see optimal.go for the free list that got it there from six
-// tenths of a second and a gigabyte and a quarter of garbage per screen.
+// It costs a little less than his costs. The search still looks at every offset
+// at every position, so a 6912-byte screen is about a seventh of a second here
+// against about a fifth in his C — see optimal.go for the free list and for the
+// candidates that are never written down at all, which between them brought it
+// there from six tenths of a second and a gigabyte and a quarter of garbage per
+// screen.
+//
+// Nothing here is held between calls, so a packager with several screens to get
+// through can put them through this at the same time, and internal/pack does.
 package zx0
 
 import (

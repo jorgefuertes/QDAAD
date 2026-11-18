@@ -2,6 +2,7 @@ package pack
 
 import (
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
@@ -37,28 +38,42 @@ func cpcBankOptions(pictures int) Options {
 	}
 }
 
-// Which picture it is on, said as it goes. Compressing one is about a second
-// and a half, so a bank of forty is a minute of a tool that would otherwise
+// Which picture it is on, said as it goes. Compressing one is about half a
+// second, so a bank of forty is half a minute of a tool that would otherwise
 // look hung — and what makes the wait readable is the counting, not the phrase.
+//
+// The counting is all this asks for. The pictures are compressed several at a
+// time, so which of them is named on which line is whichever finished when, and
+// a test that pinned that down would be testing the scheduler. What has to hold
+// is that the count goes up by one to the total and that every picture is said
+// once: a number that repeats or a picture that goes by unmentioned is the bug
+// this is here for.
 func TestTheBankSaysWhichPictureItIsOn(t *testing.T) {
 	opts := cpcBankOptions(3)
 	for n := range opts.Images {
 		opts.Images[n] = cpcScreenOf(12)
 	}
 
-	var said []string
+	var (
+		counts []string
+		said   []string
+	)
 
 	opts.Progress = func(done, total int, what string) {
-		said = append(said, fmt.Sprintf("%d/%d %s", done, total, what))
+		counts = append(counts, fmt.Sprintf("%d/%d", done, total))
+		said = append(said, what)
 	}
 
 	_, err := cpcPictureBank(opts, 0x6000)
 	require.NoError(t, err)
 
+	require.Equal(t, []string{"1/3", "2/3", "3/3"}, counts)
+
+	sort.Strings(said)
 	require.Equal(t, []string{
-		"1/3 compressing picture 000",
-		"2/3 compressing picture 001",
-		"3/3 compressing picture 002",
+		"compressing picture 000",
+		"compressing picture 001",
+		"compressing picture 002",
 	}, said)
 }
 

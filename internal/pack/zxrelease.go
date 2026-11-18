@@ -335,13 +335,11 @@ func zxPlus3(database []byte, opts Options) (*Release, error) {
 			opts.XMessages)
 	}
 
-	for _, number := range loose {
-		picture, err := plus3Picture(opts.Images[number])
-		if err != nil {
-			return nil, fmt.Errorf("picture %d: %w", number, err)
-		}
-
-		release.Add(plus3PictureName(number), fmt.Sprintf("picture %d", number), picture)
+	// Compressed already: deciding which of them the buffer took is what
+	// compressed them, and chooseCached hands back what it made rather than the
+	// numbers of what it threw away.
+	for _, one := range loose {
+		release.Add(plus3PictureName(one.number), fmt.Sprintf("picture %d", one.number), one.body)
 	}
 
 	return release, nil

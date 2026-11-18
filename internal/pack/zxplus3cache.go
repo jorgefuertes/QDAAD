@@ -157,10 +157,12 @@ func plus3DisableInterrupts(image []byte, origin, limit int) ([]byte, error) {
 	return append(out, 0xF3, 0xCD, byte(was), byte(was>>8), 0xC9), nil
 }
 
-// plus3Cached is one picture that went into the buffer.
-type plus3Cached struct {
+// plus3Packed is one picture, packaged: its number and the .128 as it would have
+// been on its own, header and data. The buffer carries these, and so does the
+// list of the ones that stayed files of their own.
+type plus3Packed struct {
 	number int
-	body   []byte // the .128 as it would have been on its own: header and data
+	body   []byte
 }
 
 // plus3OtherFiles is how many directory entries a release always spends on
@@ -204,9 +206,12 @@ const plus3OtherFiles = 4
 // spoken for. Neither is read from anywhere here: the first belongs to the disk
 // the caller is writing, and the tests use a small one so that overrunning a
 // directory does not mean packaging a hundred and thirty-four whole screens.
+// Both lists come back with the pictures in them, compressed, and not just
+// their numbers: deciding this is what compresses them, and a .128 is a quarter
+// of a second that nobody should spend twice.
 func chooseCached(
 	pictures map[int][]byte, names, others int, report Progress,
-) (cached []plus3Cached, loose []int, err error) {
+) (cached, loose []plus3Packed, err error) {
 	numbers := make([]int, 0, len(pictures))
 	for n := range pictures {
 		numbers = append(numbers, n)
@@ -214,17 +219,21 @@ func chooseCached(
 
 	sort.Ints(numbers)
 
-	bodies := make(map[int][]byte, len(numbers))
-
-	for i, n := range numbers {
-		report.at(i+1, len(numbers), fmt.Sprintf("compressing picture %03d", n))
-
+	built, err := compressPictures(numbers, report, func(n int) ([]byte, error) {
 		body, err := plus3Picture(pictures[n])
 		if err != nil {
-			return nil, nil, fmt.Errorf("picture %d: %w", n, err)
+			return nil, fmt.Errorf("picture %d: %w", n, err)
 		}
 
-		bodies[n] = body
+		return body, nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	bodies := make(map[int][]byte, len(numbers))
+	for i, n := range numbers {
+		bodies[n] = built[i]
 	}
 
 	order := append([]int(nil), numbers...)
@@ -255,7 +264,7 @@ func chooseCached(
 
 		used = grown
 
-		cached = append(cached, plus3Cached{number: n, body: bodies[n]})
+		cached = append(cached, plus3Packed{number: n, body: bodies[n]})
 	}
 
 	in := make(map[int]bool, len(cached))
@@ -265,7 +274,7 @@ func chooseCached(
 
 	for _, n := range numbers {
 		if !in[n] {
-			loose = append(loose, n)
+			loose = append(loose, plus3Packed{number: n, body: bodies[n]})
 		}
 	}
 
@@ -282,7 +291,7 @@ func chooseCached(
 // The two bytes are the length of the rest, which is there because the
 // interpreter cannot ask +3DOS how long a file is without reading past its end,
 // and reading past the end of a file is the one thing +3DOS will not forgive.
-func plus3Cache(cached []plus3Cached) ([]byte, error) {
+func plus3Cache(cached []plus3Packed) ([]byte, error) {
 	if len(cached) == 0 {
 		return nil, nil
 	}

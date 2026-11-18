@@ -1,5 +1,7 @@
 package zx0
 
+import "math/bits"
+
 // The parse: which literals and which copies a block comes out as.
 //
 // Choosing is a separate problem from coding, and the harder of the two. Any
@@ -24,6 +26,18 @@ package zx0
 // stated rather than hidden: the cost model is his because it is the format's,
 // and a second opinion about what a copy costs would only be a worse one. What
 // is here is that model in Go over our own writer.
+//
+// What is not his is how little of the search is written down. His coder makes
+// a node for every candidate it weighs, and a 16K Amstrad screen weighs a
+// hundred and eighty-three million of them; all but a handful are overwritten
+// by the next position and thrown away. Here a candidate is a few numbers in an
+// array until something actually asks it for a node, which is the same parse
+// over fifty-five million nodes instead, and a 16K screen in half a second
+// instead of a second and a quarter.
+//
+// The parse is unchanged by all of it — the same stream byte for byte, not
+// merely one of the same size — and each place where that is not obvious says
+// why beside the code.
 
 // move is one thing a stream says.
 type move struct {
@@ -37,6 +51,10 @@ type move struct {
 // stream can be a repeat of it without ever having been given an offset, which
 // is why the search starts from a node that claims it.
 const initialOffset = 1
+
+// noRun is where an offset has no run of literals behind it yet. Zero will not
+// do for that: position zero is where the first run of all of them ends.
+const noRun int32 = -1
 
 // optimalParse works out the cheapest way to say data, as the moves that say
 // it in order.
@@ -70,21 +88,43 @@ func optimalParse(data []byte) []move {
 	p := newPool(size)
 
 	var (
-		// Per offset, the cheapest way to be here having just written
-		// literals, and having just written a copy. A repeat can only follow
-		// literals — after a copy the zero bit means "back to literals"
-		// instead — so the two are kept apart rather than merged.
-		lastLiteral = make([]handle, room+1)
-		lastMatch   = make([]handle, room+1)
+		// Per offset, the cheapest way to be here having just written a copy.
+		lastMatch = make([]handle, room+1)
+		// And per offset, the cheapest way to be here having just written
+		// literals, which is the other thing a copy from it can follow: a
+		// repeat can only come after literals, because after a copy the zero
+		// bit means "back to literals" instead.
+		//
+		// It is held as the three numbers that describe it and not as a node,
+		// because almost none of these are ever looked at: one is made at every
+		// position an offset fails to match at, and the next position throws it
+		// away. litNode is the node when something has asked for one, and none
+		// when the run is still only described.
+		litBits = make([]int32, room+1)
+		litPos  = make([]int32, room+1)
+		litNode = make([]handle, room+1)
 		// Per position, the cheapest way to be here at all.
 		best = make([]handle, size)
 		// How far the copy from each offset currently reaches.
-		reach = make([]int, room+1)
+		reach = make([]int32, room+1)
 		// For a copy ending here, the length that pays best. Cut short rather
 		// than always the longest: a shorter copy can leave the stream in a
 		// cheaper place than a longer one.
-		pays = make([]int, size)
+		pays = make([]int32, size)
+		// What a copy spends saying which offset it is, which depends on the
+		// offset and on nothing else — so it is worked out once per offset here
+		// instead of once per offset per position, which over a 16K screen is
+		// the difference between sixteen thousand divisions and sixty million.
+		offsetBits = make([]uint8, room+1)
 	)
+
+	for offset := range litPos {
+		litPos[offset] = noRun
+	}
+
+	for offset := 1; offset <= room; offset++ {
+		offsetBits[offset] = uint8(eliasBits((offset-1)/128 + 1))
+	}
 
 	if size > 2 {
 		pays[2] = 2
@@ -94,56 +134,115 @@ func optimalParse(data []byte) []move {
 	// at position zero an edge like any other.
 	p.assign(&lastMatch[initialOffset], p.allocate(-1, -1, initialOffset, none))
 
-	for index := range size {
+	// And position zero itself, which the loop below is not shaped for: no
+	// offset can match where there is nothing behind, so the only edge out of
+	// here is that first run of literals.
+	firstFrom := lastMatch[initialOffset]
+	firstLength := 0 - p.node(firstFrom).index
+	firstBits := p.node(firstFrom).bits + 1 + eliasBits(firstLength) + firstLength*8
+
+	litBits[initialOffset], litPos[initialOffset] = int32(firstBits), 0
+	p.assign(&best[0], p.allocate(firstBits, 0, 0, firstFrom))
+
+	for index := 1; index < size; index++ {
 		paysUpTo := 2
 		room = limit(index)
+		here := data[index]
 
-		for offset := 1; offset <= room; offset++ {
-			if index > 0 && index >= offset && data[index] == data[index-offset] {
+		// The cheapest way to be at this position, chosen before anything is
+		// built for it: the node when the candidate that won already has one,
+		// and otherwise the offset whose run of literals would have to become
+		// one. Every candidate here ends at this same position, so one node
+		// covers whichever of them wins.
+		var (
+			cheapest   int
+			cheapestAt handle
+			cheapestOf = -1
+			chosen     bool
+		)
+
+		// offset counts up and back counts down, which is the same pair of
+		// numbers without the subtraction. Neither of the guards the condition
+		// used to carry is needed: there is something behind every position
+		// from the first, and limit never hands back more room than there is.
+		for offset, back := 1, index-1; offset <= room; offset, back = offset+1, back-1 {
+			if here == data[back] {
 				// A copy of the offset already in hand, which is a bit and a
 				// length and no offset at all.
-				if from := lastLiteral[offset]; from != none {
-					length := index - p.node(from).index
-					bits := p.node(from).bits + 1 + eliasBits(length)
+				repeat, repeatFrom, hasRepeat := 0, none, false
 
-					p.assign(&lastMatch[offset], p.allocate(bits, index, offset, from))
-					p.keepCheapest(&best[index], lastMatch[offset], bits)
+				if litPos[offset] != noRun {
+					length := index - int(litPos[offset])
+					repeat = int(litBits[offset]) + 1 + eliasBits(length)
+					hasRepeat = true
+
+					// The run has to become a node here and it cannot wait: its
+					// chain is the offset's last copy, and that is what the
+					// lines below are about to replace. Once made it stands
+					// until the offset fails to match again, which is when a
+					// different run starts.
+					if repeatFrom = litNode[offset]; repeatFrom == none {
+						repeatFrom = p.allocate(
+							int(litBits[offset]), int(litPos[offset]), 0, lastMatch[offset])
+						p.assign(&litNode[offset], repeatFrom)
+					}
 				}
 
 				// And a copy from this offset given afresh. Two bytes is the
 				// shortest the format can say, so one matching byte is not yet
 				// a copy.
 				reach[offset]++
-				if reach[offset] < minMatch {
-					continue
-				}
 
-				// Which length pays best, worked out once per position and
-				// carried forward: the answer for a reach of n is either n
-				// itself or whatever answered for n-1.
-				if paysUpTo < reach[offset] {
-					cheapest := p.node(best[index-pays[paysUpTo]]).bits + eliasBits(pays[paysUpTo]-1)
+				fresh, freshFrom, hasFresh := 0, none, false
 
-					for paysUpTo < reach[offset] {
-						paysUpTo++
+				if reach[offset] >= minMatch {
+					// Which length pays best, worked out once per position and
+					// carried forward: the answer for a reach of n is either n
+					// itself or whatever answered for n-1.
+					if paysUpTo < int(reach[offset]) {
+						at := int(pays[paysUpTo])
+						cheapestLength := p.node(best[index-at]).bits + eliasBits(at-1)
 
-						other := p.node(best[index-paysUpTo]).bits + eliasBits(paysUpTo-1)
-						if other <= cheapest {
-							pays[paysUpTo] = paysUpTo
-							cheapest = other
-						} else {
-							pays[paysUpTo] = pays[paysUpTo-1]
+						for paysUpTo < int(reach[offset]) {
+							paysUpTo++
+
+							other := p.node(best[index-paysUpTo]).bits + eliasBits(paysUpTo-1)
+							if other <= cheapestLength {
+								pays[paysUpTo] = int32(paysUpTo)
+								cheapestLength = other
+							} else {
+								pays[paysUpTo] = pays[paysUpTo-1]
+							}
 						}
 					}
+
+					length := int(pays[reach[offset]])
+					freshFrom = best[index-length]
+					fresh = p.node(freshFrom).bits + 8 + int(offsetBits[offset]) + eliasBits(length-1)
+					hasFresh = true
 				}
 
-				length := pays[reach[offset]]
-				from := best[index-length]
-				bits := p.node(from).bits + 8 + eliasBits((offset-1)/128+1) + eliasBits(length-1)
+				// Only one of the two is worth a node. The dearer is not what
+				// the offset is left holding, and it is not the cheapest way to
+				// be here either, because the other one is cheaper and is here
+				// as well. A tie goes to the repeat, which is the order the two
+				// were weighed in when each was built before being compared.
+				switch {
+				case hasRepeat && (!hasFresh || repeat <= fresh):
+					at := p.allocate(repeat, index, offset, repeatFrom)
+					p.assign(&lastMatch[offset], at)
 
-				if at := lastMatch[offset]; at == none || p.node(at).index != index || p.node(at).bits > bits {
-					p.assign(&lastMatch[offset], p.allocate(bits, index, offset, from))
-					p.keepCheapest(&best[index], lastMatch[offset], bits)
+					if !chosen || repeat < cheapest {
+						cheapest, cheapestAt, cheapestOf, chosen = repeat, at, -1, true
+					}
+
+				case hasFresh:
+					at := p.allocate(fresh, index, offset, freshFrom)
+					p.assign(&lastMatch[offset], at)
+
+					if !chosen || fresh < cheapest {
+						cheapest, cheapestAt, cheapestOf, chosen = fresh, at, -1, true
+					}
 				}
 
 				continue
@@ -157,9 +256,37 @@ func optimalParse(data []byte) []move {
 				length := index - p.node(from).index
 				bits := p.node(from).bits + 1 + eliasBits(length) + length*8
 
-				p.assign(&lastLiteral[offset], p.allocate(bits, index, 0, from))
-				p.keepCheapest(&best[index], lastLiteral[offset], bits)
+				litBits[offset], litPos[offset] = int32(bits), int32(index)
+
+				// Whatever was made of the run a byte ago ends one byte short
+				// of this one, so it is not this run and nothing will ask for
+				// it again.
+				if at := litNode[offset]; at != none {
+					p.release(at)
+					litNode[offset] = none
+				}
+
+				if !chosen || bits < cheapest {
+					cheapest, cheapestAt, cheapestOf, chosen = bits, none, offset, true
+				}
 			}
+		}
+
+		// And now that it is known which candidate won, it gets its node. For a
+		// run of literals that is the only node it will ever have.
+		//
+		// Keeping the strictly cheaper of two while the offsets go up in order
+		// settles a tie the way building every candidate and keeping the cheaper
+		// of it and whatever was there already did: the first of them wins. That
+		// is what makes this the same stream and not merely one of the same
+		// length.
+		if chosen {
+			at := cheapestAt
+			if at == none {
+				at = p.allocate(cheapest, index, 0, lastMatch[cheapestOf])
+			}
+
+			p.assign(&best[index], at)
 		}
 	}
 
@@ -168,14 +295,13 @@ func optimalParse(data []byte) []move {
 
 // eliasBits is what a value costs as an interlaced Elias gamma: two bits for
 // every one below the leading one, and a bit to stop.
-func eliasBits(value int) int {
-	bits := 1
-	for value >>= 1; value > 0; value >>= 1 {
-		bits += 2
-	}
-
-	return bits
-}
+//
+// Which is two bits per bit of the value, less the one the stop bit replaces.
+// It was a loop over the shifts and that loop was a fifth of the whole search,
+// so it is the one instruction that counts them instead. Nothing asks what zero
+// costs — every value through here is a length or a count of 128s, and both
+// start at one.
+func eliasBits(value int) int { return 2*bits.Len(uint(value)) - 1 }
 
 // A node is not a position but a way of having reached one, and the difference
 // is the whole reason this works: arriving at byte 400 with an offset of 12 in
@@ -216,10 +342,10 @@ const none handle = 0
 // than the history of the search.
 //
 // It is the difference between this being usable and not. A 6912-byte screen
-// reaches down 39 million nodes; left to the collector that was a gigabyte and
+// reaches down 18 million nodes; left to the collector that was a gigabyte and
 // a quarter of garbage and six tenths of a second apiece, which over the 110
 // pictures of a two-part +3 build is a minute of packaging. Recycled, the same
-// screen allocates 56 times, holds 7 MB, and takes a quarter of a second.
+// screen allocates 58 times, holds 7 MB, and takes an eighth of a second.
 type pool struct {
 	// nodes[0] is never used: it is what none refers to, so that a zero
 	// handle means nothing without a separate flag beside every one of them.
@@ -266,14 +392,6 @@ func (p *pool) assign(slot *handle, to handle) {
 	p.nodes[to].refs++
 	p.release(*slot)
 	*slot = to
-}
-
-// keepCheapest points the slot at the node when it is the better way to be
-// where it is.
-func (p *pool) keepCheapest(slot *handle, to handle, bits int) {
-	if *slot == none || p.nodes[*slot].bits > bits {
-		p.assign(slot, to)
-	}
 }
 
 // release gives up one reference, and frees the node if that was the last.

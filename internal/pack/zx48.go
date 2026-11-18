@@ -173,11 +173,17 @@ func (n Notes) say(level Notice, format string, args ...any) {
 //
 // It is here because some of this is slow and none of it used to say so. An
 // Amstrad picture is a whole 16K screen and ZX0 parses it as a shortest path,
-// which is a second and a half apiece; an adventure with forty of them is a
-// minute of a tool that looks hung.
+// which is half a second apiece; an adventure with forty of them is long enough
+// to wonder about even now that they go several at a time.
 //
 // done counts from one, total is how many there are in this run of them, and
 // what is the work itself in a short phrase.
+//
+// Where several pictures are in hand at once, done is how many are finished and
+// what names whichever of them finished last. The count still goes up by one
+// each time and in order, and this is never called from two places at the same
+// time, which is as much as a line drawn over the last one can take. See
+// compressPictures.
 //
 // What it is told is for showing and not for keeping, which is the difference
 // from Note: a caller is expected to draw each of these over the last, and one

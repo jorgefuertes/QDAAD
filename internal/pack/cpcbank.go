@@ -162,21 +162,25 @@ func cpcPictureBank(opts Options, gameEnd int) (cpcBank, error) {
 
 	var index []byte
 
-	for i, number := range numbers {
-		opts.Progress.at(i+1, len(numbers), fmt.Sprintf("compressing picture %03d", number))
+	entries, err := compressPictures(numbers, opts.Progress, func(number int) ([]byte, error) {
+		return cpcBankEntry(number, opts, cpcPictureRows(opts.Images[number], opts.Lines))
+	})
+	if err != nil {
+		return cpcBank{}, err
+	}
 
-		entry, err := cpcBankEntry(number, opts, cpcPictureRows(opts.Images[number], opts.Lines))
-		if err != nil {
-			return cpcBank{}, err
-		}
+	// Laying them out is a pass of its own, after all of them are compressed,
+	// because where one goes depends on how much room the ones before it took.
+	for i, number := range numbers {
+		entry := entries[i]
 
 		// The first place it fits, which fills the blocks rather than evening
 		// them out and is what gets the most pictures in.
 		put := -1
 
-		for i, g := range where {
-			if len(blocks[i])+len(entry) <= g.room {
-				put = i
+		for place, g := range where {
+			if len(blocks[place])+len(entry) <= g.room {
+				put = place
 
 				break
 			}
