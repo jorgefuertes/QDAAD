@@ -647,6 +647,10 @@ func drawingsOf(t *testing.T, root string) map[int]bool {
 }
 
 var (
+	// A description may carry on in quoted fragments on the lines after it,
+	// which is how the trees keep under 120 columns. Those lines are not
+	// matched and do not need to be: what is being counted is which entries
+	// have a description at all, and the first fragment of one is never empty.
 	exampleDescribed = regexp.MustCompile(`^/(\d+) "(.+)"\s*$`)
 	exampleLocation  = regexp.MustCompile(`^/(\d+)\s*$`)
 	// No leading space is required: a connection line starts in column one,

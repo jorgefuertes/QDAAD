@@ -434,11 +434,15 @@ func progress() pack.Progress {
 		// and the caret is three bytes of one column.
 		shown := 1 + 1 + len(what) + 3 + len(count)
 
-		fmt.Fprintf(out, "\r%s %s   %s%*s", caret, what,
+		// Nothing useful can be done about a progress line that cannot be
+		// written, and it is the one line of the output nobody needs: what
+		// matters is said again at the end, where a failure to write it is
+		// worth reporting.
+		_, _ = fmt.Fprintf(out, "\r%s %s   %s%*s", caret, what,
 			console.MutedStyle.Render(count), max(progressWidth-shown, 0), "")
 
 		if done >= total {
-			fmt.Fprintf(out, "\r%*s\r", progressWidth, "")
+			_, _ = fmt.Fprintf(out, "\r%*s\r", progressWidth, "")
 		}
 	}
 }
