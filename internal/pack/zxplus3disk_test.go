@@ -38,7 +38,7 @@ import (
 // is a difference the machine sees: the interpreter reads structures and not
 // lengths, which is why a ZX0 stream ends itself and the buffer's index ends
 // with a 255.
-func buildPlus3(images map[int][]byte, note func(string)) plus3Built {
+func buildPlus3(images map[int][]byte, note Notes) plus3Built {
 	opts := plus3Options(images)
 	opts.Note = note
 
@@ -343,7 +343,7 @@ func TestAPlus3DiskTooFullSaysWhatCameOff(t *testing.T) {
 
 	var note strings.Builder
 
-	_, disk := opened(t, buildPlus3(pictures, func(s string) { note.WriteString(s) }))
+	_, disk := opened(t, buildPlus3(pictures, func(_ Notice, s string) { note.WriteString(s) }))
 
 	require.Contains(t, note.String(), "did not fit",
 		"pictures left off the disk without a word")

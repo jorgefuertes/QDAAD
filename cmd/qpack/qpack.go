@@ -18,12 +18,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/back"
 	"github.com/jorgefuertes/QDAAD/internal/build"
+	"github.com/jorgefuertes/QDAAD/internal/console"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"github.com/jorgefuertes/QDAAD/internal/pack"
+	"github.com/jorgefuertes/QDAAD/internal/util"
 	"github.com/jorgefuertes/QDAAD/internal/version"
 	"github.com/urfave/cli/v3"
 )
@@ -104,12 +108,14 @@ func main() {
 	}
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		console.Sayln(console.LevelError, console.ErrStyle.Render(err.Error()))
 		os.Exit(1)
 	}
 }
 
 func run(_ context.Context, cmd *cli.Command) error {
+	console.Banner("QPACK", console.TitleStyle)
+
 	dirs := cmd.Args().Slice()
 	if len(dirs) == 0 {
 		return errors.New("nothing to package: name a build directory that qdaad wrote")
@@ -166,13 +172,80 @@ func run(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	release, err := assemble(cmd.String("format"), parts[0], name,
+	format := cmd.String("format")
+
+	console.Sayln(console.LevelInfo, "Packaging ", console.PathStyle.Render(dirs[0]),
+		" for a ", console.BoldStyle.Render(machineName(parts[0])),
+		console.MutedStyle.Render(" as a "+format))
+
+	// Timed here rather than inside: what a person waits for is the packaging,
+	// and nearly all of it is one picture after another going through ZX0.
+	started := time.Now()
+
+	release, err := assemble(format, parts[0], name,
 		cmd.Int("lines"), cmd.Int("ram"), loadingPalette)
 	if err != nil {
 		return err
 	}
 
-	return write(cmd.String("format"), cmd.String("output"), dirs[0], release)
+	out, err := write(format, cmd.String("output"), dirs[0], release)
+	if err != nil {
+		return err
+	}
+
+	report(format, parts[0], name, out, release, time.Since(started))
+
+	return nil
+}
+
+// machineName is the machine and, where there is one, the model of it. A
+// Spectrum build is a 48K one or a +3 one and they are different releases; a
+// CPC build is a CPC.
+func machineName(b build.Build) string {
+	if b.Subtarget == "" {
+		return b.Machine.String()
+	}
+
+	return b.Machine.String() + " " + b.Subtarget
+}
+
+// report is the table printed after a release is written, in the shape qundaad
+// prints its own: what was built, for what, and how big it came out.
+func report(
+	format string, b build.Build, name, out string, release *pack.Release, took time.Duration,
+) {
+	console.Sayln(console.LevelOk, "Written to ", console.PathStyle.Render(out))
+	console.Sayln(console.LevelInfo, "Packaging report:")
+
+	t := console.NewTable().Horizontal(true)
+	t.Row("Machine", machineName(b))
+	t.Row("Format", format)
+	t.Row("Name", name)
+	t.Row("Database", util.HumanBytes(int64(len(b.Database))))
+
+	if len(b.Images) > 0 {
+		t.Row("Pictures", strconv.Itoa(len(b.Images)))
+	}
+
+	if len(b.XMessages) > 0 {
+		t.Row("Texts outside it", util.HumanBytes(int64(len(b.XMessages))))
+	}
+
+	t.Row("Files", strconv.Itoa(len(release.Files())))
+	t.Row("Written", util.HumanBytes(int64(release.Total())))
+	t.Row("Took", util.HumanDuration(took))
+	t.Print()
+
+	// Which file is which, for a release of several. One file has its own line
+	// above and a table of one row would say it twice.
+	if len(release.Files()) > 1 {
+		files := console.NewTable().Header("File", "Size", "What it is")
+		for _, f := range release.Files() {
+			files.Row(f.Name, util.HumanBytes(int64(len(f.Body))), f.Note)
+		}
+
+		files.Print()
+	}
 }
 
 // assemble gathers what the asked-for format needs, as a release.
@@ -187,7 +260,7 @@ func assemble(
 		Language: b.Language, Name: name,
 		Charset: b.Charset, Images: b.Images, Palettes: b.Palettes, Loading: b.Loading,
 		XMessages: b.XMessages, Lines: lines, Memory: memory, LoadingPalette: loadingPalette,
-		Note:     func(said string) { fmt.Println(said) },
+		Note:     notes(),
 		Progress: progress(),
 	}
 
@@ -217,7 +290,9 @@ func assemble(
 
 		return release, nil
 
-	case formatDir, formatTAP:
+	// A directory is the recipe rather than a container for it, so every machine
+	// that is packaged at all can have one.
+	case formatDir:
 		switch b.Machine {
 		case arch.ZX:
 			return pack.ZXRelease(b.Database, b.Subtarget, opts)
@@ -226,6 +301,19 @@ func assemble(
 		default:
 			return nil, notPackaged(b.Machine)
 		}
+
+	// A TAP is a Spectrum tape and nothing else. It used to share a branch with
+	// the directory, which meant a CPC build asked for one got the Amstrad's own
+	// single binary in a file called .tap: not a tape, and not a thing that says
+	// so until a 464 is asked to load it.
+	case formatTAP:
+		if b.Machine != arch.ZX {
+			return nil, fmt.Errorf(
+				"a TAP is a Spectrum tape, and this build is for a %s"+
+					"\n\tan Amstrad tape is --format %s", b.Machine, formatCDT)
+		}
+
+		return pack.ZXRelease(b.Database, b.Subtarget, opts)
 
 	// The Amstrad's tape is not the Spectrum's wrapped: the machine has a tape
 	// format of its own, records and checksums and all, so it is built rather
@@ -292,10 +380,27 @@ func assemble(
 	}
 }
 
+// notes draws what the packager says about the release while it builds it.
+//
+// What the notice decides is the colour of the caret and nothing else: a note
+// that something was left out is a warning and reads as one at a glance, which
+// is the whole reason it carries a level.
+func notes() pack.Notes {
+	return func(level pack.Notice, said string) {
+		if level == pack.NoticeLeftOut {
+			console.Sayln(console.LevelWarn, said)
+
+			return
+		}
+
+		console.Sayln(console.LevelOk, said)
+	}
+}
+
 // progressWidth is how wide the line is drawn. Every line is drawn to the same
 // width so that the next one covers the whole of the last, with no tail of a
 // longer phrase left behind it.
-const progressWidth = 48
+const progressWidth = 52
 
 // progress draws what the packager is working on, each line over the last, and
 // rubs the line out when the work it was about is done.
@@ -304,10 +409,17 @@ const progressWidth = 48
 // of it. A log wants the result and not the sixty-seven lines it took to get
 // there, and a progress line in a file is sixty-seven lines with carriage
 // returns in them.
+//
+// The stream is taken now rather than read at every line, because console.Make
+// points os.Stderr at the null device while it runs something: a line drawn
+// through the name would land there instead of on the terminal.
 func progress() pack.Progress {
-	if !isTerminal(os.Stderr) {
+	out := os.Stderr
+	if !isTerminal(out) {
 		return nil
 	}
+
+	caret := console.MutedStyle.Render(console.RightCaret)
 
 	// "7 of 28" rather than "7/28", because the two numbers of a picture are
 	// not the same number: the pictures are numbered as the adventure asks for
@@ -315,11 +427,18 @@ func progress() pack.Progress {
 	// twenty-eight a part carries. A slash between them reads like a fraction
 	// of something and invites being read as the picture's own number.
 	return func(done, total int, what string) {
-		fmt.Fprintf(os.Stderr, "\r%-*s", progressWidth,
-			fmt.Sprintf("  %s   %d of %d", what, done, total))
+		count := fmt.Sprintf("%d of %d", done, total)
+
+		// Padded by what the line shows and not by what it holds: the styling
+		// is escape codes, which take plenty of string and no room on screen,
+		// and the caret is three bytes of one column.
+		shown := 1 + 1 + len(what) + 3 + len(count)
+
+		fmt.Fprintf(out, "\r%s %s   %s%*s", caret, what,
+			console.MutedStyle.Render(count), max(progressWidth-shown, 0), "")
 
 		if done >= total {
-			fmt.Fprintf(os.Stderr, "\r%*s\r", progressWidth, "")
+			fmt.Fprintf(out, "\r%*s\r", progressWidth, "")
 		}
 	}
 }
@@ -340,31 +459,24 @@ func notPackaged(machine arch.Machine) error {
 }
 
 // write puts the release where it was asked for, as a directory or as the one
-// file it holds.
-func write(format, out, from string, release *pack.Release) error {
+// file it holds, and says where that was: the name is worked out here and the
+// report wants to show it.
+func write(format, out, from string, release *pack.Release) (string, error) {
 	if out == "" {
 		out = strings.TrimSuffix(from, string(filepath.Separator)) + "-" + format
 	}
 
 	if format == formatDir {
 		if err := release.WriteDir(out); err != nil {
-			return err
+			return "", err
 		}
 
-		files := "files"
-		if len(release.Files()) == 1 {
-			files = "file"
-		}
-
-		fmt.Printf("%s: %d %s, %d bytes in all\n%s", out,
-			len(release.Files()), files, release.Total(), release.Listing())
-
-		return nil
+		return out, nil
 	}
 
 	file, err := release.Single()
 	if err != nil {
-		return fmt.Errorf("%s: %w\n\tpackage it as --format %s instead", format, err, formatDir)
+		return "", fmt.Errorf("%s: %w\n\tpackage it as --format %s instead", format, err, formatDir)
 	}
 
 	if filepath.Ext(out) == "" {
@@ -372,10 +484,8 @@ func write(format, out, from string, release *pack.Release) error {
 	}
 
 	if err := os.WriteFile(out, file.Body, 0o644); err != nil {
-		return err
+		return "", err
 	}
 
-	fmt.Printf("%s: %d bytes — %s\n", out, len(file.Body), file.Note)
-
-	return nil
+	return out, nil
 }

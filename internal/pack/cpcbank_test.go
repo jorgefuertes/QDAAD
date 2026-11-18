@@ -33,7 +33,7 @@ func cpcBankOptions(pictures int) Options {
 	return Options{
 		Language: language.LanguageSpanish, Name: "AO",
 		Images: images, Palettes: palettes, Lines: 96,
-		Note: func(string) {},
+		Note: func(Notice, string) {},
 	}
 }
 

@@ -133,14 +133,40 @@ type Options struct {
 	// machine whose screens do not carry their own: sixteen pens and the
 	// border, as the firmware numbers its colours. Only the Amstrad wants it.
 	LoadingPalette []byte
-	// Note is told anything the person packaging should know but that is not
-	// an error — which so far is one thing, and it is the one thing a
-	// packager must never do quietly: pictures left out for want of room. A
-	// build that silently carries four of forty-one looks like a build that
-	// carries them all until somebody plays it.
-	Note func(string)
+	// Note is told anything the person packaging should know. See Notes.
+	Note Notes
 	// Progress is told what is being worked on while it is. See Progress.
 	Progress Progress
+}
+
+// Notice is how much weight a note carries.
+//
+// It is here so that whatever draws a note does not have to read the sentence
+// to know what it is: a build that carried everything and a build that left
+// thirteen pictures behind should not come out looking the same.
+type Notice uint8
+
+const (
+	// NoticeSaid is worth knowing and nothing was lost by it.
+	NoticeSaid Notice = iota
+	// NoticeLeftOut is something the build does not carry, and it is the one
+	// thing a packager must never do quietly: a build that silently carries
+	// four pictures of forty-one looks like a build that carries them all,
+	// until somebody plays it.
+	NoticeLeftOut
+)
+
+// Notes is told anything the person packaging should know but that is not an
+// error.
+type Notes func(level Notice, said string)
+
+// say tells it, if there is anyone to tell.
+func (n Notes) say(level Notice, format string, args ...any) {
+	if n == nil {
+		return
+	}
+
+	n(level, fmt.Sprintf(format, args...))
 }
 
 // Progress is told what a packager is working on, while it is working on it.
@@ -230,9 +256,10 @@ func zxBlocks(target runtime.Target, database []byte, opts Options) (zxParts, er
 		return zxParts{}, err
 	}
 
-	if len(dropped) > 0 && opts.Note != nil {
-		opts.Note(fmt.Sprintf("%d of the %d pictures did not fit and are not on this build: %s",
-			len(dropped), len(opts.Images), numberList(dropped)))
+	if len(dropped) > 0 {
+		opts.Note.say(NoticeLeftOut,
+			"%d of the %d pictures did not fit and are not on this build: %s",
+			len(dropped), len(opts.Images), numberList(dropped))
 	}
 
 	out := zxParts{

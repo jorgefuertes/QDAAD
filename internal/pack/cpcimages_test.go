@@ -94,7 +94,7 @@ func TestTheCPCDiskNamesThePicturesItLeavesOut(t *testing.T) {
 	opts := Options{
 		Language: language.LanguageSpanish, Name: "AO",
 		Images: images, Palettes: palettes,
-		Note: func(s string) { said = s },
+		Note: func(_ Notice, s string) { said = s },
 	}
 
 	image, err := CPCDisk(make([]byte, 12000), opts)

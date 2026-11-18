@@ -17,7 +17,7 @@ ZXSpectrum/48/           README.md, part1/, part2/   two tapes
 ZXSpectrum/+3/           README.md, part1/, part2/   two disks
 ZXSpectrum/+3_Extended/  README.md, part1/, part2/   the same two disks, with
                                                      the 16-bit editions' texts
-AmstradCPC/CPC/          README.md, part1/, part2/   two disks and two tapes,
+Amstrad/CPC/             README.md, part1/, part2/   two disks and two tapes,
                                                      with the Amstrad's own
                                                      drawings and font
 ```

@@ -58,9 +58,10 @@ func ZXDisk(database []byte, subtarget string, opts Options) ([]byte, error) {
 	for {
 		image, err := media.Plus3Disk(files)
 		if err == nil {
-			if len(dropped) > 0 && opts.Note != nil {
-				opts.Note(fmt.Sprintf("%d pictures did not fit on the disk and are not on it: %s",
-					len(dropped), strings.Join(dropped, ", ")))
+			if len(dropped) > 0 {
+				opts.Note.say(NoticeLeftOut,
+					"%d pictures did not fit on the disk and are not on it: %s",
+					len(dropped), strings.Join(dropped, ", "))
 			}
 
 			return image, nil

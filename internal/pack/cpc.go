@@ -111,16 +111,16 @@ func CPCDisk(database []byte, opts Options) ([]byte, error) {
 		if pictures, err = cpcPictureFiles(opts); err != nil {
 			return nil, err
 		}
-	} else if opts.Note != nil && len(bank.left) == 0 {
-		opts.Note(fmt.Sprintf("all %d pictures travel in the spare banks with the game",
-			len(bank.carried)))
+	} else if len(bank.left) == 0 {
+		opts.Note.say(NoticeSaid, "all %d pictures travel in the spare banks with the game",
+			len(bank.carried))
 	}
 
 	disk, left := fitOnDisk(files, pictures)
-	if len(left) > 0 && opts.Note != nil {
-		opts.Note(fmt.Sprintf(
+	if len(left) > 0 {
+		opts.Note.say(NoticeLeftOut,
 			"%d of the %d pictures are on the disk; %s would not fit",
-			len(pictures)-len(left), len(pictures), strings.Join(left, ", ")))
+			len(pictures)-len(left), len(pictures), strings.Join(left, ", "))
 	}
 
 	return disk, nil
@@ -271,10 +271,10 @@ func cpcRelease(
 		on = slices.Insert(on, len(on)-1, part.File)
 	}
 
-	if opts.Note != nil && len(bank.left) > 0 {
-		opts.Note(fmt.Sprintf("%d of the %d pictures travel in memory with the game; "+
+	if len(bank.left) > 0 {
+		opts.Note.say(NoticeLeftOut, "%d of the %d pictures travel in memory with the game; "+
 			"%s would not fit",
-			len(bank.carried), len(opts.Images), cpcPictureList(bank.left)))
+			len(bank.carried), len(opts.Images), cpcPictureList(bank.left))
 	}
 
 	return NewRelease(on...), nil
@@ -293,10 +293,9 @@ func cpcTapeBank(opts Options, gameEnd int) (cpcBank, error) {
 	}
 
 	if len(opts.Loading) == 0 {
-		if opts.Note != nil {
-			opts.Note("the tape carries no pictures: they travel in memory and it takes " +
+		opts.Note.say(NoticeLeftOut,
+			"the tape carries no pictures: they travel in memory and it takes "+
 				"the loader to put them there, so a tape with pictures wants --loading too")
-		}
 
 		return cpcBank{}, nil
 	}

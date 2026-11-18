@@ -23,7 +23,7 @@ import (
 //
 // It is what says a frame 176 rows tall arrives with its bottom edge on.
 func TestEveryPictureComesBackOutOfTheBank(t *testing.T) {
-	const from = "../../examples/AO/AmstradCPC/CPC/part1/gfx/scr"
+	const from = "../../examples/AO/Amstrad/CPC/part1/gfx/scr"
 
 	names, err := filepath.Glob(filepath.Join(from, "*.scr"))
 	require.NoError(t, err)
@@ -33,7 +33,7 @@ func TestEveryPictureComesBackOutOfTheBank(t *testing.T) {
 		Language: language.LanguageSpanish, Name: "AO1",
 		Images: map[int][]byte{}, Palettes: map[int][]byte{},
 		Memory: 128,
-		Note:   func(string) {},
+		Note:   func(Notice, string) {},
 	}
 
 	for _, name := range names {
