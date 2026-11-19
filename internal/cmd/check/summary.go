@@ -16,7 +16,12 @@ import (
 // against the game they know: an adventure with sixty locations that reads as
 // having two has lost a section somewhere.
 func summarize(db *ddb.DDB, res *legacy.Result) error {
-	table := console.NewTable().Header("Section", "Count")
+	console.Sayln(console.LevelInfo, "Source report:")
+
+	// Label and value down one side, which is the shape qpack and qundaad print
+	// their own reports in. A header of "Section" and "Count" said what the two
+	// columns were in a table where nobody was going to wonder.
+	table := console.NewTable().Horizontal(true)
 
 	sysmess, _ := db.Messages().GetAllMessages(ddb.SystemMessage)
 	messages, _ := db.Messages().GetAllMessages(ddb.UserMessage)

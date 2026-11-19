@@ -9,12 +9,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jorgefuertes/QDAAD/internal/back"
 	"github.com/jorgefuertes/QDAAD/internal/build"
+	"github.com/jorgefuertes/QDAAD/internal/console"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
 	"github.com/jorgefuertes/QDAAD/internal/front/legacy"
+	"github.com/jorgefuertes/QDAAD/internal/util"
 	"github.com/urfave/cli/v3"
 )
 
@@ -122,6 +125,8 @@ func Command() *cli.Command {
 }
 
 func compileAction(_ context.Context, cmd *cli.Command) error {
+	console.Banner("QDAAD", console.TitleStyle)
+
 	source := cmd.String("input")
 	if source == "" {
 		return errors.New("no source to compile: name one with -i")
@@ -135,6 +140,14 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	console.Sayln(console.LevelInfo, "Compiling ", console.PathStyle.Render(source),
+		" for a ", console.BoldStyle.Render(opts.Machine.Model(opts.Subtarget)),
+		console.MutedStyle.Render(fmt.Sprintf(" as a version %d database", opts.Version)))
+
+	// Timed from here, which is where the work starts: what a person waits for
+	// is the source being read and linked, not the flags being parsed.
+	started := time.Now()
 
 	db, read, err := legacy.Compile(source, opts)
 	if err != nil {
@@ -198,24 +211,30 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 			return err
 		}
 
-		fmt.Printf("%s: %d bytes, laid at 0x%04X\n", out, len(image),
-			opts.Machine.BaseAddress(opts.Subtarget))
-
 		// A bare database is not the whole adventure when there are
 		// xmessages: its processes name offsets in a file, so the file goes
 		// beside it rather than being quietly dropped. The name the
 		// interpreter opens is 0.XMB and the packager is what gives it that;
 		// here it keeps the database's own name, because a directory of bare
 		// builds would otherwise be a directory of files all called 0.XMB.
+		beside := ""
+
 		if len(layout.XMessages) > 0 {
-			beside := strings.TrimSuffix(out, path.Ext(out)) + ".xmb"
+			beside = strings.TrimSuffix(out, path.Ext(out)) + ".xmb"
 
 			if err := os.WriteFile(beside, layout.XMessages, 0o644); err != nil {
 				return err
 			}
-
-			fmt.Printf("%s: %d bytes of xmessages\n", beside, len(layout.XMessages))
 		}
+
+		console.Sayln(console.LevelOk, "Written to ", console.PathStyle.Render(out))
+
+		if beside != "" {
+			console.Sayln(console.LevelOk, "Texts outside it to ",
+				console.PathStyle.Render(beside))
+		}
+
+		report(opts, format, layout, image, 0, images, charset, loading, time.Since(started))
 
 		return nil
 
@@ -239,19 +258,8 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 			return err
 		}
 
-		fmt.Printf("%s: part %d for a %s, %d bytes of database laid at 0x%04X",
-			out, b.Part, opts.Machine, len(image),
-			opts.Machine.BaseAddress(opts.Subtarget))
-
-		if len(images) > 0 {
-			fmt.Printf(", %d pictures", len(images))
-		}
-
-		if len(layout.XMessages) > 0 {
-			fmt.Printf(", %d bytes of xmessages", len(layout.XMessages))
-		}
-
-		fmt.Println()
+		console.Sayln(console.LevelOk, "Written to ", console.PathStyle.Render(out))
+		report(opts, format, layout, image, b.Part, images, charset, loading, time.Since(started))
 
 		return nil
 
@@ -265,6 +273,53 @@ func compileAction(_ context.Context, cmd *cli.Command) error {
 //
 // The machine is not optional and has no default: a source branches on what it
 // is being built for, so guessing one would quietly compile the wrong thing.
+// report is the table printed after a build is written, in the shape qpack and
+// qundaad print theirs: what was compiled, for what, and how big it came out.
+//
+// What goes in it is what the same adventure would be asked about afterwards —
+// the counts a person checks against the game they know — and a row only
+// appears when there is something to say: an adventure with no pictures says
+// nothing about pictures rather than saying none.
+func report(
+	opts legacy.Options, format string, layout back.Layout, image []byte,
+	part int, images map[int][]byte, charset, loading []byte, took time.Duration,
+) {
+	console.Sayln(console.LevelInfo, "Compilation report:")
+
+	t := console.NewTable().Horizontal(true)
+	t.Row("Machine", opts.Machine.Model(opts.Subtarget))
+	t.Row("Language", opts.Language.String())
+	t.Row("DAAD", fmt.Sprintf("v%d", opts.Version))
+	t.Row("Format", format)
+
+	if part > 0 {
+		t.Row("Part", strconv.Itoa(part))
+	}
+
+	t.Row("Database", util.HumanBytes(int64(len(image))))
+	t.Row("Laid at", fmt.Sprintf("0x%04X", opts.Machine.BaseAddress(opts.Subtarget)))
+	t.Row("Tokens", strconv.Itoa(layout.Tokens))
+
+	if len(images) > 0 {
+		t.Row("Pictures", strconv.Itoa(len(images)))
+	}
+
+	if len(charset) > 0 {
+		t.Row("Character set", util.HumanBytes(int64(len(charset))))
+	}
+
+	if len(loading) > 0 {
+		t.Row("Loading screen", util.HumanBytes(int64(len(loading))))
+	}
+
+	if len(layout.XMessages) > 0 {
+		t.Row("Texts outside it", util.HumanBytes(int64(len(layout.XMessages))))
+	}
+
+	t.Row("Took", util.HumanDuration(took))
+	t.Print()
+}
+
 func options(cmd *cli.Command) (legacy.Options, error) {
 	machine, err := arch.Parse(cmd.String("machine"))
 	if err != nil {

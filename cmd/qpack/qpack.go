@@ -187,7 +187,7 @@ func run(_ context.Context, cmd *cli.Command) error {
 	format := cmd.String("format")
 
 	console.Sayln(console.LevelInfo, "Packaging ", console.PathStyle.Render(dirs[0]),
-		" for a ", console.BoldStyle.Render(machineName(parts[0])),
+		" for a ", console.BoldStyle.Render(parts[0].Machine.Model(parts[0].Subtarget)),
 		console.MutedStyle.Render(" as a "+format))
 
 	// Timed here rather than inside: what a person waits for is the packaging,
@@ -210,17 +210,6 @@ func run(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// machineName is the machine and, where there is one, the model of it. A
-// Spectrum build is a 48K one or a +3 one and they are different releases; a
-// CPC build is a CPC.
-func machineName(b build.Build) string {
-	if b.Subtarget == "" {
-		return b.Machine.String()
-	}
-
-	return b.Machine.String() + " " + b.Subtarget
-}
-
 // report is the table printed after a release is written, in the shape qundaad
 // prints its own: what was built, for what, and how big it came out.
 func report(
@@ -230,7 +219,7 @@ func report(
 	console.Sayln(console.LevelInfo, "Packaging report:")
 
 	t := console.NewTable().Horizontal(true)
-	t.Row("Machine", machineName(b))
+	t.Row("Machine", b.Machine.Model(b.Subtarget))
 	t.Row("Format", format)
 	t.Row("Name", name)
 	t.Row("Database", util.HumanBytes(int64(len(b.Database))))

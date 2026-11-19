@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jorgefuertes/QDAAD/internal/console"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/arch"
 	"github.com/jorgefuertes/QDAAD/internal/definitions/language"
 	"github.com/jorgefuertes/QDAAD/internal/front/legacy"
@@ -108,6 +109,14 @@ func checkAction(_ context.Context, cmd *cli.Command) error {
 	opts, err := options(cmd)
 	if err != nil {
 		return err
+	}
+
+	// Not when the answer is JSON: that goes to standard output when nobody
+	// names a file, and a banner in front of it is a document nothing can read.
+	if !cmd.Bool("json") {
+		console.Banner("QDAAD", console.TitleStyle)
+		console.Sayln(console.LevelInfo, "Reading ", console.PathStyle.Render(source),
+			" for a ", console.BoldStyle.Render(opts.Machine.Model(opts.Subtarget)))
 	}
 
 	db, res, err := legacy.Compile(source, opts)

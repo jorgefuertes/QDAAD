@@ -166,6 +166,22 @@ func (m Machine) String() string {
 	return fmt.Sprintf("Machine(0x%02X)", byte(m))
 }
 
+// Model is the machine and, where there is one, the variant of it: a Spectrum
+// build is a 48K one or a +3 one and they are different builds.
+//
+// It is here and not in each of the three tools that print it so that they
+// print the same words. They are read one after the other on the same screen —
+// compile, package, and the decompiler that fed them — and a build that calls
+// itself "ZX plus3" in one line and something else in the next reads like two
+// machines.
+func (m Machine) Model(subtarget string) string {
+	if subtarget == "" {
+		return m.String()
+	}
+
+	return m.String() + " " + subtarget
+}
+
 // BaseAddress returns the load address in the machine's address space.
 //
 // TextSize is how much text the screen holds, and whether we know.
