@@ -85,10 +85,10 @@ func TestEveryPictureIsCountedOnce(t *testing.T) {
 func TestTwoRunsOfTheSameBankAreTheSameBytes(t *testing.T) {
 	opts := cpcBankOptions(5)
 
-	first, err := cpcPictureBank(opts, 0x6000)
+	first, err := cpcPictureBank(opts, 0x6000, false)
 	require.NoError(t, err)
 
-	second, err := cpcPictureBank(opts, 0x6000)
+	second, err := cpcPictureBank(opts, 0x6000, false)
 	require.NoError(t, err)
 
 	require.Equal(t, first, second)

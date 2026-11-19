@@ -4,17 +4,16 @@
 # taken from the PATH, so a fresh checkout needs nothing installed:
 #
 #   make dist    every disk and every tape, in dist/
-#   make dsk     the 6128 disks only
+#   make dsk     the 6128 disks only, every picture in the spare banks
 #   make cdt     the 464 tapes only
-#   make dsk128  the same disks for a 6128, every picture in its spare banks
-#   make cdt128  the same tapes for a 128K machine, likewise
+#   make cdt128  the same tapes for a 128K machine, every picture in the banks
 #   make test    both walkthroughs played, built in tmp/
 #   make clean   neither directory left behind
 #
 # QDAAD, QPACK and QRUN are overridable, so an installed build is one
 # assignment away:  make dist QDAAD=qdaad QPACK=qpack
 
-.PHONY: dist build dsk dsk128 cdt cdt128 test clean
+.PHONY: dist build dsk cdt cdt128 test clean
 
 ROOT  := ../../../..
 QDAAD ?= go run $(ROOT)/cmd/qdaad
@@ -25,35 +24,35 @@ QRUN  ?= go run $(ROOT)/cmd/qrun
 # -extended ones, which are the same walkthroughs quoting the long texts.
 TESTS := ../../test
 
-dist: dsk dsk128 cdt cdt128
+dist: dsk cdt cdt128
 
-# The disk is the one with the pictures on it. They are files of their own and
-# the interpreter opens them by name, which is also why they are what runs out
-# of room: nothing compresses a CPC picture, so one of fourteen character rows
-# is sixteen kilobytes of a disk with a hundred and seventy-eight.
+# GENERIC is the picture that stands in for the ones that do not fit, and it is
+# the adventure's own: the one it puts up for a location with no drawing. The
+# two parts do not agree on the number — the first uses 27, the AD logotype
+# among the trees, and the second 95 — so it is chosen per part below.
 #
-# LINES is where that is traded, and only here. Most of these drawings are 111
-# rows tall, but the frame the title is printed inside is 176, so there is no
-# number under 184 that carries every one of them whole — and above 96 there is
-# no saving either, because 96 is the most that lets two bands of a picture
-# share a 2K record. So this disk takes the one trade that pays, 15 pictures
-# instead of 7, and everywhere else the pictures are compressed and go whole.
-# qpack says which ones did not fit either way.
-LINES ?= 96
+# It matters more than it sounds: PICTURE is a condition in version 3, so a
+# picture that is not there fails it and abandons the rest of the entry — the
+# location's own text, and the window that text is printed in. In the second
+# part the entry that fails is the one at location 2, right after the access
+# code, and what is left on screen is the CLS it got as far as.
+GENERIC_1 ?= 27
+GENERIC_2 ?= 95
 
+# The disk is a 6128 disk and no other. Every picture goes into the four spare
+# banks, compressed, so the drive is not touched again once the adventure is
+# running and nothing waits for it.
+#
+# There used to be a 64K one beside it, which carried the pictures as files and
+# fitted nine of the twenty-eight. It is gone: the nineteen that did not fit
+# took the text of their locations with them, which is not a release. A machine
+# without the memory loads from tape.
 dsk: build
 	@for part in 1 2; do \
-		$(QPACK) -f dsk --lines $(LINES) --loading part$$part/gfx/loading.scr \
+		case $$part in 1) generic=$(GENERIC_1);; 2) generic=$(GENERIC_2);; esac; \
+		$(QPACK) -f dsk --ram 128 --generic $$generic \
+			--loading part$$part/gfx/loading.scr \
 			-o dist/AO$$part --name AO$$part tmp/build-part$$part || exit 1; \
-	done
-
-# The same disk for a 6128 and no other machine. The pictures go into the four
-# spare banks, compressed, and every one of them fits: the drive is not touched
-# again once the adventure is running, and nothing waits for it.
-dsk128: build
-	@for part in 1 2; do \
-		$(QPACK) -f dsk --ram 128 --loading part$$part/gfx/loading.scr \
-			-o dist/AO$$part-128 --name AO$$part tmp/build-part$$part || exit 1; \
 	done
 
 build:
@@ -64,13 +63,15 @@ build:
 	done
 
 # The tape is the loader, which carries the picture it shows, and then the
-# game. What it does not carry is the adventure's own pictures: a tape is read
-# forwards and a PICTURE asks for whatever number the player walked into.
-# qpack's --tape-pictures puts them on anyway, for whoever wants to see how far
-# that gets. See README.md.
+# game, and with it as many of the adventure's own pictures as fit in memory:
+# a tape is read forwards and a PICTURE asks for whatever number the player
+# walked into, so they cannot go on the tape itself. See README.md.
+#
 cdt: build
 	@for part in 1 2; do \
-		$(QPACK) -f cdt --loading part$$part/gfx/loading.scr \
+		case $$part in 1) generic=$(GENERIC_1);; 2) generic=$(GENERIC_2);; esac; \
+		$(QPACK) -f cdt --generic $$generic \
+			--loading part$$part/gfx/loading.scr \
 			-o dist/AO$$part --name AO$$part tmp/build-part$$part || exit 1; \
 	done
 
@@ -79,7 +80,9 @@ cdt: build
 # the 464 tape carries the dozen that fit above the game.
 cdt128: build
 	@for part in 1 2; do \
-		$(QPACK) -f cdt --ram 128 --loading part$$part/gfx/loading.scr \
+		case $$part in 1) generic=$(GENERIC_1);; 2) generic=$(GENERIC_2);; esac; \
+		$(QPACK) -f cdt --ram 128 --generic $$generic \
+			--loading part$$part/gfx/loading.scr \
 			-o dist/AO$$part-128 --name AO$$part tmp/build-part$$part || exit 1; \
 	done
 

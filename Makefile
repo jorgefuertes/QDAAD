@@ -243,20 +243,21 @@ example-ao-p3x:
 	done
 
 # The Amstrad, which is the same adventure with the Amstrad edition's own
-# drawings decompiled into it: a disk with as many of them as fit, a tape with
-# the dozen that travel in memory, and a 6128 disk with every one of them in the
-# spare banks. See examples/AO/Amstrad/CPC/README.md.
+# drawings decompiled into it: a tape with the handful that travel in memory,
+# and a 6128 disk with every one of them in the spare banks. See
+# examples/AO/Amstrad/CPC/README.md.
 example-ao-cpc:
 	@for part in 1 2; do \
 		go run cmd/qdaad/qdaad.go compile -i examples/AO/Amstrad/CPC/part$$part/game.sce \
 			-o tmp/ao-cpc-part$$part -f build -m cpc -v 3 --part $$part; \
-		go run cmd/qpack/qpack.go -f dsk --lines 96 -o tmp/AOCPC-$$part --name AO$$part \
-			tmp/ao-cpc-part$$part; \
-		go run cmd/qpack/qpack.go -f cdt --lines 112 -o tmp/AOCPC-$$part --name AO$$part \
-			tmp/ao-cpc-part$$part; \
-		go run cmd/qpack/qpack.go -f dsk --ram 128 --lines 112 \
+		case $$part in 1) generic=27;; 2) generic=95;; esac; \
+		go run cmd/qpack/qpack.go -f cdt --generic $$generic \
 			--loading examples/AO/Amstrad/CPC/part$$part/gfx/loading.scr \
-			-o tmp/AOCPC128-$$part --name AO$$part tmp/ao-cpc-part$$part; \
+			-o tmp/AOCPC-$$part --name AO$$part \
+			tmp/ao-cpc-part$$part; \
+		go run cmd/qpack/qpack.go -f dsk --ram 128 --generic $$generic \
+			--loading examples/AO/Amstrad/CPC/part$$part/gfx/loading.scr \
+			-o tmp/AOCPC-$$part --name AO$$part tmp/ao-cpc-part$$part; \
 	done
 
 example-ao: example-ao-48 example-ao-p3 example-ao-p3x example-ao-cpc

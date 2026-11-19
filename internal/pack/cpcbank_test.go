@@ -64,7 +64,7 @@ func TestTheBankSaysWhichPictureItIsOn(t *testing.T) {
 		said = append(said, what)
 	}
 
-	_, err := cpcPictureBank(opts, 0x6000)
+	_, err := cpcPictureBank(opts, 0x6000, false)
 	require.NoError(t, err)
 
 	require.Equal(t, []string{"1/3", "2/3", "3/3"}, counts)
@@ -87,7 +87,7 @@ func TestWhatIsInACPCPictureBank(t *testing.T) {
 		opts.Images[n] = cpcScreenOf(12)
 	}
 
-	bank, err := cpcPictureBank(opts, 0x6000)
+	bank, err := cpcPictureBank(opts, 0x6000, false)
 	require.NoError(t, err)
 
 	require.Equal(t, cpcResidentAt(), bank.at, "under the loader, out of the window")
@@ -129,7 +129,7 @@ func TestACPCPictureBankUsesTheSpareBanks(t *testing.T) {
 
 	// A game that reaches 0x9000 leaves nothing above it, and it no longer
 	// matters: none of this is in the game's own memory.
-	bank, err := cpcPictureBank(opts, 0x9000)
+	bank, err := cpcPictureBank(opts, 0x9000, false)
 	require.NoError(t, err)
 
 	require.Len(t, bank.carried, 8)
@@ -159,7 +159,7 @@ func TestACPCPictureBankUsesTheSpareBanks(t *testing.T) {
 // A 64K bank only holds what fits between the end of the game and the code
 // under the loader. The rest are named rather than dropped quietly.
 func TestACPCBankSaysWhatWouldNotFit(t *testing.T) {
-	bank, err := cpcPictureBank(cpcBankOptions(12), 0x6000)
+	bank, err := cpcPictureBank(cpcBankOptions(12), 0x6000, false)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, bank.carried)
@@ -182,7 +182,7 @@ func TestPointingTheInterpreterAtTheBank(t *testing.T) {
 	binary, err := cpcBinary(make([]byte, 5000), opts)
 	require.NoError(t, err)
 
-	bank, err := cpcPictureBank(opts, 0x6000)
+	bank, err := cpcPictureBank(opts, 0x6000, false)
 	require.NoError(t, err)
 
 	patched, err := cpcPointAtTheBank(binary, bank)

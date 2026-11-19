@@ -120,6 +120,21 @@ type Options struct {
 	// reads it: it is the one machine whose pictures travel uncompressed, so
 	// it is the one where their height is what decides how many fit.
 	Lines int
+	// Generic is the picture that stands in for the ones that do not fit, or
+	// zero for none.
+	//
+	// It is the adventure's own: the one it puts up for a location with no
+	// drawing, which in La Aventura Original is 27. Naming it here is worth a
+	// flag because of what PICTURE is in version 3 — a condition, which a
+	// picture that is not there fails, abandoning the rest of the entry it is
+	// in. Those entries go on to print and to put the text window back, so a
+	// picture left off for want of room took a paragraph and the layout with
+	// it. Pointed at a stand-in, every PICTURE succeeds and the only thing
+	// missing is the drawing.
+	//
+	// Only the Amstrad's bank reads it, which is the one place a picture is
+	// left out for want of memory rather than disk.
+	Generic int
 	// XMessages is the .XMB a +3 release carries: the texts the processes read
 	// off disk instead of out of the database. Empty for an adventure with
 	// none, which is most of them. A machine with no filesystem cannot have

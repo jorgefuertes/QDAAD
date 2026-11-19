@@ -83,9 +83,10 @@ func TestACPCBuildTooBigIsRefused(t *testing.T) {
 	require.ErrorContains(t, err, "A6FC")
 }
 
-// And the disk is the binary on a disk, which is all a CPC release is.
+// And the disk is the binary on a disk, which is all a CPC release with no
+// pictures in it is.
 func TestTheCPCDiskHoldsTheBuild(t *testing.T) {
-	opts := Options{Language: language.LanguageSpanish, Name: "AO"}
+	opts := Options{Language: language.LanguageSpanish, Name: "AO", Memory: 128}
 
 	image, err := CPCDisk(make([]byte, 5000), opts)
 	require.NoError(t, err)

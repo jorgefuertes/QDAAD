@@ -16,10 +16,14 @@ import (
 // a PICTURE asks in whatever order the player walks. So the pictures travel
 // with the game and stay in memory, and the interpreter is pointed at them.
 //
-// What makes them fit is compression. A picture is a mode 1 screen with the
-// rows the adventure writes on blanked, and those come down to about 1300
-// bytes each with ZX0 — the 28 of the first part of La Aventura Original are
-// 37K against the 215K they take as they are.
+// What makes them fit is compression. A picture is the rows of a mode 1 screen
+// the adventure does not write over, band by band, and those come down to about
+// 1900 bytes each with ZX0 — the 28 of the first part of La Aventura Original
+// are 53K against the 245K they take as they are.
+//
+// Band by band costs about a quarter against one stream for the whole screen,
+// which is what this did first and what made every drawing paint the text area
+// black on its way past. See cpcBankEntry.
 //
 // Where they go depends on the machine. On a 64K one it is whatever is left
 // between the end of the game and the loader, which is around fifteen and so
@@ -110,10 +114,25 @@ type cpcBank struct {
 	entriesAt int
 	resident  []byte
 	blocks    []cpcBlock
-	// carried and left are which pictures made it and which did not.
+	// carried and left are which pictures are in memory and which are not.
 	carried []int
 	left    []int
+	// standIn is the picture the ones in left are pointed at, or zero when
+	// there is none and they are simply not there.
+	standIn int
+	// onDisc are the ones that did not fit in memory and went on the disk
+	// instead, compressed, to be read into a buffer when they are asked for;
+	// read is where that buffer is. A tape has neither.
+	onDisc []File
+	read   int
 }
+
+// cpcDiscPicture is the memory configuration an index entry carries when the
+// picture is not in memory at all but a file on the disk.
+//
+// It is not a configuration the gate array has — those are 0xC0 and 0xC4 to
+// 0xC7 — which is what makes it safe to say this with the same byte.
+const cpcDiscPicture = 0xFF
 
 // cpcResidentAt is where the bank's own code and index sit: the pages below
 // the loader, which is out of the window a bank is paged into.
@@ -121,8 +140,17 @@ func cpcResidentAt() int { return cpcLoaderOrigin() - cpcResidentSize }
 
 // cpcPictureBank builds it for a game that ends where it says, in a machine
 // with the memory the options say.
-func cpcPictureBank(opts Options, gameEnd int) (cpcBank, error) {
+//
+// onDisc says whether what does not fit in memory can go on the medium as a
+// file of its own. A disk can be asked for a picture by name at any moment and
+// a tape cannot, which is the whole difference between the two here.
+func cpcPictureBank(opts Options, gameEnd int, onDisc bool) (cpcBank, error) {
 	bank := cpcBank{at: cpcResidentAt(), name: opts.Name}
+
+	// The buffer a picture read from the disk lands in, which is the memory
+	// above the game — the same ground the pictures themselves use on a 64K
+	// machine, and empty on a 128K one because there they are in the banks.
+	bank.read = (gameEnd + 0xFF) &^ 0xFF
 
 	// Where a picture may go, in the order they are filled. A 64K machine has
 	// one such place and a 128K one has four, each a bank of its own.
@@ -169,10 +197,23 @@ func cpcPictureBank(opts Options, gameEnd int) (cpcBank, error) {
 		return cpcBank{}, err
 	}
 
+	// Where each picture ended up, so that the index can be written in number
+	// order afterwards however the laying out went.
+	type placed struct{ config, at int }
+
+	landed := make(map[int]placed, len(numbers))
+
+	// How much of the buffer the biggest picture read from the disk needs.
+	widest := 0
+
 	// Laying them out is a pass of its own, after all of them are compressed,
 	// because where one goes depends on how much room the ones before it took.
-	for i, number := range numbers {
-		entry := entries[i]
+	//
+	// The stand-in goes first when there is one. It is the picture every other
+	// one falls back on, so it is the one picture that must not be the one that
+	// does not fit.
+	for _, i := range cpcStandInFirst(numbers, opts.Generic) {
+		number, entry := numbers[i], entries[i]
 
 		// The first place it fits, which fills the blocks rather than evening
 		// them out and is what gets the most pictures in.
@@ -187,21 +228,102 @@ func cpcPictureBank(opts Options, gameEnd int) (cpcBank, error) {
 		}
 
 		if put < 0 {
-			bank.left = append(bank.left, number)
+			// No room in memory. On a disk that is not the end of it: the
+			// picture goes on as a file of its own, compressed exactly as it
+			// would have travelled, and is read into a buffer when it is asked
+			// for. The drive is touched for those and for no others.
+			//
+			// It is what the +3 does with all of its pictures and what this
+			// machine could not do by itself: its interpreter reads a picture
+			// file straight into video memory and unpacks nothing. The
+			// decompressor that makes the banks possible is the same one that
+			// makes this possible, and it is already resident.
+			if onDisc {
+				file, err := cpcPictureFile(number, entry, bank.read)
+				if err != nil {
+					return cpcBank{}, err
+				}
+
+				landed[number] = placed{config: cpcDiscPicture}
+				bank.onDisc = append(bank.onDisc, file)
+				widest = max(widest, len(entry))
+			} else {
+				bank.left = append(bank.left, number)
+			}
 
 			continue
 		}
 
 		at := where[put].at + len(blocks[put])
 
-		index = append(index, byte(number), byte(where[put].config), byte(at), byte(at>>8))
+		landed[number] = placed{config: where[put].config, at: at}
 		blocks[put] = append(blocks[put], entry...)
 		bank.carried = append(bank.carried, number)
 	}
 
+	sort.Ints(bank.left)
+	sort.Ints(bank.carried)
+
+	// And the index, in number order.
+	//
+	// A picture that did not fit is named all the same and pointed at the
+	// stand-in, because the alternative is worse than a wrong drawing: PICTURE
+	// is a condition in version 3 and a picture that is not there fails it,
+	// which abandons the rest of the entry. At the grate of La Aventura
+	// Original that entry goes on to say what is on the grate, and in the
+	// adventure's own loop it goes on to put the text window back where the
+	// text goes — so a picture left off a tape took a paragraph and the layout
+	// with it. Pointed here, every PICTURE succeeds and all that is lost is the
+	// drawing.
+	// Zero is no stand-in and not picture zero, which is what the flag's own
+	// default says and has to be tested for: an adventure with a picture
+	// numbered zero would otherwise have every miss fall on it quietly.
+	stand, hasStand := landed[opts.Generic]
+	hasStand = hasStand && opts.Generic != 0
+
+	switch {
+	case hasStand:
+		bank.standIn = opts.Generic
+
+	// Named one the adventure does not have, which is what asking for the
+	// first part's number while packaging the second looks like. Quietly
+	// ignoring it is how a release goes out with the flag passed and nothing
+	// standing in.
+	case opts.Generic != 0 && len(opts.Images) > 0:
+		opts.Note.say(NoticeLeftOut,
+			"--generic names picture %03d and this adventure has no such picture, "+
+				"so the ones that do not fit stand in for nothing",
+			opts.Generic)
+	}
+
+	for _, number := range numbers {
+		where, ok := landed[number]
+		if !ok {
+			if !hasStand {
+				continue
+			}
+
+			where = stand
+		}
+
+		index = append(index,
+			byte(number), byte(where.config), byte(where.at), byte(where.at>>8))
+	}
+
 	index = append(index, cpcIndexEnd)
 
-	code, drawAt, err := cpcBankCode(bank.at)
+	// The buffer the pictures read from the disk land in is between the game
+	// and the bank's own code, and a game that reaches far enough leaves no
+	// room for it. Saying so beats a picture unpacking over the index that
+	// found it.
+	if widest > 0 && bank.read+widest > bank.at {
+		return cpcBank{}, fmt.Errorf(
+			"the biggest picture read from the disk is %d bytes and there is room for %d "+
+				"between the game at 0x%04X and the picture code at 0x%04X",
+			widest, bank.at-bank.read, bank.read, bank.at)
+	}
+
+	code, drawAt, err := cpcBankCode(bank.at, bank.read)
 	if err != nil {
 		return cpcBank{}, err
 	}
@@ -275,13 +397,20 @@ func (b cpcBank) files() []cpcBankFile {
 }
 
 // cpcBankEntry is one picture: what it is called, how long the whole of it is,
-// the inks it is read through, and the screen compressed.
+// the inks it is read through, and the rows it draws on, compressed.
 //
-// The whole screen goes in rather than the rows that are used, with the rest
-// blanked. It costs about four parts in a hundred against carrying the rows
-// alone, and it buys the only thing that matters here: the stream decompresses
-// straight onto the display, with none of the unpicking that video memory's
-// eight interleaved bands would otherwise want.
+// One stream per band and not one for the whole screen, each with its own
+// length in front of it. The whole screen was simpler and was wrong: it carried
+// the rows below the picture as blanks, and a stream that unpacks straight onto
+// the display writes those blanks too. Every drawing was painting the text area
+// black on its way past.
+//
+// That is invisible where a picture is drawn before anything is written under
+// it, which is what the loop does for a location that has one. It is not
+// invisible on the generic picture, which the port draws after the turn has
+// already printed — see the flag 40 in v3-loop.sce — and there the description
+// went black. Eight streams and eight destinations leave the rows below the
+// picture alone, which is what the file path has always done.
 func cpcBankEntry(number int, opts Options, rows int) ([]byte, error) {
 	screen := opts.Images[number]
 	if len(screen) != cpcPackScreen {
@@ -293,33 +422,102 @@ func cpcBankEntry(number int, opts Options, rows int) ([]byte, error) {
 		return nil, fmt.Errorf("picture %03d has no inks beside it", number)
 	}
 
-	stream := zx0.Compress(cpcCropped(screen, rows))
-	length := cpcBankHeader + len(stream)
-
-	entry := make([]byte, 0, length)
-	entry = append(entry, byte(number), byte(length), byte(length>>8))
+	entry := make([]byte, 0, cpcBankHeader+cpcPackScreen/2)
+	entry = append(entry, byte(number), 0, 0)
 	entry = append(entry, palette[:min(len(palette), cpcPaletteSize)]...)
 
 	for len(entry) < cpcBankHeader {
 		entry = append(entry, 0)
 	}
 
-	return append(entry, stream...), nil
-}
+	for _, band := range cpcBands(screen, rows) {
+		stream := zx0.Compress(band)
 
-// cpcCropped is the screen with the rows the adventure writes on blanked.
-func cpcCropped(screen []byte, rows int) []byte {
-	cropped := slices.Clone(screen)
-	for band := range cpcPackBands {
-		clear(cropped[band*cpcPackBandSize+rows*cpcPackBytesWide : (band+1)*cpcPackBandSize])
+		entry = append(entry, byte(len(stream)), byte(len(stream)>>8))
+		entry = append(entry, stream...)
 	}
 
-	return cropped
+	entry[1], entry[2] = byte(len(entry)), byte(len(entry)>>8)
+
+	return entry, nil
+}
+
+// cpcPictureFile is a picture the disk carries because memory had no room for
+// it: the same entry the bank would have held, under the name the interpreter
+// builds for itself.
+//
+// It carries an AMSDOS header like every other binary on the disk. The address
+// in it is the buffer, which is where the loader would put the file if anybody
+// asked it to — nobody does, because what reads this is CAS IN DIRECT with the
+// address in HL, but a header has to say something and saying the truth costs
+// nothing.
+func cpcPictureFile(number int, entry []byte, at int) (File, error) {
+	name := fmt.Sprintf("%03d%s", number, cpcPictureSuffix)
+
+	header, err := media.AMSDOSHeader(name, at, at, len(entry))
+	if err != nil {
+		return File{}, err
+	}
+
+	return File{
+		Name: name,
+		Body: append(header, entry...),
+		Note: fmt.Sprintf("picture %03d, compressed, read in when it is asked for", number),
+	}, nil
+}
+
+// cpcStandInFirst is the order the pictures are laid out in: the stand-in, if
+// there is one and it is among them, and then the rest in the order they came.
+//
+// It hands back positions and not numbers because what the caller has beside
+// each number is the compressed entry, and the two are kept in step by index.
+func cpcStandInFirst(numbers []int, standIn int) []int {
+	order := make([]int, 0, len(numbers))
+
+	first := -1
+	for i, number := range numbers {
+		if number == standIn {
+			first = i
+
+			break
+		}
+	}
+
+	if first >= 0 {
+		order = append(order, first)
+	}
+
+	for i := range numbers {
+		if i != first {
+			order = append(order, i)
+		}
+	}
+
+	return order
+}
+
+// cpcBands is the rows of a picture the adventure does not write over, band by
+// band, which is how video memory holds them: eight of them 0x800 apart, each
+// as many bytes wide as the picture is tall in character rows.
+func cpcBands(screen []byte, rows int) [][]byte {
+	out := make([][]byte, 0, cpcPackBands)
+
+	for band := range cpcPackBands {
+		at := band * cpcPackBandSize
+		out = append(out, screen[at:at+rows*cpcPackBytesWide])
+	}
+
+	return out
 }
 
 // cpcBankCode is what reads the bank: three short routines and Einar Saukas'
 // decompressor, assembled at the address the bank will live at.
-func cpcBankCode(at int) (code []byte, drawAt int, err error) {
+//
+// read is where a picture that lives on the disk rather than in memory is read
+// into. Everything after that is the same for both: the two differ in where the
+// bytes come from and in nothing else, which is what makes carrying some of the
+// pictures on the disk twenty-odd bytes of code rather than a second routine.
+func cpcBankCode(at, read int) (code []byte, drawAt int, err error) {
 	a := &cpcAssembly{}
 
 	// probe(A) — is this picture here? The interpreter asks before it draws,
@@ -340,11 +538,40 @@ func cpcBankCode(at int) (code []byte, drawAt int, err error) {
 	a.callAt("find")
 	a.bytes(0xD0) // ret nc
 
+	// A picture the index says is on the disk is fetched first, and after that
+	// there is no difference between the two: what the rest of this wants is
+	// HL at the start of an entry, and a buffer full of one is an entry.
+	//
+	// The file is opened by the interpreter's own routine, which builds the
+	// name out of the number and quiets the firmware's loading messages on the
+	// way. Doing it with the interrupts off is not a liberty either: it is what
+	// the interpreter does at 0x09BC, three instructions before the call this
+	// one replaces.
+	a.bytes(0x78) // ld a,b
+	a.bytes(0x3C) // inc a         0xFF, the disk, becomes zero
+	a.near(0x20, "draw.paged")
+
+	// The number again out of the interpreter's own byte, and not out of D:
+	// find ends by building the address with "ld d,(hl)", so by the time it
+	// comes back the number it was handed is gone. Asking for picture zero is
+	// a file that is not there, a clear carry and a drawing that never appears,
+	// which is what this did until a disk with pictures on it met an Amstrad.
+	a.word(0x3A, cpcShownPicture) // ld a,(the picture it wants)
+	a.call(cpcOpenPicture)        // build the name and open it
+	a.bytes(0xD0)                 // ret nc
+	a.word(0x21, read)            // ld hl,<the buffer>
+	a.bytes(0xE5)                 // push hl
+	a.call(casInDirect)           // the whole of it, in one go
+	a.call(casInClose)            //
+	a.bytes(0xE1)                 // pop hl
+	a.bytes(0x06, cpcMainMemory)  // ld b,0xc0     and no paging to do
+
 	// Page the right memory in. On a 64K machine the index names the plain
 	// configuration and this changes nothing; on a 128K one it swaps a bank
 	// into the window at 0x4000. Nothing that matters is in that window —
 	// the code is up here, the record buffer is at 0x0040, and the interpreter
 	// has the interrupts off before it calls any of this.
+	a.here("draw.paged")
 	a.bytes(0x48)       // ld c,b
 	a.bytes(0x06, 0x7F) // ld b,0x7f
 	a.bytes(0xED, 0x49) // out (c),c
@@ -362,7 +589,29 @@ func cpcBankCode(at int) (code []byte, drawAt int, err error) {
 	a.word(0x01, cpcBankHeader)  // ld bc,<the header>
 	a.bytes(0x09)                // add hl,bc
 	a.word(0x11, cpcScreenBase)  // ld de,0xC000
-	a.callAt("dzx0")             // and straight onto the display
+
+	// One band at a time, each stream onto the eighth of the display it belongs
+	// to. Only the rows the picture covers are written, so whatever is already
+	// printed below it stays where it is.
+	a.bytes(0x06, cpcPackBands) // ld b,8
+	a.here("draw.band")
+	a.bytes(0xC5)                     // push bc
+	a.bytes(0x4E)                     // ld c,(hl)     the stream's length
+	a.bytes(0x23)                     // inc hl
+	a.bytes(0x46)                     // ld b,(hl)
+	a.bytes(0x23)                     // inc hl
+	a.bytes(0xE5)                     // push hl       where this stream starts
+	a.bytes(0x09)                     // add hl,bc     and where the next one does
+	a.bytes(0xE3)                     // ex (sp),hl    keep that, take this
+	a.bytes(0xD5)                     // push de
+	a.callAt("dzx0")                  //
+	a.bytes(0xD1)                     // pop de
+	a.bytes(0x7A)                     // ld a,d
+	a.bytes(0xC6, cpcPackBandSize>>8) // add a,8
+	a.bytes(0x57)                     // ld d,a        the next band, 0x800 on
+	a.bytes(0xE1)                     // pop hl        the next stream
+	a.bytes(0xC1)                     // pop bc
+	a.near(0x10, "draw.band")         // djnz
 
 	// And put the memory back the way the interpreter believes it is.
 	a.word(0x01, 0x7F00|cpcMainMemory) // ld bc,0x7fc0

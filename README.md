@@ -307,15 +307,19 @@ every name, and the free space it reports is the arithmetic of the fields that
 moved and not of their defaults.
 
 A **CPC disk** is the interpreter, the database and the graphics block glued
-into one binary the way MCRF glues them, and then the pictures beside it, one
-file each: the interpreter opens them by name as a `PICTURE` asks for one. They
-are what runs out of room, because nothing compresses a picture on this
-machine — the interpreter reads one straight into video memory — so a drawing
-of fourteen character rows is sixteen kilobytes of a disk with a hundred and
-seventy-eight. `--lines` is where that is traded, and it is DAAD's own
-`IMGLINES` under another name: twelve rows halve the size of every picture,
-because twelve is the most that lets two bands of one share a 2K record.
-Whatever is left out is named rather than dropped quietly.
+into one binary the way MCRF glues them, and it is a 6128 disk: the pictures go
+into the four spare banks, compressed, and `--ram 128` says so.
+
+There was a 64K one, which carried them as files the interpreter opened by
+name, and it is gone. Nothing compresses a picture on that path — the
+interpreter reads one straight into video memory — so a drawing of fourteen
+character rows is sixteen kilobytes of a disk with a hundred and seventy-eight,
+and nine of La Aventura Original's twenty-eight fit. What the rest cost was not
+nineteen drawings: `PICTURE` is a condition in version 3, so each one that was
+not there failed it and abandoned the rest of the entry it was in, which is
+where the location's own text and the window it is printed in live. A machine
+without the memory for the banks loads from tape, which is what a 464 did in
+1989.
 
 Asking a CPC release for a loading screen turns it from one file into three —
 the loader, the picture and the game — because showing something before the
@@ -354,17 +358,20 @@ no for an answer, so one that did not fit comes out as no picture rather than
 as a crash — and where none fit at all, the asking is taken out of the
 interpreter altogether so that the tape never stops for a cassette.
 
-`--ram 128` is where the dozen becomes all of them, on a tape as much as on a
-disk. A 6128's four spare banks
-are 64K that the interpreter never touches — it writes to no port but the PPI's
-and leaves the gate array's memory configuration alone from beginning to end —
-so the pictures go there, one bank filled after another, and the loader pages
-each one into the window at 0x4000 as it reads it. The 28 pictures of the first
-part of La Aventura Original fit with room over. It is worth as much to a disk
-as to a tape and `--ram 128` says so on either: a 128K disk is read once and
-never again, where a 64K one opens a file every time the player walks into a
-room. The release will not run on a 464 or a 664, which is the whole of the
-price.
+`--ram 128` is where the handful becomes all of them, on a tape as much as on a
+disk. A 6128's four spare banks are 64K that the interpreter never touches — it
+writes to no port but the PPI's and leaves the gate array's memory
+configuration alone from beginning to end — so the pictures go there, one bank
+filled after another, and the loader pages each one into the window at 0x4000
+as it reads it. The 28 pictures of the first part of La Aventura Original fit
+with room over, and the disk is read once and never again. The release will not
+run on a 464 or a 664, which is the whole of the price.
+
+And `--generic` is what the ones that still do not fit on a tape show: the
+picture the adventure already puts up for a location with no drawing of its
+own. It is worth a flag for the same reason the 64K disk is gone — a `PICTURE`
+that fails takes the rest of its entry with it — and pointed at a stand-in,
+every one of them succeeds and the only thing missing is the drawing.
 
 ## qrun, the interpreter
 

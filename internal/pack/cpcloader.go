@@ -35,7 +35,10 @@ const (
 	// cpcLoaderBuffer is where a record is read while a file loads: the
 	// firmware's low memory, which ends exactly where the game begins.
 	cpcLoaderBuffer = 0x0040
-	cpcBufferSize   = cpcInterpreterOrigin - cpcLoaderBuffer
+	// cpcBufferSize is how much of a file goes into it at a time, which is two
+	// kilobytes because that is what a record is. It is the same two kilobytes
+	// an xmessage file holds, and not by coincidence: see cpcxmessages.go.
+	cpcBufferSize = cpcInterpreterOrigin - cpcLoaderBuffer
 	// cpcLoaderSuffix and cpcGameSuffix are what the two files are called.
 	// The loader takes the plain name because it is the one a player types.
 	cpcLoaderSuffix = ".BIN"
@@ -66,14 +69,25 @@ const (
 	mcStartProgram = 0xBD16
 )
 
-// cpcLoaderOrigin is where the loader sits: the last page below the interpreter's
+// cpcLoaderSize is the room kept for the loader below the interpreter's
 // graphics block.
 //
+// Two pages and not one, which is what it was. One was enough for the loader
+// itself and stopped being enough for its tail: every file it has to read costs
+// forty bytes of name and address, and a 6128 release with its pictures in all
+// four spare banks reads eight files. At three blocks it was already twenty-four
+// bytes past the page and nothing said so; at four it was sixty-four and the
+// game came back to BASIC. cpcLoaderCode refuses rather than overrun now.
+const cpcLoaderSize = 0x200
+
+// cpcLoaderOrigin is where the loader sits: below the interpreter's graphics
+// block.
+//
 // At the top and not above the game, because what goes above the game is the
-// pictures, and they want every byte of it. The loader is a page and it stays
-// out of the way of all three loads: the picture goes to the display, the
-// pictures to the ground under it, and the game to 0x0840.
-func cpcLoaderOrigin() int { return cpcGraphicsTop - 0x100 }
+// pictures, and they want every byte of it. It stays out of the way of all
+// three loads: the picture goes to the display, the pictures to the ground
+// under it, and the game to 0x0840.
+func cpcLoaderOrigin() int { return cpcGraphicsTop - cpcLoaderSize }
 
 // cpcLoaderPalette is what a loader is given: the sixteen pens and the border,
 // as the firmware numbers its colours, which is what qundaad writes beside a
@@ -341,7 +355,22 @@ func cpcLoaderCode(
 		a.bytes(t.body...)
 	}
 
-	return a.resolve(origin)
+	code, err := a.resolve(origin)
+	if err != nil {
+		return nil, err
+	}
+
+	// What is above the loader is the interpreter's graphics block, and running
+	// into it is not a thing that shows up as a wrong pixel: the game comes back
+	// to BASIC and there is nothing on screen to say why. See cpcLoaderSize.
+	if len(code) > cpcLoaderSize {
+		return nil, fmt.Errorf(
+			"the loader and the %d files it reads come to %d bytes, and there is room for %d "+
+				"below the interpreter's graphics block",
+			len(first)+len(tails), len(code), cpcLoaderSize)
+	}
+
+	return code, nil
 }
 
 // cpcAssembly is enough of an assembler to write the loader without counting

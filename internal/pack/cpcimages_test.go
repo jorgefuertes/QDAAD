@@ -38,80 +38,28 @@ func TestACPCPictureIsAsTallAsItNeeds(t *testing.T) {
 	require.Equal(t, 25, cpcPictureRows(cpcScreenOf(25), 400))
 }
 
-// What the interpreter reads: a byte saying how many bands come in each record,
-// the palette, the length of a band, and then the bands themselves at a record
-// boundary apiece.
-func TestWhatIsInACPCPicture(t *testing.T) {
-	palette := []byte{0, 11, 25, 9}
-
-	body, err := cpcPicture(cpcScreenOf(12), palette, 0)
-	require.NoError(t, err)
-
-	// Twelve rows are 960 bytes a band, and two of those fit in a record
-	// alongside the nineteen bytes of header. That is the whole of why DAAD's
-	// own IMGLINES defaults to 96.
-	require.Equal(t, byte(2), body[0], "bands to a record")
-	require.Equal(t, palette, body[1:5])
-	require.Equal(t, 960, int(body[17])|int(body[18])<<8, "bytes to a band")
-
-	// Four records for the eight bands, and nothing over.
-	require.Equal(t, 4*cpcRecordSize, len(body))
-	require.Zero(t, len(body)%cpcRecordSize)
-
-	// The first band starts right after the header and the second right after
-	// it; the third is at the top of the next record, not where it happens to
-	// fall.
-	require.Equal(t, byte(0xFF), body[cpcPictureHeader])
-	require.Equal(t, byte(0xFF), body[cpcPictureHeader+960])
-	require.Equal(t, byte(0xFF), body[cpcRecordSize])
-	require.Equal(t, byte(0), body[cpcPictureHeader+2*960], "the rest of a record is padding")
-}
-
-// A picture with no inks beside it is refused rather than drawn in whatever the
-// last one left behind.
-func TestACPCPictureWithoutItsInksIsRefused(t *testing.T) {
-	_, err := cpcPicture(cpcScreenOf(12), nil, 0)
-	require.ErrorContains(t, err, "inks")
-
-	_, err = cpcPicture(make([]byte, 100), []byte{0, 1, 2, 3}, 0)
-	require.ErrorContains(t, err, "16384 bytes")
-}
-
-// The disk takes the pictures in number order and says which ones did not fit.
-// Saying so is the point: a disk that silently carries nine of twenty-eight
-// looks like a disk that carries them all until somebody plays it.
-func TestTheCPCDiskNamesThePicturesItLeavesOut(t *testing.T) {
-	images := map[int][]byte{}
-	palettes := map[int][]byte{}
-
-	for n := range 40 {
-		images[n] = cpcScreenOf(12)
-		palettes[n] = []byte{0, 11, 25, 9}
-	}
-
-	var said string
-
+// A disk is a 6128 disk, and one asked for without the memory to hold it is
+// refused rather than written as the thing it cannot be.
+//
+// It used to be written: the pictures went on as files of their own,
+// uncompressed, and nine of twenty-eight fit. What the other nineteen cost was
+// not nine-twenty-eighths of the drawings but the text of their locations as
+// well, because PICTURE is a condition in version 3 and a failed one abandons
+// the rest of its entry. See CPCDisk.
+func TestACPCDiskWantsTheMemoryItNeeds(t *testing.T) {
 	opts := Options{
 		Language: language.LanguageSpanish, Name: "AO",
-		Images: images, Palettes: palettes,
-		Note: func(_ Notice, s string) { said = s },
+		Note: func(Notice, string) {},
 	}
 
-	image, err := CPCDisk(make([]byte, 12000), opts)
+	_, err := CPCDisk(make([]byte, 12000), opts)
+	require.ErrorContains(t, err, "--ram 128")
+	require.ErrorContains(t, err, "cdt", "and says where a 464 goes instead")
+
+	opts.Memory = 128
+
+	_, err = CPCDisk(make([]byte, 12000), opts)
 	require.NoError(t, err)
-
-	disk, err := media.NewDSK(image)
-	require.NoError(t, err)
-
-	files, err := disk.Files()
-	require.NoError(t, err)
-
-	require.Equal(t, "AO.BIN", files[0].Name)
-	require.Equal(t, "000.CPC", files[1].Name, "and the pictures in number order")
-	require.Less(t, len(files), 1+len(images), "forty pictures do not fit on a 180K disk")
-
-	require.Contains(t, said, "would not fit")
-	require.Contains(t, said, "039.CPC", "the last ones are the ones left out")
 }
 
 // The tape is the binary and nothing else, and the AMSDOS header comes off on
@@ -138,7 +86,12 @@ func TestTheCPCTapeIsTheBinaryWithoutItsHeader(t *testing.T) {
 
 	require.Equal(t, byte(0x11), tape[at])
 
-	record := tape[at+0x13 : at+0x13+cpcRecordSize]
+	// A tape is cut into blocks of this, which is the same two kilobytes a
+	// record is on a disk and for the same reason: it is what the firmware
+	// reads at a time.
+	const block = 2048
+
+	record := tape[at+0x13 : at+0x13+block]
 	require.Equal(t, byte(0x16), record[0], "a data record opens with 0x16")
 	require.Equal(t, body[:16], record[1:17])
 }

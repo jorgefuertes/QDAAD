@@ -83,6 +83,18 @@ func main() {
 					"that is the most that lets two bands share a record.",
 			},
 			&cli.IntFlag{
+				Name:  "generic",
+				Value: 0,
+				Usage: "The picture to put up in place of the ones that do not fit: " +
+					"the one the adventure already shows for a location with no " +
+					"drawing of its own, which in La Aventura Original is 27. It is " +
+					"worth naming because PICTURE is a condition in version 3 — a " +
+					"picture that is not there fails it and abandons the rest of " +
+					"the entry, which is how a drawing left off for want of room " +
+					"takes a paragraph and the text window with it. Only an " +
+					"Amstrad's bank reads this.",
+			},
+			&cli.IntFlag{
 				Name:  "ram",
 				Value: 64,
 				Usage: "How much memory the machine has, in kilobytes. Only the " +
@@ -183,7 +195,7 @@ func run(_ context.Context, cmd *cli.Command) error {
 	started := time.Now()
 
 	release, err := assemble(format, parts[0], name,
-		cmd.Int("lines"), cmd.Int("ram"), loadingPalette)
+		cmd.Int("lines"), cmd.Int("generic"), cmd.Int("ram"), loadingPalette)
 	if err != nil {
 		return err
 	}
@@ -254,14 +266,15 @@ func report(
 // is one thing to write and --format dir works for every format without each
 // one knowing about it.
 func assemble(
-	format string, b build.Build, name string, lines, memory int, loadingPalette []byte,
+	format string, b build.Build, name string, lines, generic, memory int, loadingPalette []byte,
 ) (*pack.Release, error) {
 	opts := pack.Options{
 		Language: b.Language, Name: name,
 		Charset: b.Charset, Images: b.Images, Palettes: b.Palettes, Loading: b.Loading,
-		XMessages: b.XMessages, Lines: lines, Memory: memory, LoadingPalette: loadingPalette,
-		Note:     notes(),
-		Progress: progress(),
+		XMessages: b.XMessages, Lines: lines, Generic: generic, Memory: memory,
+		LoadingPalette: loadingPalette,
+		Note:           notes(),
+		Progress:       progress(),
 	}
 
 	switch format {

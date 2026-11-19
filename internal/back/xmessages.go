@@ -107,15 +107,14 @@ func xmesSlot(machine arch.Machine, subtarget string) int {
 	return 0
 }
 
-// A machine that keeps every xmessage in one file pads each slot out instead of
-// opening the next, so that there is always a whole slot to read from whatever
-// offset — some of them choke on a read that runs past the end of a file.
-func xmesOneFile(machine arch.Machine, subtarget string) bool {
-	if machine == arch.MSX2 {
-		return true
-	}
-
-	return machine == arch.ZX && xmesPagedWindow(subtarget)
+// XMessageSlot is how much of an .XMB one file holds, for a packager that has
+// to write them.
+//
+// It has to come from here and not from a number beside the packager: the
+// offsets in the condacts were built on it, so the two cannot disagree without
+// every xmessage in the adventure meaning a different one.
+func XMessageSlot(machine arch.Machine, subtarget string) int {
+	return xmesSlot(machine, subtarget)
 }
 
 // The two that need the gap at the front, and the two that need the room under
@@ -186,7 +185,6 @@ func layoutXMessages(bodies []string, machine arch.Machine, subtarget string) (x
 		file   int
 	)
 
-	oneFile := xmesOneFile(machine, subtarget)
 	swapRoom := 0
 
 	if xmesNeedsSwapRoom(machine, subtarget) {
@@ -208,10 +206,17 @@ func layoutXMessages(bodies []string, machine arch.Machine, subtarget string) (x
 		tooNearTheTop := swapRoom > 0 && offset+swapRoom > slot
 
 		if full || tooNearTheTop {
-			if oneFile {
-				// Pad this slot out and carry on in the same file.
-				out.body = append(out.body, make([]byte, slot-offset)...)
-			}
+			// Pad the slot out rather than closing it short, whether the slots
+			// are files of their own or parts of one file.
+			//
+			// Where they are one file it is because the interpreter reads a
+			// whole slot from wherever the offset lands, and some of them choke
+			// on a read that runs past the end. Where they are separate files
+			// it is so that this comes out as slots back to back: the offsets
+			// in the condacts count the slot a message is in as a whole one, so
+			// a packager cutting this into files can cut it every slot bytes
+			// and have the pieces land where the offsets say.
+			out.body = append(out.body, make([]byte, slot-offset)...)
 
 			file++
 			offset = 0

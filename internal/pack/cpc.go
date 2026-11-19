@@ -1,6 +1,7 @@
 package pack
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -55,8 +56,25 @@ const (
 // before the interpreter does, and that something has to load the other two.
 // See cpcloader.go.
 func CPCRelease(database []byte, opts Options) (*Release, error) {
+	release, err := cpcGame(database, opts, cpcOnDisc)
+	if err != nil {
+		return nil, err
+	}
+
+	texts, err := cpcXMessageFiles(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewRelease(append(release.Files(), texts...)...), nil
+}
+
+// cpcGame is the release before the adventure's own files are laid beside it:
+// the interpreter, the database and the graphics in one binary, or the three a
+// loading screen takes.
+func cpcGame(database []byte, opts Options, medium cpcMedium, first ...cpcLoad) (*Release, error) {
 	if len(opts.Loading) > 0 {
-		return cpcLoaderRelease(database, opts, cpcOnDisc)
+		return cpcLoaderRelease(database, opts, medium, first...)
 	}
 
 	binary, err := cpcBinary(database, opts)
@@ -74,15 +92,31 @@ func CPCRelease(database []byte, opts Options) (*Release, error) {
 	}), nil
 }
 
-// CPCDisk writes a CPC release onto a disk image.
+// CPCDisk writes a CPC release onto a disk image, for a 6128 and no other
+// machine.
 //
-// The binary goes on first and the pictures after it, one file each, which is
-// what the interpreter opens them as. They are what runs out of room — a
-// picture here is the rows of a screen with no compression anywhere in the
-// path, so a tall one is sixteen kilobytes of a disk with a hundred and
-// seventy-eight — so they go on in number order until the disk is full and the
-// rest are named rather than dropped quietly.
+// The pictures go in the four spare banks, compressed, and the drive is not
+// touched again once the adventure is running. That is the only disk there is
+// here now, and the one it replaced is worth saying out loud because the choice
+// was real: a 64K disk carried the pictures as files of their own and the
+// interpreter opened them by name, which cost nothing to write and did not
+// work. Nothing compresses a picture on that path — the interpreter reads one
+// straight into video memory — so a drawing of fourteen character rows is
+// sixteen kilobytes of a disk with a hundred and seventy-eight, and nine of the
+// twenty-eight of La Aventura Original fit. The other nineteen were not merely
+// missing: PICTURE is a condition in version 3, so each one failed it and
+// abandoned the rest of the entry it was in, taking the location's own text and
+// the window that text is printed in. A disk that carries a third of the
+// drawings and breaks the layout at the rest is not a release, and the machine
+// that needs it is the one machine a 1989 adventure ported in 2026 need not be
+// held back by.
 func CPCDisk(database []byte, opts Options) ([]byte, error) {
+	if opts.Memory < 128 {
+		return nil, fmt.Errorf(
+			"a CPC disk carries its pictures in the spare banks of a 6128, so it wants " +
+				"--ram 128\n\ta 464 or a 664 loads from tape: --format cdt")
+	}
+
 	game, err := cpcBinary(database, opts)
 	if err != nil {
 		return nil, err
@@ -98,61 +132,17 @@ func CPCDisk(database []byte, opts Options) ([]byte, error) {
 		return nil, err
 	}
 
+	if len(bank.carried) > 0 && len(bank.left) == 0 && len(bank.onDisc) == 0 {
+		opts.Note.say(NoticeSaid, "all %d pictures travel in the spare banks with the game",
+			len(bank.carried))
+	}
+
 	files := make([]media.File, 0, len(release.Files()))
 	for _, f := range release.Files() {
 		files = append(files, media.File{Name: f.Name, Data: f.Body})
 	}
 
-	// With the pictures in memory there is nothing left for the disk to hold,
-	// and the drive is never touched once the adventure is running.
-	var pictures []media.File
-
-	if len(bank.carried) == 0 {
-		if pictures, err = cpcPictureFiles(opts); err != nil {
-			return nil, err
-		}
-	} else if len(bank.left) == 0 {
-		opts.Note.say(NoticeSaid, "all %d pictures travel in the spare banks with the game",
-			len(bank.carried))
-	}
-
-	disk, left := fitOnDisk(files, pictures)
-	if len(left) > 0 {
-		opts.Note.say(NoticeLeftOut,
-			"%d of the %d pictures are on the disk; %s would not fit",
-			len(pictures)-len(left), len(pictures), strings.Join(left, ", "))
-	}
-
-	return disk, nil
-}
-
-// fitOnDisk puts as many of the pictures on as will go, and says which ones did
-// not. It asks the disk rather than working the arithmetic out here: the block
-// size, the reserved tracks and the size of the directory are the disk's to
-// know, and a copy of them here would be a copy to get wrong.
-func fitOnDisk(release, pictures []media.File) ([]byte, []string) {
-	disk, err := media.DataDisk(release)
-	if err != nil {
-		return nil, nil
-	}
-
-	on := release
-
-	for at, picture := range pictures {
-		bigger, err := media.DataDisk(append(slices.Clone(on), picture))
-		if err != nil {
-			left := make([]string, 0, len(pictures)-at)
-			for _, f := range pictures[at:] {
-				left = append(left, f.Name)
-			}
-
-			return disk, left
-		}
-
-		disk, on = bigger, append(on, picture)
-	}
-
-	return disk, nil
+	return media.DataDisk(files)
 }
 
 // CPCTape writes a CPC release as a tape.
@@ -174,6 +164,17 @@ func fitOnDisk(release, pictures []media.File) ([]byte, []string) {
 // in a header of its own; a tape carries it in the record the firmware reads
 // before the bytes, and a file with both would land 128 bytes adrift.
 func CPCTape(database []byte, opts Options) ([]byte, error) {
+	// An xmessage is a text read from a position inside a file, and the
+	// interpreter reaches it by opening that file through the firmware's
+	// cassette vectors: on a machine with no disk they really do go to the
+	// tape, which is a thing that can be read forwards and not asked. Stopping
+	// here is what the 48K tape does for the same reason — see ZXRelease.
+	if len(opts.XMessages) > 0 {
+		return nil, errors.New(
+			"a tape has no disk to read xmessages from: compile them as ordinary " +
+				"messages, or package this as a disk")
+	}
+
 	// How far the game reaches decides where the pictures can live, so it is
 	// built first even though it goes on the tape last.
 	game, err := cpcBinary(database, opts)
@@ -229,12 +230,7 @@ func cpcRelease(
 		err     error
 	)
 
-	if len(opts.Loading) > 0 {
-		release, err = cpcLoaderRelease(database, opts, medium, first...)
-	} else {
-		release, err = CPCRelease(database, opts)
-	}
-
+	release, err = cpcGame(database, opts, medium, first...)
 	if err != nil {
 		return nil, err
 	}
@@ -272,9 +268,39 @@ func cpcRelease(
 	}
 
 	if len(bank.left) > 0 {
+		// Which they show instead matters as much as which did not fit: with a
+		// stand-in they are a wrong drawing, and without one they are a PICTURE
+		// that fails and takes the rest of its entry with it.
+		instead := "and show nothing, which also costs whatever the rest of " +
+			"their entry would have said: --generic names a picture to put up in their place"
+		if bank.standIn > 0 {
+			instead = fmt.Sprintf("and show picture %03d instead", bank.standIn)
+		}
+
 		opts.Note.say(NoticeLeftOut, "%d of the %d pictures travel in memory with the game; "+
-			"%s would not fit",
-			len(bank.carried), len(opts.Images), cpcPictureList(bank.left))
+			"%s would not fit %s",
+			len(bank.carried), len(opts.Images), cpcPictureList(bank.left), instead)
+	}
+
+	// The texts the processes read off the disk, which go on ahead of the
+	// pictures because a picture that does not fit is a picture nobody sees and
+	// a text that does not fit is an adventure that cannot be played.
+	texts, err := cpcXMessageFiles(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	on = append(on, texts...)
+
+	// And the pictures memory had no room for, which the disk has room for and
+	// the code up there knows how to go and get.
+	if len(bank.onDisc) > 0 {
+		opts.Note.say(NoticeSaid,
+			"%d pictures are read off the disk as they are asked for; the other %d are "+
+				"in the banks and want no drive at all",
+			len(bank.onDisc), len(bank.carried))
+
+		on = append(on, bank.onDisc...)
 	}
 
 	return NewRelease(on...), nil
@@ -300,7 +326,7 @@ func cpcTapeBank(opts Options, gameEnd int) (cpcBank, error) {
 		return cpcBank{}, nil
 	}
 
-	return cpcPictureBank(opts, gameEnd)
+	return cpcPictureBank(opts, gameEnd, false)
 }
 
 // cpcDiskBank is the same question for a disk, where the answer is usually no.
@@ -311,11 +337,23 @@ func cpcTapeBank(opts Options, gameEnd int) (cpcBank, error) {
 // picture an adventure has and draw them with no drive at all — and there, as
 // on a tape, it takes the loader to put them in memory.
 func cpcDiskBank(opts Options, gameEnd int) (cpcBank, error) {
-	if len(opts.Images) == 0 || opts.Memory < 128 || len(opts.Loading) == 0 {
+	if len(opts.Images) == 0 || opts.Memory < 128 {
 		return cpcBank{}, nil
 	}
 
-	return cpcPictureBank(opts, gameEnd)
+	// Asked for the banks and given nothing to read them with. Saying so
+	// matters more here than on a tape: this one still writes a disk, and a
+	// disk with nine of twenty-eight pictures on it looks like a disk that ran
+	// out of room rather than one that was built the wrong way.
+	if len(opts.Loading) == 0 {
+		opts.Note.say(NoticeLeftOut,
+			"the pictures are not in the spare banks: it takes the loader to put "+
+				"them there, so --ram 128 wants --loading too")
+
+		return cpcBank{}, nil
+	}
+
+	return cpcPictureBank(opts, gameEnd, true)
 }
 
 // cpcPictureList names a handful of pictures for a person to read.

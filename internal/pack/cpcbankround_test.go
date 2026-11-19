@@ -16,12 +16,16 @@ import (
 //
 // The bank is the one piece of the Amstrad build nobody can read by looking at
 // it: the pictures go in compressed and the machine is what unpacks them. So
-// this does what the Z80 does — walks the index, finds each entry, and runs the
-// stream back through ZX0 — and checks the screen that comes out against the
-// one on disk, whole: 16384 bytes, the rows the adventure writes on blanked and
-// nothing else touched.
+// this does what the Z80 does — walks the index, finds each entry, and runs its
+// eight streams back through ZX0, one per band of video memory — and checks
+// what comes out against the screen on disk.
 //
-// It is what says a frame 176 rows tall arrives with its bottom edge on.
+// Band by band and not the whole screen, because that is the whole of the
+// point: a stream that covered all 16384 bytes would carry the rows below the
+// picture as blanks and write them, and what is below the picture is the text.
+// What this asks is that nothing past the picture's rows is ever named.
+//
+// It is also what says a frame 176 rows tall arrives with its bottom edge on.
 func TestEveryPictureComesBackOutOfTheBank(t *testing.T) {
 	const from = "../../examples/AO/Amstrad/CPC/part1/gfx/scr"
 
@@ -49,7 +53,7 @@ func TestEveryPictureComesBackOutOfTheBank(t *testing.T) {
 		opts.Images[number], opts.Palettes[number] = screen, palette
 	}
 
-	bank, err := cpcPictureBank(opts, 0x9000)
+	bank, err := cpcPictureBank(opts, 0x9000, false)
 	require.NoError(t, err)
 	require.Len(t, bank.carried, len(opts.Images), "every picture travels")
 	require.Empty(t, bank.left)
@@ -80,11 +84,45 @@ func TestEveryPictureComesBackOutOfTheBank(t *testing.T) {
 		require.Equal(t, opts.Palettes[number][:cpcPaletteSize], entry[3:cpcBankHeader],
 			"picture %03d carries its own inks", number)
 
-		screen, err := zx0.Decompress(entry[cpcBankHeader:length])
-		require.NoError(t, err, "picture %03d does not unpack", number)
+		// The display as the Z80 leaves it, started as something no picture can
+		// write so that what a picture does not touch is visible afterwards.
+		const untouched = 0xAA
 
-		want := cpcCropped(opts.Images[number], cpcPictureRows(opts.Images[number], opts.Lines))
-		require.Equal(t, want, screen, "picture %03d comes out changed", number)
+		display := make([]byte, cpcPackScreen)
+		for i := range display {
+			display[i] = untouched
+		}
+
+		rows := cpcPictureRows(opts.Images[number], opts.Lines)
+		at := cpcBankHeader
+
+		for band := range cpcPackBands {
+			size := int(entry[at]) | int(entry[at+1])<<8
+			at += 2
+
+			strip, err := zx0.Decompress(entry[at : at+size])
+			require.NoError(t, err, "picture %03d, band %d does not unpack", number, band)
+			require.Len(t, strip, rows*cpcPackBytesWide,
+				"picture %03d, band %d is not the rows it draws on", number, band)
+
+			copy(display[band*cpcPackBandSize:], strip)
+			at += size
+		}
+
+		require.Equal(t, length, at, "picture %03d says a length its streams do not come to", number)
+
+		for band := range cpcPackBands {
+			from := band*cpcPackBandSize + rows*cpcPackBytesWide
+
+			for i := from; i < (band+1)*cpcPackBandSize; i++ {
+				require.Equal(t, byte(untouched), display[i],
+					"picture %03d writes over the text area at %d", number, i)
+			}
+
+			want := opts.Images[number][band*cpcPackBandSize : from]
+			require.Equal(t, want, display[band*cpcPackBandSize:from],
+				"picture %03d comes out changed in band %d", number, band)
+		}
 
 		seen = append(seen, number)
 	}
