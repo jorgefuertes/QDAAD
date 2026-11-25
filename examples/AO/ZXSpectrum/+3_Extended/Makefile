@@ -38,7 +38,8 @@ test:
 		$(QDAAD) compile -i part$$part/game.sce -o tmp/qtest-part$$part \
 			-f ddb -m pc -s vga -v 3 --part $$part || exit 1; \
 		$(QRUN) -i tmp/qtest-part$$part.ddb \
-			-T $(TESTS)/part$$part-extended.qtest || exit 1; \
+			-T $(TESTS)/part$$part-extended.qtest \
+			-T $(TESTS)/part$$part-death-extended.qtest || exit 1; \
 	done
 
 clean:

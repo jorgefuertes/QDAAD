@@ -1,4 +1,4 @@
-.PHONY: version dist build test qtest doc compiler decompiler packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker compare-zx0 example-ao example-ao-48 example-ao-p3 example-ao-p3x example-ao-cpc
+.PHONY: version dist build test qtest doc compiler decompiler packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker compare-zx0 example-ao example-ao-48 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw
 
 # The release this is, which is the tag git last saw and not a number written
 # anywhere in the source. A tree with no tags at all still builds, and says so:
@@ -260,7 +260,20 @@ example-ao-cpc:
 			-o tmp/AOCPC-$$part --name AO$$part tmp/ao-cpc-part$$part; \
 	done
 
-example-ao: example-ao-48 example-ao-p3 example-ao-p3x example-ao-cpc
+# The other Amstrad, which is the same adventure with the PC edition's drawings
+# converted to its monochrome bitmaps: one disk per part, neither of them
+# bootable, which is how the PCW editions of 1989 shipped. The player starts
+# CP/M from their own system disk, puts one of these in and types DAAD.
+# See examples/AO/Amstrad/PCW/README.md.
+example-ao-pcw:
+	@for part in 1 2; do \
+		go run cmd/qdaad/qdaad.go compile -i examples/AO/Amstrad/PCW/part$$part/game.sce \
+			-o tmp/ao-pcw-part$$part -f build -m pcw -v 3 --part $$part; \
+		go run cmd/qpack/qpack.go -f dsk -o tmp/AOPCW-$$part --name AO$$part \
+			tmp/ao-pcw-part$$part; \
+	done
+
+example-ao: example-ao-48 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw
 
 # Plays the walkthroughs in examples/AO/test, which is the first part of La
 # Aventura Original won and the second part entered, in the test language qrun
@@ -275,11 +288,13 @@ qtest:
 		go run cmd/qdaad/qdaad.go compile -i "$(AO_EX)/+3/part$$part/game.sce" \
 			-o tmp/qtest-part$$part -f ddb -m pc -s vga -v 3 --part $$part; \
 		go run ./cmd/qrun -i tmp/qtest-part$$part.ddb \
-			-T examples/AO/test/part$$part.qtest; \
+			-T examples/AO/test/part$$part.qtest \
+			-T examples/AO/test/part$$part-death.qtest; \
 		go run cmd/qdaad/qdaad.go compile -i "$(AO_EX)/+3_Extended/part$$part/game.sce" \
 			-o tmp/qtest-x-part$$part -f ddb -m pc -s vga -v 3 --part $$part; \
 		go run ./cmd/qrun -i tmp/qtest-x-part$$part.ddb \
-			-T examples/AO/test/part$$part-extended.qtest; \
+			-T examples/AO/test/part$$part-extended.qtest \
+			-T examples/AO/test/part$$part-death-extended.qtest; \
 	done
 	@# The xmessages, which are the one thing no edition of 1989 exercises: the
 	@# texts live outside the database and qrun picks the .XMB up beside it.

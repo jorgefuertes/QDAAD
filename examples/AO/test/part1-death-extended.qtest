@@ -1,0 +1,116 @@
+; La Aventura Original, part one: dying, on the +3_Extended tree.
+;
+; Same script as part1-death.qtest against the sources carrying the long texts
+; of the Amiga, PC and Atari ST editions. Two EXPECT lines differ and no more:
+; the fall and the turn report are word for word the same in both trees.
+;
+; Five commands south from the forest walk off the cliff at 28, and the fall
+; is the one path in the adventure that ends a game without winning it. It is
+; worth a script of its own because it is the place a port gets wrong without
+; anybody noticing: the adventure's own tables say nothing about ending, so
+; what the player sees afterwards depends entirely on what the port put there.
+;
+; In 1989 the interpreter printed the turn report and asked for another game.
+; Under DAAD v3 that is the END condact's job, and a death screen without one
+; leaves the player standing in location 29 answering "No puedes ir al Sur."
+; for ever — which is what this script would catch. See 11.4 of
+; docs/DAAD_v2_v3_Research/07-daad-v3.md for why the original has no END of
+; its own and why the port has to supply it.
+;
+;   qdaad compile -i examples/AO/ZXSpectrum/+3_Extended/part1/game.sce -m pc -s vga -f ddb -o tmp/AO1X
+;   qrun -i tmp/AO1X.ddb -T examples/AO/test/part1-death-extended.qtest
+
+TEST "La Aventura Original, parte I: la muerte en el abismo, textos largos"
+
+SEED 1989
+
+STEP "Pantalla de título y bosque"
+  EXPECT "?"
+  KEY    SPACE
+
+  EXPECT "AVENTURA ORIGINAL"
+  KEY    SPACE
+
+  EXPECT "Sólo los valientes que dominen la magia merecerán mis tesoros"
+  KEY    SPACE
+
+  EXPECT "Estás justo en la frontera entre las tierras áridas"
+  ASSERT AT = 3
+END
+
+; Down the valley to the precipice. The adventure lets you walk off it: the
+; four locations in between say nothing about the drop, and the fifth order is
+; the last one of this game.
+STEP "Al sur hasta el precipicio"
+  INPUT  S
+  ASSERT AT = 24
+
+  INPUT  S
+  ASSERT AT = 25
+
+  INPUT  S
+  ASSERT AT = 26
+
+  INPUT  S
+  EXPECT "precipicio rocoso"
+  ASSERT AT = 28
+END
+
+STEP "El salto, y el informe de la partida"
+  INPUT  S
+  EXPECT "emprendes el vuelo"
+  EXPECT "en el fondo del abismo"
+  EXPECT "un poco muerto"
+
+  ; The report is table 21, which is the port's stand-in for the one the 1989
+  ; interpreter printed. Five orders is the five S above, so the counter has to
+  ; agree with the script: flag 31 counting wrong is a bug the plural hides.
+  EXPECT "Has dado 5 ordenes."
+  ASSERT TURNS = 5
+  ASSERT AT = 29
+END
+
+; And here is the whole point of the script. The game is over, so it has to ask
+; and it has to listen: anything else, and the player is in limbo.
+;
+; A yes puts the player back at location 0, which is the title, so the new game
+; asks for its three keys again exactly as the first one did. That is the
+; adventure's own doing and not the interpreter's: table 3 draws the title at
+; AT 0, and END zeroing the flags is what sends the player there.
+STEP "Pregunta otra partida, y una respuesta reinicia"
+  EXPECT "¿Hace otra partidita?"
+  INPUT  S
+
+  EXPECT "?"
+  KEY    SPACE
+
+  EXPECT "AVENTURA ORIGINAL"
+  KEY    SPACE
+
+  EXPECT "Sólo los valientes que dominen la magia merecerán mis tesoros"
+  KEY    SPACE
+
+  EXPECT "Estás justo en la frontera entre las tierras áridas"
+  ASSERT AT = 3
+  ASSERT TURNS = 0
+END
+
+STEP "Y en la partida nueva se puede volver a morir"
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  INPUT  S
+  EXPECT "un poco muerto"
+  EXPECT "Has dado 5 ordenes."
+  ASSERT AT = 29
+END
+
+; Saying no is the other answer, and it is the one that has to stop. A machine
+; of the period dropped the player back to BASIC or to the system prompt; here
+; it is the end of the run, which is what qrun has instead of a prompt.
+STEP "Y decir que no termina"
+  EXPECT "¿Hace otra partidita?"
+  INPUT  N
+  ASSERT ENDED
+END

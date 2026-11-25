@@ -23,11 +23,11 @@ func TestAContainerIsRefusedForTheWrongMachine(t *testing.T) {
 		{"a TAP for a CPC", formatTAP, arch.CPC, "a TAP is a Spectrum tape"},
 		{"a TZX for a CPC", formatTZX, arch.CPC, "a TZX is a Spectrum tape"},
 		{"a CDT for a Spectrum", formatCDT, arch.ZX, "a CDT is an Amstrad tape"},
-		{"a disk for a PC", formatDSK, arch.PC, "only the Spectrum and the CPC"},
+		{"a disk for a PC", formatDSK, arch.PC, "the Spectrum, the CPC and the PCW"},
 		{"a tape for a PC", formatTAP, arch.PC, "a TAP is a Spectrum tape"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := assemble(tc.format, build.Build{Machine: tc.machine}, "AO", 0, 0, 64, nil)
+			_, err := assemble(tc.format, build.Build{Machine: tc.machine}, "AO", 0, 0, 64, nil, false)
 			require.ErrorContains(t, err, tc.says)
 		})
 	}
@@ -35,6 +35,6 @@ func TestAContainerIsRefusedForTheWrongMachine(t *testing.T) {
 
 // And a format nobody has heard of names the ones there are.
 func TestAnUnknownFormatSaysWhatThereIs(t *testing.T) {
-	_, err := assemble("floppy", build.Build{Machine: arch.CPC}, "AO", 0, 0, 64, nil)
+	_, err := assemble("floppy", build.Build{Machine: arch.CPC}, "AO", 0, 0, 64, nil, false)
 	require.ErrorContains(t, err, "is not a format")
 }

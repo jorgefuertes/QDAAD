@@ -1,0 +1,87 @@
+; La Aventura Original, part two: dying, and what has to happen next.
+;
+; The companion of part1-death.qtest, and for the same reason: the end of a
+; game is the one thing the adventure's own tables do not say, so it is the
+; one thing a port has to put there itself and the one thing nothing else
+; tests. Part two has thirteen ways to die against part one's one, and all of
+; them arrive at location 92, so covering 92 covers all thirteen.
+;
+; The route here is six orders down to the Elf Kings' chamber and then
+; ASUSTAR at the snake, which is the shortest death in the part: the bite is
+; message 8, the venom is message 9, and both wait for a key.
+;
+;   qdaad compile -i examples/AO/ZXSpectrum/+3/part2/game.sce -m pc -s vga -f ddb -o tmp/AO2 --part 2
+;   qrun -i tmp/AO2.ddb -T examples/AO/test/part2-death.qtest
+
+TEST "La Aventura Original, parte II: la muerte de la serpiente"
+
+SEED 1989
+TIMEOUT 1
+
+STEP "Clave de acceso"
+  EXPECT "¿Clave de acceso?"
+  INPUT "TIMACUS"
+
+  EXPECT "Con un click la puerta se cierra mágicamente..."
+  KEY    ENTER
+
+  EXPECT "Los rayos del sol iluminan la caverna"
+  ASSERT AT = 3
+END
+
+STEP "Bajar a la cámara de los Reyes Elfos"
+  INPUT  O
+  INPUT  O
+  INPUT  O
+  INPUT  O
+  INPUT  ABAJO
+  INPUT  ABAJO
+
+  EXPECT "La cámara de los Reyes Elfos"
+  EXPECT "Una enorme serpiente te observa"
+  ASSERT AT = 38
+END
+
+STEP "Asustar a la serpiente, y el informe de la partida"
+  INPUT  ASUSTAR
+  EXPECT "El reptil te muerde en el cuello"
+  KEY    SPACE
+
+  EXPECT "El veneno te mata"
+  KEY    SPACE
+
+  ; The code and the six moves and the ASUSTAR, which is eight: the keypresses
+  ; of a pause are not orders and must not be counted as any.
+  EXPECT "estás muerto"
+  EXPECT "Has dado 8 ordenes."
+  ASSERT TURNS = 8
+  ASSERT AT = 92
+END
+
+; The point of the script, the same as part one's: the game is over, so it has
+; to ask. Without the END at AT 92 the player stands in 92 for ever, and 92 has
+; no description and no exits.
+STEP "Pregunta otra partida, y una respuesta reinicia"
+  EXPECT "¿Hace otra partidita?"
+  INPUT  S
+
+  EXPECT "¿Clave de acceso?"
+  INPUT  "TIMACUS"
+
+  EXPECT "Con un click la puerta se cierra mágicamente..."
+  KEY    ENTER
+
+  EXPECT "Los rayos del sol iluminan la caverna"
+  ASSERT AT = 3
+  ASSERT TURNS = 1
+END
+
+STEP "Y decir que no termina"
+  INPUT  ABANDONAR
+  EXPECT "¿Estás seguro?"
+  INPUT  S
+
+  EXPECT "¿Hace otra partidita?"
+  INPUT  N
+  ASSERT ENDED
+END

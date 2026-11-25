@@ -148,6 +148,13 @@ type Options struct {
 	// machine whose screens do not carry their own: sixteen pens and the
 	// border, as the firmware numbers its colours. Only the Amstrad wants it.
 	LoadingPalette []byte
+	// Boot asks for a disk that starts on its own. Only the Amstrad PCW reads
+	// it: its releases are ordinary CP/M disks that the player boots a system
+	// disk for and then types a name at, and this puts the system on the disk
+	// instead. It costs the room CP/M takes — around a quarter of a 180 KiB
+	// disk — and means handing out Amstrad's CP/M with the adventure, which is
+	// why it is asked for rather than assumed.
+	Boot bool
 	// Note is told anything the person packaging should know. See Notes.
 	Note Notes
 	// Progress is told what is being worked on while it is. See Progress.

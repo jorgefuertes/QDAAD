@@ -82,8 +82,16 @@ func TestTheImageIsADiskAnEmulatorRecognises(t *testing.T) {
 	track := image[dskHeaderSize:]
 	require.Equal(t, trackSignature, string(track[:len(trackSignature)]))
 	require.Equal(t, byte(g.sectorsTrack), track[0x15])
-	require.Equal(t, g.firstSectorID, track[0x18+2])
-	require.Equal(t, g.firstSectorID+byte(g.sectorsTrack)-1, track[0x18+8*8+2])
+
+	// And they are laid round the track 1:2 rather than in order, which is
+	// what every Amstrad disk in the corpus does and what keeps the drive from
+	// spending a whole revolution on each sector. The numbers are the ones on
+	// Amstrad's own CP/M disk and on the PCW editions of 1989.
+	want := []byte{1, 6, 2, 7, 3, 8, 4, 9, 5}
+	for position, sector := range want {
+		require.Equal(t, g.firstSectorID+sector-1, track[0x18+position*8+2],
+			"sector %d of the track is not the one 1:2 interleaving puts there", position)
+	}
 }
 
 // The directory is in the first sector of track 0, and that is the one thing

@@ -594,6 +594,23 @@ juntos, porque el informe tiene que imprimirse **antes** del `END`: lo que sale 
 `QUIT / PROCESS 21 / END`, y en pantalla el orden del original —la cuenta, y después «¿Hace otra
 partidita?»—.
 
+**La pantalla de muerte pide el `END` igual que el `QUIT`**, y es más fácil de olvidar porque ahí no
+hay ningún `QUIT` que lo recuerde. El informe no termina nada: sale la cuenta, se acaba la entrada,
+y el jugador se queda plantado en la localidad de la muerte —la 29 de la parte I, la 92 de la II—,
+que no tiene descripción ni salidas, contestando «No puedes ir al Sur» hasta que apague la máquina.
+En 1989 no se notaba porque quien preguntaba por otra partida era el intérprete, y ése no está. Así
+que la entrada entera es:
+
+```
+_       _               AT      29
+                        CLS
+                        PROCESS 21
+                        END
+```
+
+Lo vigilan `part1-death.qtest` y `part2-death.qtest` de `examples/AO/test`, que son el único sitio
+donde se juega un final que no es ganar.
+
 La mitad de la puntuación de aquella rutina no está aquí: lee la bandera 30, que estas aventuras no
 escriben nunca, y la imprime entre 2 mensajes de sistema que La Aventura Original deja vacíos.
 

@@ -34,6 +34,23 @@ const (
 	dataGap3 = 0x4E
 )
 
+// interleave is where each sector is laid round the track: the first position
+// holds sector 1, the second holds sector 6, the third sector 2, and so on.
+//
+// It is 1:2, and it is what every Amstrad disk in the corpus does — the CP/M
+// disk DAAD READY ships, the PCW editions of Cozumel and Los Templos Sagrados,
+// and the PCW.DSK every modern release is built on. Writing them in order
+// instead is not wrong, and for a long time this did: the controller finds a
+// sector by its number and reads the same bytes either way.
+//
+// It is slow, though, and it is slow in a way that is easy to miss until a
+// disk is full. The drive hands a sector to the processor and by the time the
+// processor is ready for the next one the next sector has already passed under
+// the head, so the disk turns a whole revolution to bring it back — a fifth of
+// a second, for every sector, instead of a ninth of one. A 16 KiB cover is
+// thirty-two sectors, and that is the difference between a second and six.
+var interleave = [9]int{0, 5, 1, 6, 2, 7, 3, 8, 4}
+
 // geometry is a disk format: how the sectors are laid out and how the
 // filesystem on top of them is cut up.
 //
@@ -134,7 +151,7 @@ var plus3Geometry = geometry{
 // 128 names that only a disk specification can ask for, and a DATA disk has
 // nowhere to put one. See Plus3Disk.
 func DataDisk(files []File) ([]byte, error) {
-	return diskImage(dataGeometry, files)
+	return diskImage(dataGeometry, files, nil)
 }
 
 // Plus3Disk writes a 177 KiB disk image in the +3's own format, specification
@@ -145,7 +162,62 @@ func DataDisk(files []File) ([]byte, error) {
 // 64. For an adventure that is pictures-as-files, names are what runs out long
 // before room does.
 func Plus3Disk(files []File) ([]byte, error) {
-	return diskImage(plus3Geometry, files)
+	return diskImage(plus3Geometry, files, nil)
+}
+
+// pcwGeometry is the Amstrad PCW's own system format, which is the one its CP/M
+// disks come in: sector IDs from 1, one reserved track, and two directory
+// blocks rather than the four Plus3Disk asks for.
+//
+// It is not reasoned about either. The numbers are the ones written in the
+// first sixteen bytes of track 0 of Amstrad's own CP/M disk — 00 00 28 09 02 01
+// 03 02 — and that sector is copied onto a disk of ours verbatim, so the two
+// have to agree or the machine reads a shape the disk does not have.
+var pcwGeometry = geometry{
+	tracks: 40, sectorsTrack: 9, firstSectorID: 0x01,
+	reserved: 1, blockSize: 1024, dirBlocks: 2,
+	spec: true, diskType: 0,
+}
+
+// PCWDisk writes a 173 KiB disk image in the Amstrad PCW's own format.
+//
+// It is five kilobytes smaller than DataDisk, which is the reserved track, and
+// it is what a PCW wants. A DATA disk — sector IDs from 0xC1 and no reserved
+// track — is what the CPC uses and what the PCW editions of 1989 came on, and
+// it is read on a real machine; what will not read it is the drive JOYCE
+// emulates, which answers "error desconocido" after the directory and before
+// the first file. The specification in the first sector is how a disk of this
+// shape says so rather than being guessed at by its sector numbering.
+func PCWDisk(files []File) ([]byte, error) {
+	return diskImage(pcwGeometry, files, nil)
+}
+
+// PCWRoom is how many bytes a PCW disk has for files.
+func PCWRoom() int {
+	blocks := (pcwGeometry.tracks - pcwGeometry.reserved) *
+		pcwGeometry.sectorsTrack * dataSectorSize / pcwGeometry.blockSize
+
+	return (blocks - pcwGeometry.dirBlocks) * pcwGeometry.blockSize
+}
+
+// BootDisk writes a PCW disk that starts on its own, which means the reserved
+// track carries Amstrad's loader instead of being formatted and left alone.
+//
+// boot is that track, 4608 bytes of it, and it is not ours: it is read off the
+// CP/M disk DAAD READY ships and copied across whole, specification and all.
+// Which is also why the geometry here is fixed rather than a parameter — the
+// specification in that sector declares the shape, and writing a disk of some
+// other shape under it would be writing a disk that lies about itself.
+//
+// The system still has to be on the disk as an ordinary file, because that is
+// how the PCW boots: the loader in this track opens a name in the directory.
+func BootDisk(boot []byte, files []File) ([]byte, error) {
+	want := pcwGeometry.reserved * pcwGeometry.sectorsTrack * dataSectorSize
+	if len(boot) != want {
+		return nil, fmt.Errorf("a PCW boot track is %d bytes and this is %d", want, len(boot))
+	}
+
+	return diskImage(pcwGeometry, files, boot)
 }
 
 // Plus3Names and DataNames are how many files a disk of each format will hold.
@@ -162,7 +234,11 @@ func DataNames() int  { return dataGeometry.dirEntries() }
 // They go on in the order given, which is the order the directory lists them in
 // and so the order a CAT shows. Nothing is sorted: a release has a loader that
 // ought to be first.
-func diskImage(g geometry, files []File) ([]byte, error) {
+//
+// boot is what goes in the reserved tracks, or nothing to leave them formatted
+// and empty. A disk that boots is a disk whose first track carries a loader,
+// and that loader is somebody else's code: see BootDisk.
+func diskImage(g geometry, files []File, boot []byte) ([]byte, error) {
 	// The data area, sized by the track and not by the block, because that is
 	// how it is written out. What the filesystem can hand to a file is whole
 	// blocks of it, and nine sectors a track is four and a half of them, so a
@@ -250,7 +326,7 @@ func diskImage(g geometry, files []File) ([]byte, error) {
 		next += want
 	}
 
-	return dataImage(g, data), nil
+	return dataImage(g, data, boot), nil
 }
 
 // dataName splits a name into the eight and three characters a CP/M directory
@@ -280,7 +356,7 @@ func dataName(name string) (eight, three []byte, err error) {
 
 // dataImage wraps the data area in the DSK file an emulator reads, with the
 // reserved tracks in front of it.
-func dataImage(g geometry, data []byte) []byte {
+func dataImage(g geometry, data, boot []byte) []byte {
 	trackSize := dskTrackHeader + g.sectorsTrack*dataSectorSize
 
 	out := make([]byte, dskHeaderSize)
@@ -303,11 +379,11 @@ func dataImage(g geometry, data []byte) []byte {
 		head[0x16] = dataGap3
 		head[0x17] = dataFiller
 
-		for sector := range g.sectorsTrack {
-			at := 0x18 + sector*8
+		for position := range g.sectorsTrack {
+			at := 0x18 + position*8
 			head[at] = byte(track)
 			head[at+1] = 0
-			head[at+2] = g.firstSectorID + byte(sector)
+			head[at+2] = g.firstSectorID + byte(interleave[position])
 			head[at+3] = 2
 			// The two FDC status bytes stay zero: nothing here is a read error.
 		}
@@ -318,18 +394,31 @@ func dataImage(g geometry, data []byte) []byte {
 		// left out, because the filesystem not using it does not mean the drive
 		// will not read it — and on this format the first sector of the first
 		// one is the specification, which is the whole point.
-		body := make([]byte, g.sectorsTrack*dataSectorSize)
+		//
+		// What is built here is the track in sector-number order, which is how
+		// the filesystem above thinks of it; laying it round the track is the
+		// next step and the only place the interleave shows.
+		inOrder := make([]byte, g.sectorsTrack*dataSectorSize)
 
 		if track < g.reserved {
-			for i := range body {
-				body[i] = dataFiller
+			for i := range inOrder {
+				inOrder[i] = dataFiller
 			}
 
-			if track == 0 && g.spec {
-				copy(body, plus3Spec(g))
+			switch {
+			case len(boot) > 0:
+				copy(inOrder, boot[track*len(inOrder):])
+			case track == 0 && g.spec:
+				copy(inOrder, plus3Spec(g))
 			}
 		} else {
-			copy(body, data[(track-g.reserved)*len(body):])
+			copy(inOrder, data[(track-g.reserved)*len(inOrder):])
+		}
+
+		body := make([]byte, len(inOrder))
+		for position := range g.sectorsTrack {
+			copy(body[position*dataSectorSize:],
+				inOrder[interleave[position]*dataSectorSize:][:dataSectorSize])
 		}
 
 		out = append(out, body...)
@@ -408,3 +497,28 @@ func log2from128(size int) byte {
 
 	return out
 }
+
+// DataRoom is how many bytes a DATA disk has for files, directory taken off.
+//
+// It is the budget a packager has to divide up, and it is a property of the
+// format rather than a number to write down twice: the data area is every
+// track, the directory is the first blocks of it, and what is left is this.
+func DataRoom() int {
+	blocks := (dataGeometry.tracks - dataGeometry.reserved) *
+		dataGeometry.sectorsTrack * dataSectorSize / dataGeometry.blockSize
+
+	return (blocks - dataGeometry.dirBlocks) * dataGeometry.blockSize
+}
+
+// DataCost is what a file of that length actually takes off a disk, which is
+// whole blocks: a file of one byte costs a kilobyte like any other.
+func DataCost(length int) int {
+	blocks := (length + dataGeometry.blockSize - 1) / dataGeometry.blockSize
+
+	return max(blocks, 1) * dataGeometry.blockSize
+}
+
+// BootRoom is PCWRoom under another name: a disk that boots is the same shape
+// as one that does not, with Amstrad's loader in the track both of them
+// reserve.
+func BootRoom() int { return PCWRoom() }

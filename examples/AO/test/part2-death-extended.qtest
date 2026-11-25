@@ -1,0 +1,91 @@
+; La Aventura Original, part two: dying, on the +3_Extended tree.
+;
+; Same script as part2-death.qtest against the sources carrying the long texts
+; of the Amiga, PC and Atari ST editions. Six EXPECT lines differ, and all six
+; because they quote a text and the text is the long one now.
+;
+; The companion of part1-death-extended.qtest, and for the same reason: the end of a
+; game is the one thing the adventure's own tables do not say, so it is the
+; one thing a port has to put there itself and the one thing nothing else
+; tests. Part two has thirteen ways to die against part one's one, and all of
+; them arrive at location 92, so covering 92 covers all thirteen.
+;
+; The route here is six orders down to the Elf Kings' chamber and then
+; ASUSTAR at the snake, which is the shortest death in the part: the bite is
+; message 8, the venom is message 9, and both wait for a key.
+;
+;   qdaad compile -i examples/AO/ZXSpectrum/+3_Extended/part2/game.sce -m pc -s vga -f ddb -o tmp/AO2X --part 2
+;   qrun -i tmp/AO2X.ddb -T examples/AO/test/part2-death-extended.qtest
+
+TEST "La Aventura Original, parte II: la muerte de la serpiente, textos largos"
+
+SEED 1989
+TIMEOUT 1
+
+STEP "Clave de acceso"
+  EXPECT "Introduce la clave de acceso."
+  INPUT "TIMACUS"
+
+  EXPECT "Con un click la puerta se cierra mágicamente..."
+  KEY    ENTER
+
+  EXPECT "Los rayos del sol penetran a través de los barrotes"
+  ASSERT AT = 3
+END
+
+STEP "Bajar a la cámara de los Reyes Elfos"
+  INPUT  O
+  INPUT  O
+  INPUT  O
+  INPUT  O
+  INPUT  ABAJO
+  INPUT  ABAJO
+
+  EXPECT "El Trono de los Reyes Elfos de las Montañas"
+  EXPECT "Una enorme serpiente te observa"
+  ASSERT AT = 38
+END
+
+STEP "Asustar a la serpiente, y el informe de la partida"
+  INPUT  ASUSTAR
+  EXPECT "El reptil te marca sus colmillos en el cuello"
+  KEY    SPACE
+
+  EXPECT "El veneno te ha matado"
+  KEY    SPACE
+
+  ; The code and the six moves and the ASUSTAR, which is eight: the keypresses
+  ; of a pause are not orders and must not be counted as any.
+  EXPECT "no has logrado sobrevivir dentro de la Gran Caverna"
+  EXPECT "Has dado 8 ordenes."
+  ASSERT TURNS = 8
+  ASSERT AT = 92
+END
+
+; The point of the script, the same as part one's: the game is over, so it has
+; to ask. Without the END at AT 92 the player stands in 92 for ever, and 92 has
+; no description and no exits.
+STEP "Pregunta otra partida, y una respuesta reinicia"
+  EXPECT "¿Hace otra partidita?"
+  INPUT  S
+
+  EXPECT "Introduce la clave de acceso."
+  INPUT  "TIMACUS"
+
+  EXPECT "Con un click la puerta se cierra mágicamente..."
+  KEY    ENTER
+
+  EXPECT "Los rayos del sol penetran a través de los barrotes"
+  ASSERT AT = 3
+  ASSERT TURNS = 1
+END
+
+STEP "Y decir que no termina"
+  INPUT  ABANDONAR
+  EXPECT "¿Estás seguro?"
+  INPUT  S
+
+  EXPECT "¿Hace otra partidita?"
+  INPUT  N
+  ASSERT ENDED
+END

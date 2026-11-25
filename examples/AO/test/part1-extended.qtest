@@ -6,7 +6,10 @@
 ; does not, so every step still has to hold.
 ;
 ; Three EXPECT lines differ from part1.qtest's, and all three for the same
-; reason: they quote a text, and the text they quote is the long one now.
+; reason: they quote a text, and the text they quote is the long one now. The
+; one line that is gone rather than changed is part1.qtest's ASSERT PICTURE:
+; it says the same thing twice, and the Amstrad PCW plays this script with
+; tables that have no PICTURE in them at all.
 ;
 ;   qdaad compile -i examples/AO/ZXSpectrum/+3_Extended/part1/game.sce -m pc -s vga -f ddb -o tmp/AO1X
 ;   qrun -i tmp/AO1X.ddb -T examples/AO/test/part1-extended.qtest
@@ -33,7 +36,6 @@ STEP "Pantalla de título y bosque"
 
   EXPECT "Estás justo en la frontera entre las tierras áridas"
   ASSERT AT = 3
-  ASSERT PICTURE = 3
 END
 
 STEP "Ir al valle a coger la botella y volver"

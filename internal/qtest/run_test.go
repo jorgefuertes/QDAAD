@@ -440,14 +440,23 @@ END
 // The -extended pair is the same two walkthroughs against the +3_Extended
 // tree, which carries the 16-bit editions' long texts. Same moves, and the
 // EXPECT lines that quote a text quote the long one.
+//
+// The -death pair plays the other ending, which a walkthrough never reaches
+// and which is the half of the adventure the port has to supply: the tables of
+// 1989 left ending a game to the interpreter, so what the player sees after
+// dying is nobody's but ours.
 func TestTheExampleScriptsPlay(t *testing.T) {
 	for _, c := range []struct{ tree, part, script string }{
 		{"+3", "part1", "part1.qtest"},
 		{"+3", "part2", "part2.qtest"},
+		{"+3", "part1", "part1-death.qtest"},
+		{"+3", "part2", "part2-death.qtest"},
 		{"+3_Extended", "part1", "part1-extended.qtest"},
 		{"+3_Extended", "part2", "part2-extended.qtest"},
+		{"+3_Extended", "part1", "part1-death-extended.qtest"},
+		{"+3_Extended", "part2", "part2-death-extended.qtest"},
 	} {
-		t.Run(c.tree+"/"+c.part, func(t *testing.T) {
+		t.Run(c.tree+"/"+c.script, func(t *testing.T) {
 			db := database(t, filepath.Join("..", "..", "examples", "AO", "ZXSpectrum", c.tree,
 				c.part, "game.sce"))
 

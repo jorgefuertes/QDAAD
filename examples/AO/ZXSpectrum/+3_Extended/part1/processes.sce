@@ -267,9 +267,13 @@
                     DISPLAY 0
                     WINDOW 1
 
+; The death screen. In 1989 the turn report came out of the interpreter and
+; the table ended here, which under v3 leaves the player in 29 for ever:
+; see 11.4 of docs/DAAD_v2_v3_Research/07-daad-v3.md.
 > _        _        AT 29
                     CLS
                     PROCESS 21
+                    END
 
 ; ----------------------------------------------------------------------
 ; TABLE 4 - Runs once a turn. The game loop calls it, in v3-loop.sce.

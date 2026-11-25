@@ -65,8 +65,11 @@
                     WINAT 22 0
                     DONE
 
+; The death screen, and see 11.4 of docs/DAAD_v2_v3_Research/07-daad-v3.md:
+; without the END the player stays here for ever.
 > _        _        AT 92
                     PROCESS 25
+                    END
 
 > _        _        AT 91
                     PROCESS 19

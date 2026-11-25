@@ -114,9 +114,9 @@ Everything else — the other `.sce` files, `udg.chr` and the `.scr` — comes o
 of the decompiler untouched. Left out are the `.png` and the `.plot`: they are
 derived, for looking at rather than building with.
 
-## The three trees
+## The five trees
 
-Three trees and not one with three destinations, because they do diverge for
+Five trees and not one with five destinations, because they do diverge for
 real. `48` and `+3` are the same adventure on two media and differ only in
 **how many drawings each one carries**; `+3_Extended` is the one that differs
 in what it says, and it is the reason the trees were kept apart in the first
@@ -148,6 +148,20 @@ piece parked at a location somebody visits. That one is deliberate.
 About ten fit on a tape, so each 48K part carries the ones the game needs to
 make sense and the generic picture covers the rest, which is what the adventure
 itself does.
+
+### The two Amstrads
+
+`Amstrad/CPC` is `+3_Extended` with the Amstrad edition's own drawings and font
+decompiled into it — the same text, the Amstrad's pictures. A 6128 disk holds
+every one of them in the spare banks; a tape holds the handful that fit in
+memory. See [its README](Amstrad/CPC/README.md).
+
+`Amstrad/PCW` is the same tree laid out for 90 columns by 32 rows, which is
+more than twice the Spectrum's width, and it is the one tree whose drawings
+come from somewhere else entirely: La Aventura Original never had a PCW
+release, so they are converted from the PC edition's. All eighty-six of them
+fit, thirty on one disk and fifty-six on the other. See
+[its README](Amstrad/PCW/README.md).
 
 ## What is still not right
 

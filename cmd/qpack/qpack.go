@@ -105,6 +105,15 @@ func main() {
 					"touched once it is running. A 128 release will not run on a " +
 					"464 or a 664.",
 			},
+			&cli.BoolFlag{
+				Name: "boot",
+				Usage: "Make a disk that starts on its own. Only the Amstrad PCW " +
+					"reads it: a release of 1989 is files on a plain CP/M disk and " +
+					"the player boots a system disk, swaps and types DAAD, and this " +
+					"puts CP/M on the disk instead so that it comes up by itself. " +
+					"It costs about a quarter of the disk and hands out Amstrad's " +
+					"CP/M with the adventure, which is why it is asked for.",
+			},
 			&cli.StringFlag{
 				Name:    "loading",
 				Aliases: []string{"l"},
@@ -195,7 +204,7 @@ func run(_ context.Context, cmd *cli.Command) error {
 	started := time.Now()
 
 	release, err := assemble(format, parts[0], name,
-		cmd.Int("lines"), cmd.Int("generic"), cmd.Int("ram"), loadingPalette)
+		cmd.Int("lines"), cmd.Int("generic"), cmd.Int("ram"), loadingPalette, cmd.Bool("boot"))
 	if err != nil {
 		return err
 	}
@@ -256,12 +265,14 @@ func report(
 // one knowing about it.
 func assemble(
 	format string, b build.Build, name string, lines, generic, memory int, loadingPalette []byte,
+	boot bool,
 ) (*pack.Release, error) {
 	opts := pack.Options{
 		Language: b.Language, Name: name,
 		Charset: b.Charset, Images: b.Images, Palettes: b.Palettes, Loading: b.Loading,
 		XMessages: b.XMessages, Lines: lines, Generic: generic, Memory: memory,
 		LoadingPalette: loadingPalette,
+		Boot:           boot,
 		Note:           notes(),
 		Progress:       progress(),
 	}
@@ -300,6 +311,8 @@ func assemble(
 			return pack.ZXRelease(b.Database, b.Subtarget, opts)
 		case arch.CPC:
 			return pack.CPCRelease(b.Database, opts)
+		case arch.PCW:
+			return pack.PCWRelease(b.Database, opts)
 		default:
 			return nil, notPackaged(b.Machine)
 		}
@@ -366,6 +379,13 @@ func assemble(
 		case arch.CPC:
 			body, err = pack.CPCDisk(b.Database, opts)
 			note = `180K CPC disk in DATA format: RUN"` + name + `"`
+		case arch.PCW:
+			body, err = pack.PCWDisk(b.Database, opts)
+			note = "180K PCW disk in DATA format: boot CP/M, then type DAAD"
+
+			if opts.Boot {
+				note = "180K PCW disk with CP/M on it: it starts the adventure on its own"
+			}
 		default:
 			return nil, notPackaged(b.Machine)
 		}
@@ -461,7 +481,8 @@ func isTerminal(f *os.File) bool {
 }
 
 func notPackaged(machine arch.Machine) error {
-	return fmt.Errorf("only the Spectrum and the CPC are packaged so far, not the %s", machine)
+	return fmt.Errorf(
+		"only the Spectrum, the CPC and the PCW are packaged so far, not the %s", machine)
 }
 
 // write puts the release where it was asked for, as a directory or as the one

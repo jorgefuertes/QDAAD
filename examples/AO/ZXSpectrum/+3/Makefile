@@ -36,7 +36,9 @@ test:
 	@for part in 1 2; do \
 		$(QDAAD) compile -i part$$part/game.sce -o tmp/qtest-part$$part \
 			-f ddb -m pc -s vga -v 3 --part $$part || exit 1; \
-		$(QRUN) -i tmp/qtest-part$$part.ddb -T $(TESTS)/part$$part.qtest || exit 1; \
+		$(QRUN) -i tmp/qtest-part$$part.ddb \
+			-T $(TESTS)/part$$part.qtest \
+			-T $(TESTS)/part$$part-death.qtest || exit 1; \
 	done
 
 clean:

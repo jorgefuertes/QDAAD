@@ -373,6 +373,78 @@ own. It is worth a flag for the same reason the 64K disk is gone — a `PICTURE`
 that fails takes the rest of its entry with it — and pointed at a stand-in,
 every one of them succeeds and the only thing missing is the drawing.
 
+A **PCW disk** is the plainest release here, and the reason is that nothing has
+to be glued. The other Amstrad runs CP/M, CP/M has files, and the interpreter
+opens the ones it wants by name — so there is no loader to write, no block to
+lay at an address and no bank to page. Four files go on:
+
+```text
+DAAD.COM      the interpreter, which is DPCWISF3.BIN under another name
+PARTE001.DDB  the database
+PARTE001.CHR  the character set, behind the header SPECFORM leaves on it
+PARTE001.DAT  the illustrations, an empty archive where there are none
+```
+
+and `0.XMB` beside them when the adventure has texts outside its database,
+which is the +3's name for the same thing and the one the interpreter carries
+as a file control block at 0x05EA. The disk does not boot: the player starts
+CP/M from their own system disk, puts this one in and types `DAAD`.
+
+It is the PCW's own format — sector IDs from 1, one reserved track, and the
+disk specification in the first sector of it — and not the CPC's DATA format
+the 1989 editions came on. Those are read on a real machine; what will not read
+one is the drive JOYCE emulates, which lists the directory and then answers
+"error desconocido" for the first file, and does the same to a commercial
+release of the period. A disk nobody can load is worth less than the five
+kilobytes the reserved track costs.
+
+The sectors are laid round the track 1:2 rather than in order, which every
+Amstrad disk in the corpus does. It is not correctness — the controller finds a
+sector by its number either way — it is that without it the drive waits a whole
+revolution for each one, and a 16 KiB cover is thirty-two of those.
+
+It has been played, on ZEsarUX's PCW 8256 and in JOYCE: both parts, with their
+illustrations.
+
+The illustrations are bitmaps rather than the vectors every other eight-bit
+edition carries — 512×112 of one bit on a 720×256 screen with no colour. The
+format is a run-length scheme with its markers chosen per picture and its rows
+written back and forth; it was read off the 1989 disks and checked against the
+interpreter, 6656 bytes of bitmap for 6656 matched. See §9.9 of
+[09-graficos.md](docs/DAAD_v2_v3_Research/09-graficos.md).
+
+La Aventura Original never had a PCW release to take drawings from, so the
+example tree takes the PC edition's: CGA mode 4 is four colours on a bitmap, so
+all that is lost is the colour, where the Spectrum's carry one ink per
+eight-by-eight cell and the CPC's are vectors. The width doubles and the height
+does not, which is what Aventuras AD did — Cozumel shipped on both machines and
+its drawings are 256×104 on one and 512×104 on the other.
+
+`script/pcwpic` does the conversion, and it dithers in an ordered two-by-two
+tile rather than diffusing the error. It looks like the machine, whose 1989
+drawings are regular hatching and not noise — 0xCC and 0x33 one after the other
+all down a Cozumel illustration — and it packs, which is the same thing said in
+bytes: a run-length scheme lives on bytes that repeat, and the tile's period is
+how often they do. The same thirty illustrations come to 150 KiB with the error
+diffused, 95 with a four-by-four tile and 78 with this one, which is the
+difference between a disk that holds CP/M as well and one that does not.
+
+The cover is a file of its own, `PARTE000.PIC`, 640×200 in the machine's own
+cell order, and the interpreter puts it up before anything else without being
+asked. It comes from the PC edition's `PART1.SCR`.
+
+One disk per part, and neither boots: the player starts CP/M from their own
+system disk, puts one of these in and types `DAAD`. `qpack --boot` will put
+CP/M on a disk instead and start the adventure by itself, and it fits on the
+first part — but not on the second, whose fifty-six illustrations leave no room
+for it, and one rule for both disks is worth more than saving a word of typing.
+
+Between them that is eighty-six illustrations on two 180 KiB disks and none
+left behind. Where one would have to be, `qpack` names it rather than dropping
+it quietly. The catalogues come out the shape the 1989 ones are: the cover on
+the first disk only, which is where Cozumel and Los Templos Sagrados put
+theirs.
+
 ## qrun, the interpreter
 
 ```sh
@@ -478,6 +550,12 @@ a conversation, a four-stage puzzle chain and the access code it prints at the
 end — and the second part entered. `make qtest` builds the databases and plays
 them; the suite plays them too, against the same walkthrough the Go tests use,
 so if the two ever disagree one of them is lying.
+
+The `-death` pair plays the other ending, and it is there because a walkthrough
+never reaches it: the tables of 1989 left ending a game to the interpreter, so
+what the player sees after dying is the port's own and nothing else tests it.
+Both scripts walk to a death, check the turn report, answer the question that
+has to follow, and play the new game that answer starts.
 
 ## What it has been tested with
 

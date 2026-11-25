@@ -147,10 +147,27 @@ var runtimes = map[Target]Runtime{
 		},
 		companions: []string{"msx2/GLUE.IM8"},
 	},
-	PCW: {interpreter: map[language.Language]string{
-		language.LanguageEnglish: "pcw/DPCWIEF3.BIN",
-		language.LanguageSpanish: "pcw/DPCWISF3.BIN",
-	}},
+	PCW: {
+		interpreter: map[language.Language]string{
+			language.LanguageEnglish: "pcw/DPCWIEF3.BIN",
+			language.LanguageSpanish: "pcw/DPCWISF3.BIN",
+		},
+		// An empty archive of illustrations, which a release carries whether it
+		// has any or not: the interpreter opens the file when a PICTURE asks
+		// for one and a file that is not there is not an answer it has. It is
+		// the CPC's BLANK.GRA by another name, and it is DAAD READY's own —
+		// lifted out of the PCW.DSK its PCW.BAT starts every release from.
+		//
+		// Six bytes of header and 256 empty slots of ten, which is where the
+		// first illustration would begin at 2566. See docs §9.9.
+		//
+		// And a font, because a PCW release without one does not start — the
+		// interpreter says "Falta el juego de caracters" and stops. It is the
+		// Spectrum's own file and named as such rather than copied under
+		// another name: PCW.BAT takes one out of ASSETS\CHARSET in the same
+		// way, and there is one font here, not one per machine.
+		companions: []string{"pcw/BLANK.DAT", "zx/AD8x6.CHR", "pcw/CPMBOOT.BIN", "pcw/J14SCPM3.EMS"},
+	},
 	ST: {
 		interpreter: map[language.Language]string{
 			language.LanguageEnglish: "st/DSTEI3.PRG",

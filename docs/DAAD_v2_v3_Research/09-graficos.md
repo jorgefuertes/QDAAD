@@ -1712,10 +1712,38 @@ alto, y una tercera que aquí es **la longitud del cuerpo** —comprobada contra
 ilustración siguiente, y cuadra al byte en todas las que se han mirado—. Las de Cozumel miden
 512×104; las de Los Templos van de 16×8 a 128 de ancho.
 
-Lo que **no** está resuelto es cómo se empaquetan los píxeles. No es el esquema que ya
-implementamos: se probaron 1, 2 y 4 bits por píxel, con y sin la máscara de colores que dispara las
-repeticiones, y ninguna combinación consume la longitud declarada. Habrá que sacarlo de `AD.COM`,
-que con 8960 bytes es un blanco pequeño.
+#### Y así se empaquetan los píxeles
+
+Resuelto el 20 de noviembre de 2026, y no desensamblando: se montó un disco con la base de datos de
+La Aventura Original, el `PARTE001.DAT` de Cozumel dentro y un `PICTURE 4` en la tabla 3, se arrancó
+en el PCW de ZEsarUX y se sacó la pantalla de la RAM. Con los bytes comprimidos por un lado y el
+dibujo por el otro, el esquema se cae solo.
+
+El cuerpo empieza con **cinco bytes de preámbulo**: una cuenta y cuatro ranuras de marcador, de las
+que valen las primeras `cuenta`. Un marcador es un byte que **no se escribe tal cual**: lo que va
+detrás de él es cuántas veces se repite, y el cero cuenta como 256. Todo lo demás es literal. Son
+marcadores distintos en cada ilustración —`ff 00` en una, `00 cc 33 ee` en otra— porque se eligen
+los bytes que más se repiten en ese dibujo, que es lo que hace que el esquema gane sin tabla.
+
+Y los píxeles salen en **bustrófedon**: la fila 0 de izquierda a derecha, la 1 de derecha a
+izquierda, y así. Un byte son ocho píxeles con el bit más alto a la izquierda; una fila mide
+`ancho/8` bytes, y el total `ancho/8 × alto`.
+
+Una ilustración cuya longitud declarada sea ya `ancho/8 × alto` no lleva ni preámbulo ni
+compresión: es el mapa de bits en crudo, y pasa cuando comprimir no ahorraba nada.
+
+```
+preámbulo: 02 ff 00 cc 33      dos marcadores, ff y 00; cc y 33 son relleno
+cuerpo:    cc cc cc cc         cuatro literales
+           00 37               55 ceros
+           0c cc cc cc cc      cinco literales  -> fila 0 completa, 64 bytes
+           30 33 33 c3 ...     fila 1, que se escribe del revés
+```
+
+**Comprobado sobre 186 ilustraciones** —los `PARTE00N.DAT` de las dos partes de Cozumel y de Los
+Templos Sagrados— y todas decodifican a exactamente `ancho/8 × alto` bytes. Y la 4 de Cozumel se
+comparó píxel a píxel con lo que el intérprete moderno `DPCWISF3.BIN` pinta en pantalla: 6656 bytes
+de 6656. O sea que es también el formato que hay que escribir para una release nueva.
 
 ### 9.10. No hay herramienta que consultar
 
