@@ -1,0 +1,43 @@
+; La Aventura Original, part two: the word this port added.
+;
+; The same word and the same text as part one answers, and it is worth asking
+; twice because the two parts number them apart: the message is 140 of one
+; database and 163 of the other, and the verb is 117 against 121. A number
+; copied across from the other part compiles and plays, and what it prints is
+; whatever message happens to sit there — which is to say the test that catches
+; it is this one, in the part that was not the model.
+;
+; See part1-qdaad.qtest for what the EXPECTs are walking.
+;
+;   qdaad compile -i examples/AO/ZXSpectrum/+3/part2/game.sce -m pc -s vga -f ddb -o tmp/AO2 --part 2
+;   qrun -i tmp/AO2.ddb -T examples/AO/test/part2-qdaad.qtest
+
+TEST "La Aventura Original, parte II: la palabra QDAAD"
+
+SEED 1989
+TIMEOUT 1
+
+STEP "Clave de acceso"
+  EXPECT "¿Clave de acceso?"
+  INPUT "TIMACUS"
+END
+
+STEP "Arranque de la segunda parte"
+  EXPECT "Con un click la puerta se cierra mágicamente..."
+  KEY ENTER
+  EXPECT "Los rayos del sol iluminan la caverna"
+END
+
+STEP "QDAAD responde con el aviso del compilador"
+  INPUT  QDAAD
+  EXPECT "Queru's DAAD Compiler"
+  EXPECT "Jorge Fuertes AKA Queru"
+  EXPECT "descompilación, compilación y empaquetado de QDAAD"
+  EXPECT "software libre en 2026 y disponible en Github."
+  EXPECT "¡Gracias por jugar!"
+END
+
+STEP "Y AD sigue dando los créditos de 1989"
+  INPUT  AD
+  EXPECT "Tambien participaron"
+END

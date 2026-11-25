@@ -162,3 +162,8 @@
 /137 "Te dice "¡Hola tú!""
 /138 "La rama se mueve y se mueve."
 /139 "Tambien participaron: Eva Samitier, Juan Darder, Juanjo Muñoz y Tim Gilberts (some bugs)."
+
+; Not a message of 1989 either: what QDAAD answers with.
+/140 "Queru's DAAD Compiler#n#nEsta aventura ha sido modificada y compilada por Jorge Fuertes AKA Queru, usando las "
+     "herramientas de descompilación, compilación y empaquetado de QDAAD, publicado como software libre en 2026 y "
+     "disponible en Github.#n#n¡Gracias por jugar!"

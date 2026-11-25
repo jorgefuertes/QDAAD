@@ -1,0 +1,55 @@
+; La Aventura Original, part one: the word this port added.
+;
+; QDAAD is no word of 1989. It sits beside AD in table 5 — the easter egg the
+; original carries, verb 116 printing the credits — and answers with who
+; modified and compiled this adventure and with what.
+;
+; What the script is for is the text arriving whole. It is the longest message
+; either part holds after the two of the prologue, so it goes through the token
+; table like the rest, and the blank lines in it are #n and not the 0x0A that
+; ends a text. A token pruned wrong or an escape read wrong shows here as a
+; text that stops early or runs into the next one, which is why the EXPECTs
+; walk it from its first line to its last rather than matching it once.
+;
+;   qdaad compile -i examples/AO/ZXSpectrum/+3/part1/game.sce -m pc -s vga -f ddb -o tmp/AO1
+;   qrun -i tmp/AO1.ddb -T examples/AO/test/part1-qdaad.qtest
+
+TEST "La Aventura Original, parte I: la palabra QDAAD"
+
+SEED 1989
+
+STEP "Pantalla de título y bosque"
+  EXPECT "?"
+  KEY    SPACE
+
+  EXPECT "AVENTURA ORIGINAL"
+  KEY    SPACE
+
+  EXPECT "LA RESPUESTA DEPENDE DE TU VALOR"
+  KEY    SPACE
+
+  EXPECT "Estás en el bosque"
+  ASSERT AT = 3
+END
+
+STEP "QDAAD responde con el aviso del compilador"
+  INPUT  QDAAD
+  EXPECT "Queru's DAAD Compiler"
+  EXPECT "Jorge Fuertes AKA Queru"
+  EXPECT "descompilación, compilación y empaquetado de QDAAD"
+  EXPECT "software libre en 2026 y disponible en Github."
+  EXPECT "¡Gracias por jugar!"
+
+  ; The DONE and nothing else: it answers where the player stands and moves
+  ; nobody, which is what keeps it out of the way of the adventure.
+  ASSERT AT = 3
+END
+
+; And the 1989 word still answers, which is what says the entry was put beside
+; it and not over it. Two verbs one after the other in the same table, and the
+; parser has to tell them apart.
+STEP "Y AD sigue dando los créditos de 1989"
+  INPUT  AD
+  EXPECT "Tambien participaron"
+  ASSERT AT = 3
+END

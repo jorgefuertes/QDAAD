@@ -12,6 +12,7 @@
 # writes beside its sources.
 tmp/
 dist/
+dist.zip
 
 # IA
 CLAUDE.md

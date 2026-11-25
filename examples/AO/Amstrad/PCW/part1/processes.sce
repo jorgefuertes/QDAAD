@@ -311,6 +311,10 @@
 > AD       _        MESSAGE 139
                     DONE
 
+; And this port's own word, beside the 1989 one.
+> QDAAD    _        MESSAGE 140
+                    DONE
+
 > S        _        AT 28
                     PROCESS 11
 

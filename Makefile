@@ -289,7 +289,8 @@ qtest:
 			-o tmp/qtest-part$$part -f ddb -m pc -s vga -v 3 --part $$part; \
 		go run ./cmd/qrun -i tmp/qtest-part$$part.ddb \
 			-T examples/AO/test/part$$part.qtest \
-			-T examples/AO/test/part$$part-death.qtest; \
+			-T examples/AO/test/part$$part-death.qtest \
+			-T examples/AO/test/part$$part-qdaad.qtest; \
 		go run cmd/qdaad/qdaad.go compile -i "$(AO_EX)/+3_Extended/part$$part/game.sce" \
 			-o tmp/qtest-x-part$$part -f ddb -m pc -s vga -v 3 --part $$part; \
 		go run ./cmd/qrun -i tmp/qtest-x-part$$part.ddb \

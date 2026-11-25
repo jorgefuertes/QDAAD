@@ -350,3 +350,6 @@ ESTRU    114  NOUN
 HOLA     115  NOUN
 
 AD       116  VERB
+
+; Not a word of 1989: this port's own, answered in table 5.
+QDAAD    117  VERB

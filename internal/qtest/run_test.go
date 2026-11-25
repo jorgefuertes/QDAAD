@@ -445,12 +445,17 @@ END
 // and which is the half of the adventure the port has to supply: the tables of
 // 1989 left ending a game to the interpreter, so what the player sees after
 // dying is nobody's but ours.
+//
+// The -qdaad pair asks for the one word these sources add to the adventure,
+// which is the only text in them that nobody's edition of 1989 holds.
 func TestTheExampleScriptsPlay(t *testing.T) {
 	for _, c := range []struct{ tree, part, script string }{
 		{"+3", "part1", "part1.qtest"},
 		{"+3", "part2", "part2.qtest"},
 		{"+3", "part1", "part1-death.qtest"},
 		{"+3", "part2", "part2-death.qtest"},
+		{"+3", "part1", "part1-qdaad.qtest"},
+		{"+3", "part2", "part2-qdaad.qtest"},
 		{"+3_Extended", "part1", "part1-extended.qtest"},
 		{"+3_Extended", "part2", "part2-extended.qtest"},
 		{"+3_Extended", "part1", "part1-death-extended.qtest"},

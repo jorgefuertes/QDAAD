@@ -345,6 +345,10 @@
 > AD       _        MESSAGE 162
                     DONE
 
+; And this port's own word, beside the 1989 one.
+> QDAAD    _        MESSAGE 163
+                    DONE
+
 > SALID    _        PROCESS 14
                     DONE
 

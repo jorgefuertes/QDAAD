@@ -374,3 +374,6 @@ CACA     119  NOUN
 AD       120  VERB
 
 ESPEJ    120  NOUN
+
+; Not a word of 1989: this port's own, answered in table 5.
+QDAAD    121  VERB
