@@ -25,7 +25,15 @@ Amstrad/CPC/             README.md, part1/, part2/   two disks and two tapes,
 Amstrad/PCW/             README.md, part1/, part2/   two disks, with the PC
                                                      edition's drawings as
                                                      monochrome bitmaps
+PC/                      README.md, part1/, part2/   two directories, with the
+                                                     PC edition's own drawings
 ```
+
+The PC tree is the one whose pictures are not borrowed from another machine:
+La Aventura Original had a PC release and those are its drawings, in the four
+colours of CGA mode 4. Everything else about it is the +3 Extended tree
+measured for 53 columns, which is what a proportional six-pixel font makes of
+320 pixels.
 
 The 128K tapes have no tree of their own, and that is deliberate: the `.sce`
 files of `48/` and `+3/` are byte for byte the same and what differs is

@@ -65,23 +65,30 @@ disks carry none, and neither does this one.
 It needs `work/`, so a fresh checkout does not run it: what the tree carries is
 the bitmaps it produced.
 
-## What is not right
+## The row reversal that was not there
 
-**The engraved text does not read.** Part two's cave has XYZZY cut into the
-wall, black letters on a solid magenta plaque, and in the PC original it is
-perfectly legible. Here it is not.
+These drawings were wrong in this tree, and in the PC tree, and for a while the
+blame went to the dither.
 
-It is the dither, and the reason is worth writing down because the obvious fix
-makes things worse. These drawings arrive dithered already — a CGA artist had
-four colours and got more by alternating pixels — so the wall is a magenta and
-black checkerboard while the plaque is solid magenta: the same colour, one
-stippled and one not. Laying an ordered tile over that dithers a dither, and
-what goes first is the thin stroke a letter is made of.
+The reader reversed every odd row, on the belief that the archive writes them
+back and forth. It does not. Reversing them produces a picture that is coherent
+enough to pass inspection — flat fills where there should be stipple, which
+reads as a different drawing style rather than as damage — and that is exactly
+how it got through: the engraved XYZZY in part two would not read, and the
+stipple was the obvious culprit because the stipple was indeed gone.
 
-Resolving the source's stipple first and taking edges hard does make XYZZY
-legible. It also turns the second part's title screen into a black rectangle,
-because in these drawings the stipple is not noise over the picture, it **is**
-the picture. See the comment on `dither` in `script/pcwpic`.
+What settled it is the one illustration in the two archives that is stored
+uncompressed, picture 106 of part two. The decompiler renders that one with its
+own code, and it renders it unreversed; read unreversed, our bytes match its
+pixels exactly. Every other drawing in both parts is run-encoded, and the
+markers chosen for the encoding are the dither bytes themselves — 0xAA and 0x55,
+a pixel on and a pixel off — which is the other half of why losing the stipple
+looked like a dithering problem.
+
+So the reversal is gone from script/cgapic and both trees were made again. What
+has not been checked since is whether XYZZY reads now: the drawings are right,
+and whether the ordered tile over them leaves a thin stroke standing is a
+separate question and still an open one.
 
 ## What the disks hold
 

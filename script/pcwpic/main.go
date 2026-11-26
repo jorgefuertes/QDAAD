@@ -14,12 +14,10 @@
 // one ink per eight-by-eight cell, and the Amstrad's are vectors that version
 // 3 has no engine for.
 //
-// Two things make this short. The .CGA archive is laid out exactly like the
-// PCW's .DAT — six-byte header, 256 slots of ten, pictures behind — and it is
-// packed exactly like it too: markers chosen per picture, and the rows written
-// back and forth. That was not known when the decompiler was written, which is
-// why it calls the scheme unread and draws only what it can. See 9.9 of
-// docs/DAAD_v2_v3_Research/09-graficos.md.
+// What makes this short is that the .CGA archive is laid out like the PCW's
+// .DAT — six-byte header, 256 slots of ten, pictures behind — and packed like
+// it too, with markers chosen per picture. Reading it is script/cgapic, which
+// pcpcx shares.
 //
 // What comes out is one file per picture, named by the number a PICTURE names
 // it with, holding the bitmap qpack expects: rows of 64 bytes, the high bit of
@@ -32,17 +30,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/jorgefuertes/QDAAD/script/cgapic"
 )
 
 const (
-	// The PC archive, which is the PCW's with four pixels to the byte.
-	archiveHeader = 6
-	archiveSlots  = 256
-	slotSize      = 10
-	pictureHeader = 6
-	compressed    = 0x8000
-	maxMarkers    = 4
-
 	// The conversion, and it is Aventuras AD's own arithmetic rather than
 	// ours. Cozumel shipped on both machines and the two archives can be held
 	// side by side: its PC illustrations are 256 by 104 and its PCW ones are
@@ -117,8 +109,8 @@ func run(archive, dir string) error {
 	numbers := []int{}
 	total := 0
 
-	for number := range archiveSlots {
-		pixels, width, height, ok := picture(data, number)
+	for number := range cgapic.Slots {
+		pixels, width, height, ok := cgapic.Packed(data, number)
 		if !ok {
 			continue
 		}
@@ -143,101 +135,6 @@ func run(archive, dir string) error {
 	fmt.Printf("%d KiB of bitmaps, before qpack packs them\n", total/1024)
 
 	return nil
-}
-
-// picture reads one out of the archive, as four-colour pixels.
-func picture(data []byte, number int) (pixels []byte, width, height int, ok bool) {
-	at := archiveHeader + number*slotSize
-	if at+4 > len(data) {
-		return nil, 0, 0, false
-	}
-
-	offset := int(data[at]) | int(data[at+1])<<8 | int(data[at+2])<<16 | int(data[at+3])<<24
-	if offset == 0 || offset+pictureHeader > len(data) {
-		return nil, 0, 0, false
-	}
-
-	word := func(i int) int { return int(data[offset+i]) | int(data[offset+i+1])<<8 }
-
-	flags := word(0)
-	width, height = flags&0x0FFF, word(2)
-	body := data[offset+pictureHeader:]
-
-	if length := word(4); length < len(body) {
-		body = body[:length]
-	}
-
-	stride := width / 4 // four pixels to the byte in CGA mode 4
-
-	if flags&compressed != 0 {
-		body = expand(body)
-	}
-
-	if len(body) < stride*height {
-		return nil, 0, 0, false
-	}
-
-	return unweave(body, stride, height), width, height, true
-}
-
-// expand undoes the run-length scheme: five bytes of preamble naming up to
-// four markers, and a marker is followed by how many times it repeats, with
-// zero meaning 256.
-func expand(body []byte) []byte {
-	if len(body) < 1+maxMarkers {
-		return body
-	}
-
-	marker := [256]bool{}
-	for _, m := range body[1 : 1+int(body[0])] {
-		marker[m] = true
-	}
-
-	out := make([]byte, 0, len(body)*2)
-
-	for i := 1 + maxMarkers; i < len(body); {
-		b := body[i]
-		i++
-
-		if !marker[b] || i >= len(body) {
-			out = append(out, b)
-
-			continue
-		}
-
-		run := int(body[i])
-		if run == 0 {
-			run = 256
-		}
-
-		i++
-
-		for range run {
-			out = append(out, b)
-		}
-	}
-
-	return out
-}
-
-// unweave puts the rows the right way round: they are stored back and forth.
-func unweave(body []byte, stride, height int) []byte {
-	out := make([]byte, 0, stride*height)
-
-	for y := range height {
-		row := body[y*stride : (y+1)*stride]
-		if y%2 == 0 {
-			out = append(out, row...)
-
-			continue
-		}
-
-		for i := len(row) - 1; i >= 0; i-- {
-			out = append(out, row[i])
-		}
-	}
-
-	return out
 }
 
 // dither turns four-colour pixels into one-colour ones, twice as wide.

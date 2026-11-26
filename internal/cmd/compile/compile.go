@@ -364,8 +364,20 @@ func readPictures(dir string) (pictures, palettes map[int][]byte, err error) {
 		return nil, nil, err
 	}
 
+	// A PC drawing is a PCX, because that is what DAAD's DOS tooling takes and
+	// so what anybody drawing for it has on disk. It is the one target whose
+	// pictures are not a dump of some video memory, so it is the one whose
+	// files are not .scr — and the extension is all that says so, since from
+	// here on a picture is bytes nobody looks inside until the packager does.
 	if len(pictures) == 0 {
-		return nil, nil, fmt.Errorf("%s holds no pictures: they are named 000.scr and upwards", dir)
+		if pictures, err = numberedFiles(dir, ".pcx"); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if len(pictures) == 0 {
+		return nil, nil, fmt.Errorf(
+			"%s holds no pictures: they are named 000.scr and upwards, or 000.pcx for a PC", dir)
 	}
 
 	if palettes, err = numberedFiles(dir, ".pal"); err != nil {

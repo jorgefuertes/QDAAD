@@ -473,6 +473,65 @@ it quietly. The catalogues come out the shape the 1989 ones are: the cover on
 the first disk only, which is where Cozumel and Los Templos Sagrados put
 theirs.
 
+A **PC release** is not a container at all, and it is the only one here that is
+not. Every other target ends in something with a shape — a stream of blocks at
+fixed addresses, a disk format with a directory and a specification — because
+every other target has to fit an adventure into a machine that has not got room
+for it. A PC has a filesystem and megabytes of it, so DAAD's answer is loose
+files with the names the interpreter opens, and the whole of the packaging is
+putting the right bytes in the right names:
+
+```text
+PCDAAD.EXE  the interpreter
+DAAD.DDB    the adventure
+DAAD.FNT    the character set, with a width for each glyph
+DAAD.MSD    the picture shown before anything else
+NNN.MSD     a picture
+0.XMB       the texts read off disk
+PRUEBA.BAT  one line, so there is something obvious to type
+```
+
+Those names are not a convention read off a build script. **PCDAAD's own source
+is in the checkout** — twenty-nine files of Pascal — so what it opens is read
+rather than measured: `DAAD.DDB` is the database it defaults to, `DAAD.FNT` is
+tried before `DAAD.CHR`, and a picture is three digits and `.MSD` before it
+falls back to `.pcx` and `.VGA`. Reading beats measuring, and this target is
+the one place in this project where the whole of the other side was available
+to read.
+
+What is not in the release is DOSBox. DAAD READY's PC build carries
+`dosbox.exe`, two SDL DLLs and a batch file that runs them, which is a Windows
+program for running a DOS program; mount the directory in whatever DOS you have
+and type the name.
+
+The character set is the one thing a PC does differently from every other
+machine here: **its text is proportional**. A `.FNT` is SINTAC's format and
+carries a width for each of the 256 glyphs in its last 2304 bytes, so an `i` is
+three pixels and an `m` is six. A source that declares an ordinary eight-bit
+2048-byte character set gets it as `DAAD.CHR` instead, and the interpreter gives
+every glyph a width of six — which is what the eight-bit machines do anyway.
+
+A picture is a PCX, because that is what DAAD's DOS tooling takes and so what
+anybody drawing for it has on disk. It is the one target whose pictures are not
+a dump of some video memory, which is why its sources hold `000.pcx` where the
+others hold `000.scr`. What goes in the release is `.MSD`, SCRMAKER's own
+format: sixteen bytes of geometry, the whole 768-byte palette, and one byte a
+pixel with no compression at all — 31504 bytes for a 320×96 drawing, where a
+Spectrum fits forty of them in 16 KB. It went on a hard disk and nobody minded.
+
+The part worth knowing about is the palette. DAAD keeps the bottom sixteen
+entries for itself, because a PC release picks its inks with the same numbers an
+eight-bit one does and `INK 6` has to be yellow. So every pixel of the drawing
+moves up sixteen places and its palette moves with it, and the Spectrum's own
+sixteen colours take the seats at the bottom. A drawing using the top sixteen
+entries has nowhere to move to and is refused rather than wrapped, because a
+wrap would paint those pixels in the text colours and look very nearly right.
+
+That shift is what `make compare-scrmaker` is for: it builds SCRMAKER from its
+own source, converts the same PCX files, and compares the bytes. Get the shift
+wrong and the picture still draws, in the wrong colours, with no error
+anywhere.
+
 ## qrun, the interpreter
 
 ```sh

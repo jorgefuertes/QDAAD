@@ -180,6 +180,30 @@ Una **cinta de CPC** es un `cdt`, y no es la cinta del Spectrum envuelta: el Ams
 
 `--ram 128` es donde la docena se convierte en todas, tanto en cinta como en disco. Los cuatro bancos libres de un 6128 son 64K que el intérprete no toca nunca —no escribe en más puertos que los del PPI y deja en paz la configuración de memoria de la puerta lógica de principio a fin—, así que ahí van las imágenes, llenando un banco tras otro, y el cargador conmuta cada uno a la ventana de `0x4000` según lo lee. Las 28 imágenes de la primera parte de La Aventura Original caben con sitio de sobra. Vale tanto para disco como para cinta, y `--ram 128` lo dice en los dos: un disco de 128K se lee una vez y no se vuelve a tocar, mientras que uno de 64K abre un fichero cada vez que el jugador entra en una localidad. La release no arranca en un 464 ni en un 664, y ese es todo el precio.
 
+Una **release de PC** no es un contenedor, y es la única de aquí que no lo es. Todas las demás acaban en algo con forma —un flujo de bloques en direcciones fijas, un formato de disco con directorio y especificación— porque todas las demás tienen que meter una aventura en una máquina que no tiene sitio. Un PC tiene sistema de ficheros y megabytes de él, así que la respuesta de DAAD son ficheros sueltos con los nombres que abre el intérprete, y todo el empaquetado consiste en poner los bytes correctos en el nombre correcto:
+
+```text
+PCDAAD.EXE  el intérprete
+DAAD.DDB    la aventura
+DAAD.FNT    la tipografía, con una anchura por glifo
+DAAD.MSD    la imagen que se ve antes que nada
+NNN.MSD     una imagen
+0.XMB       los textos que se leen de disco
+PRUEBA.BAT  una línea, para que haya algo evidente que teclear
+```
+
+Esos nombres no son una convención leída de un script de construcción. **El fuente de PCDAAD está en el repositorio** —veintinueve ficheros de Pascal—, así que lo que abre está leído y no medido: `DAAD.DDB` es la base de datos que toma por omisión, `DAAD.FNT` se prueba antes que `DAAD.CHR`, y una imagen son tres dígitos y `.MSD` antes de recurrir a `.pcx` y a `.VGA`. Leer gana a medir, y este destino es el único sitio de este proyecto donde el otro lado entero estaba para leerlo.
+
+Lo que no va en la release es DOSBox. La de DAAD READY lleva `dosbox.exe`, dos DLL de SDL y un `.BAT` que los arranca, que es un programa de Windows para ejecutar un programa de DOS; se monta el directorio en el DOS que cada uno tenga y se teclea el nombre.
+
+La tipografía es lo único que un PC hace distinto de todas las demás máquinas de aquí: **su texto es proporcional**. Un `.FNT` es el formato de SINTAC y lleva una anchura por cada uno de los 256 glifos en sus últimos 2304 bytes, así que una `i` mide tres píxeles y una `m` seis. Un fuente que declare una tipografía corriente de 8 bits, de 2048 bytes, la recibe como `DAAD.CHR` y el intérprete le da seis de ancho a todos los glifos —que es lo que hacen las máquinas de 8 bits de todos modos—.
+
+Una imagen es un PCX, porque es lo que toman las herramientas de DOS de DAAD y por tanto lo que tiene en disco quien dibuje para él. Es el único destino cuyas imágenes no son un volcado de una memoria de vídeo, y por eso sus fuentes llevan `000.pcx` donde los demás llevan `000.scr`. Lo que va en la release es `.MSD`, el formato propio de SCRMAKER: 16 bytes de geometría, la paleta entera de 768, y un byte por píxel sin compresión ninguna —31504 bytes para un dibujo de 320×96, donde un Spectrum mete cuarenta en 16K—. Iba a un disco duro y a nadie le importó.
+
+La parte que hay que saber es la paleta. DAAD se reserva las dieciséis primeras entradas, porque una release de PC elige sus tintas con los mismos números que una de 8 bits e `INK 6` tiene que ser amarillo. Así que cada píxel del dibujo sube dieciséis puestos y su paleta sube con él, y las dieciséis del Spectrum se sientan abajo. Un dibujo que use las dieciséis últimas entradas no tiene a dónde subir y se rechaza en vez de darle la vuelta, porque darle la vuelta pintaría esos píxeles con los colores del texto y quedaría casi bien.
+
+Ese desplazamiento es para lo que está `make compare-scrmaker`: compila SCRMAKER de su propio fuente, convierte los mismos PCX y compara los bytes. Si el desplazamiento está mal, la imagen se pinta igual, con los colores cambiados y sin un error en ninguna parte.
+
 ## qrun, el intérprete
 
 ```sh

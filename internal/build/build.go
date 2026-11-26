@@ -282,6 +282,14 @@ func Read(dir string) (Build, error) {
 func parseManifest(text string) (Build, error) {
 	var out Build
 
+	// Whether the manifest said, rather than whether the field is still zero.
+	//
+	// Those are not the same question and the difference is a machine: the
+	// PC's identifier in a DDB header is 0x00, so arch.PC is the zero value of
+	// arch.Machine and a build for one read as "nothing said" — which it did,
+	// until a PC release was first asked for.
+	var said bool
+
 	for n, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -299,9 +307,13 @@ func parseManifest(text string) (Build, error) {
 		if err := out.set(key, value); err != nil {
 			return Build{}, fmt.Errorf("line %d: %w", n+1, err)
 		}
+
+		if key == "machine" {
+			said = true
+		}
 	}
 
-	if out.Machine == 0 {
+	if !said {
 		return Build{}, fmt.Errorf("no machine: a build has to say what it is for")
 	}
 

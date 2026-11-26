@@ -184,10 +184,17 @@ var runtimes = map[Target]Runtime{
 	},
 	// The DOS interpreter is the same whatever the language: it reads its
 	// messages from the database rather than carrying them.
-	PC: {interpreter: map[language.Language]string{
-		language.LanguageEnglish: "pc/PCDAAD.EXE",
-		language.LanguageSpanish: "pc/PCDAAD.EXE",
-	}},
+	//
+	// PC.FNT is the font, and it is the only proportional one in here: a
+	// header, then 256 widths and the glyphs in its last 2304 bytes. Every
+	// other machine's text is six pixels a glyph whatever the glyph.
+	PC: {
+		interpreter: map[language.Language]string{
+			language.LanguageEnglish: "pc/PCDAAD.EXE",
+			language.LanguageSpanish: "pc/PCDAAD.EXE",
+		},
+		companions: []string{"pc/PC.FNT"},
+	},
 }
 
 // Interpreter returns the interpreter for a target and a language.

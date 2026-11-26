@@ -1,4 +1,4 @@
-.PHONY: version dist build test qtest doc compiler decompiler packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker compare-zx0 example-ao example-ao-48 example-ao-128 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw
+.PHONY: version dist build test qtest doc compiler decompiler packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker compare-scrmaker compare-zx0 example-ao example-ao-48 example-ao-128 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw example-ao-pc
 
 # The release this is, which is the tag git last saw and not a number written
 # anywhere in the source. A tree with no tags at all still builds, and says so:
@@ -203,6 +203,10 @@ compare-daadmaker:
 # and requires our decoder to read what it wrote. Byte equality is not asked
 # for: his coder runs a shortest path and ours is greedy.
 # Needs a C compiler; says so and stops if it is missing.
+# Holds our PC pictures against SCRMAKER's, over the same PCX files.
+compare-scrmaker:
+	@script/compare-scrmaker.sh
+
 compare-zx0:
 	@script/compare-zx0.sh
 
@@ -288,7 +292,19 @@ example-ao-pcw:
 			tmp/ao-pcw-part$$part; \
 	done
 
-example-ao: example-ao-48 example-ao-128 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw
+# The PC, which is the one release with no container: a directory of the files
+# the interpreter opens. Its drawings are the PC edition's own, converted by
+# script/pcpcx, and the windows are measured for 53 columns — see
+# examples/AO/PC/README.md.
+example-ao-pc:
+	@for part in 1 2; do \
+		go run cmd/qdaad/qdaad.go compile -i examples/AO/PC/part$$part/game.sce \
+			-o tmp/ao-pc-part$$part -f build -m pc -s vga256 -v 3 --part $$part; \
+		go run cmd/qpack/qpack.go -f dir -o tmp/AOPC-$$part --name AO$$part \
+			tmp/ao-pc-part$$part; \
+	done
+
+example-ao: example-ao-48 example-ao-128 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw example-ao-pc
 
 # Plays the walkthroughs in examples/AO/test, which is the first part of La
 # Aventura Original won and the second part entered, in the test language qrun

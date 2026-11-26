@@ -115,6 +115,21 @@ func TestAManifestWeDoNotUnderstand(t *testing.T) {
 	require.ErrorContains(t, err, "no machine")
 }
 
+// A build for a PC is a build like any other, and it says so.
+//
+// Worth a test of its own because of what it used to do. The PC's identifier in
+// a DDB header is 0x00, so arch.PC is the zero value of arch.Machine, and a
+// manifest reader that took the zero value for "nothing said" refused every PC
+// build with "no machine" — a manifest with machine = "pc" right there in it.
+// Nothing else in the registry has the number zero, so nothing else showed it.
+func TestAPCBuildSaysWhatItIsFor(t *testing.T) {
+	build, err := parseManifest("machine = \"pc\"\nsubtarget = \"vga256\"")
+
+	require.NoError(t, err)
+	require.Equal(t, arch.PC, build.Machine)
+	require.Equal(t, "vga256", build.Subtarget)
+}
+
 // Two parts of one adventure have to agree about the machine they are for.
 //
 // Two that disagree would make a disk rather than an error: one that boots,

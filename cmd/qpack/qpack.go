@@ -80,7 +80,9 @@ func main() {
 					"nothing compresses a CPC picture, so a tall one is sixteen " +
 					"kilobytes of a disk with a hundred and seventy-eight, and " +
 					"the 96 lines DAAD's own IMGLINES defaults to are 96 because " +
-					"that is the most that lets two bands share a record.",
+					"that is the most that lets two bands share a record. On a PC " +
+					"it is what makes a release the bytes SCRMAKER writes, since " +
+					"that tool crops every drawing to one height.",
 			},
 			&cli.IntFlag{
 				Name:  "generic",
@@ -313,6 +315,11 @@ func assemble(
 			return pack.CPCRelease(b.Database, opts)
 		case arch.PCW:
 			return pack.PCWRelease(b.Database, opts)
+		// The PC has no container and a directory is not a second-best for it:
+		// it is what DAAD READY ships, loose files with the names the
+		// interpreter opens. See pack.PCRelease.
+		case arch.PC:
+			return pack.PCRelease(b.Database, b.Subtarget, opts)
 		default:
 			return nil, notPackaged(b.Machine)
 		}
@@ -386,6 +393,13 @@ func assemble(
 			if opts.Boot {
 				note = "180K PCW disk with CP/M on it: it starts the adventure on its own"
 			}
+		// The PC is packaged, and not into a disk image. It has a filesystem
+		// and DAAD's answer for it is loose files, so there is no container to
+		// write and nothing to put one in.
+		case arch.PC:
+			return nil, fmt.Errorf(
+				"a PC release is a directory of files and not a disk image: --format %s",
+				formatDir)
 		default:
 			return nil, notPackaged(b.Machine)
 		}
@@ -482,7 +496,7 @@ func isTerminal(f *os.File) bool {
 
 func notPackaged(machine arch.Machine) error {
 	return fmt.Errorf(
-		"only the Spectrum, the CPC and the PCW are packaged so far, not the %s", machine)
+		"only the Spectrum, the CPC, the PCW and the PC are packaged so far, not the %s", machine)
 }
 
 // write puts the release where it was asked for, as a directory or as the one
