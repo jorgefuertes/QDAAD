@@ -242,22 +242,42 @@ type tapeBlock struct {
 // only in who assembles them, so this is what they share: the interpreter for
 // the target asked for, page zero with the pictures in it, the index and
 // graphics stub as one block, and the checks that say whether any of it fits.
-func zxBlocks(target runtime.Target, database []byte, opts Options) (zxParts, error) {
-	_, interpreter, err := runtime.Interpreter(target, opts.Language)
+// zxStart is the three things every Spectrum build begins from, whichever
+// Spectrum it is for: the interpreter of the target asked for, the graphics stub
+// the index goes in front of, and the font that is written over the one the stub
+// carries.
+//
+// The stub and the font come from the 48K set whatever the target. They are data
+// rather than code and every ZX interpreter reads the same two, which is why
+// there is one of each and not one per machine.
+func zxStart(target runtime.Target, opts Options) (interpreter, stub, charset []byte, err error) {
+	_, interpreter, err = runtime.Interpreter(target, opts.Language)
 	if err != nil {
-		return zxParts{}, err
+		return nil, nil, nil, err
 	}
 
-	// The stub and the font come from the 48K set whatever the target: they are
-	// data rather than code, and every ZX interpreter reads the same two.
 	companions, err := runtime.Companions(runtime.ZX48)
 	if err != nil {
-		return zxParts{}, err
+		return nil, nil, nil, err
 	}
 
 	stub, carried := companions["DAAD.SDG"]
 	if !carried {
-		return zxParts{}, fmt.Errorf("the built-in graphics stub is missing")
+		return nil, nil, nil, fmt.Errorf("the built-in graphics stub is missing")
+	}
+
+	charset = opts.Charset
+	if len(charset) == 0 {
+		charset = companions["AD8x6.CHR"]
+	}
+
+	return interpreter, stub, charset, nil
+}
+
+func zxBlocks(target runtime.Target, database []byte, opts Options) (zxParts, error) {
+	interpreter, stub, charset, err := zxStart(target, opts)
+	if err != nil {
+		return zxParts{}, err
 	}
 
 	// Read from the machine rather than written here, so that the address the
@@ -274,11 +294,6 @@ func zxBlocks(target runtime.Target, database []byte, opts Options) (zxParts, er
 	// The index and the stub are one block, index first, ending on the last
 	// byte of RAM.
 	top := append(imageIndex(page), stub...)
-
-	charset := opts.Charset
-	if len(charset) == 0 {
-		charset = companions["AD8x6.CHR"]
-	}
 
 	if err := replaceCharset(top, charset); err != nil {
 		return zxParts{}, err

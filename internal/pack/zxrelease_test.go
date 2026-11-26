@@ -100,22 +100,47 @@ func TestThePlus3LoaderStartsAtItsFirstLine(t *testing.T) {
 		"the first statement is not CLEAR")
 }
 
-// A Spectrum this does not write for says which, and the 128K says why.
+// A Spectrum this does not write for says which. esxDOS, the Next and the
+// ZX-Uno are machines nobody has got to yet: each has an interpreter embedded
+// here and a picture format of its own that nothing writes.
 //
-// The two answers are different on purpose. esxDOS, the Next and the ZX-Uno are
-// machines nobody has got to yet, and the error reads like it; the 128K is a
-// decision — its interpreter does not do version 3 and was withdrawn from DAAD
-// READY — and an error that read "not yet" would be promising work nobody
-// intends to do. The +3 is the 128K machine this writes for.
+// The 128K used to be in this list, with a long reason that was wrong. What
+// DAAD READY withdrew in version B is the target built around ZXDAAD128, which
+// it called EXPERIMENTAL_ZX128K; the ZX128K target stayed and got a new
+// interpreter derived from DAAD's own source. See the case in ZXRelease.
 func TestASpectrumWeDoNotPackageSaysSo(t *testing.T) {
 	for _, subtarget := range []string{"esxdos", "next", "uno"} {
 		_, err := ZXRelease(someDatabase(), subtarget, Options{Language: language.LanguageSpanish})
-		require.ErrorContains(t, err, "48k or plus3")
+		require.ErrorContains(t, err, "48k, 128k or plus3")
+	}
+}
+
+// And the 128K is one of the three that is written: a tape, like the 48K.
+func TestThe128KIsATape(t *testing.T) {
+	release, err := ZXRelease(someDatabase(), "128k",
+		Options{Language: language.LanguageSpanish, Name: "prueba"})
+	require.NoError(t, err)
+
+	file, err := release.Single()
+	require.NoError(t, err)
+	require.Equal(t, "prueba.tap", file.Name)
+}
+
+// Unlike the 48K, it takes xmessages. A tape has no filesystem, which is why
+// the 48K refuses them; this machine does not need one — the texts go into the
+// banks above 0xC000 and the interpreter pages one in.
+func TestThe128KTakesXMessagesWhereThe48KCannot(t *testing.T) {
+	opts := Options{
+		Language:  language.LanguageSpanish,
+		Name:      "prueba",
+		XMessages: []byte("some text\xF5"),
 	}
 
-	_, err := ZXRelease(someDatabase(), "128k", Options{Language: language.LanguageSpanish})
-	require.ErrorContains(t, err, "ZXDAAD128")
-	require.ErrorContains(t, err, "plus3", "it should say what to build instead")
+	_, err := ZXRelease(someDatabase(), "48k", opts)
+	require.ErrorContains(t, err, "no disk to read xmessages from")
+
+	_, err = ZXRelease(someDatabase(), "128k", opts)
+	require.NoError(t, err)
 }
 
 // The picture a disk shows while it loads, and the moment it gets to be looked

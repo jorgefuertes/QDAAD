@@ -114,19 +114,33 @@ func ZXRelease(database []byte, subtarget string, opts Options) (*Release, error
 		return zxPlus3(database, opts)
 
 	case "128k":
-		// Not a gap. A 128K release is a tape built around ZXDAAD128, and that
-		// interpreter was withdrawn from DAAD READY in version B — see
-		// docs/DAAD_v2_v3_Research/08-interpretes.md, which ranks it last of
-		// the five for version 3 and says plainly that it is not an option for
-		// it. The +3 is the 128K machine this packages, and it packages it as
-		// a disk because that is what a +3 has.
-		return nil, errors.New(
-			"a 128K release would need ZXDAAD128, which DAAD READY withdrew in version B " +
-				"and which does not do version 3: build for plus3, which is the 128K machine " +
-				"this writes for")
+		// A tape, like the 48K, and unlike the 48K it may carry xmessages:
+		// the texts go into the banks above 0xC000 and the interpreter pages
+		// one in rather than opening a file, so there is no filesystem needed
+		// and nothing to refuse.
+		//
+		// This was read the wrong way round once and the mistake is worth
+		// naming, because the note that recorded it was convincing. What DAAD
+		// READY withdrew in version B is the target built around ZXDAAD128,
+		// which it called EXPERIMENTAL_ZX128K (WHATSNEW.TXT:77-79). The ZX128K
+		// target itself stayed, with a new interpreter derived from DAAD's own
+		// source — "ZXDAAD128 has been replaced as main interpreter for the
+		// Spectrum 128K and +3 targets", WHATSNEW.TXT:188-189 — and that is
+		// DS128KE3.BIN, embedded here, whose trailing 3 is the version it is
+		// for.
+		tape, err := ZX128(database, opts)
+		if err != nil {
+			return nil, err
+		}
+
+		return NewRelease(File{
+			Name: opts.Name + ".tap",
+			Body: tape,
+			Note: "128K tape: BASIC loader, interpreter, database, graphics and the upper banks",
+		}), nil
 
 	default:
-		return nil, fmt.Errorf("%q is not a Spectrum this writes: it is 48k or plus3",
+		return nil, fmt.Errorf("%q is not a Spectrum this writes: it is 48k, 128k or plus3",
 			subtarget)
 	}
 }

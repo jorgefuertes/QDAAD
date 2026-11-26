@@ -1,4 +1,4 @@
-.PHONY: version dist build test qtest doc compiler decompiler packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker compare-zx0 example-ao example-ao-48 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw
+.PHONY: version dist build test qtest doc compiler decompiler packager decomp-all decomp-ao recompile-all compile-all compare-drf compare-drb compare-daadmaker compare-zx0 example-ao example-ao-48 example-ao-128 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw
 
 # The release this is, which is the tag git last saw and not a number written
 # anywhere in the source. A tree with no tags at all still builds, and says so:
@@ -227,6 +227,21 @@ example-ao-48:
 		go run cmd/qpack/qpack.go -f tzx -o tmp/AO$$part --name AO$$part tmp/ao-48-part$$part; \
 	done
 
+# The 128K tape, which is the +3's content without the disk.
+#
+# It builds from the +3 sources on purpose and has no tree of its own: the .sce
+# files of 48/ and +3/ are byte for byte the same and what differs is gfx/scr,
+# four drawings against twenty-eight. So the +3 tree is already "every drawing
+# of the Spectrum edition", and pointing the 128K build at it is the whole
+# demonstration — the same twenty-eight on a tape, in the banks above 0xC000,
+# where the 48K tape fits four.
+example-ao-128:
+	@for part in 1 2; do \
+		go run cmd/qdaad/qdaad.go compile -i "$(AO_EX)/+3/part$$part/game.sce" \
+			-o tmp/ao-128-part$$part -f build -m zx -s 128k -v 3 --part $$part; \
+		go run cmd/qpack/qpack.go -f tap -o tmp/AO128-$$part --name AO$$part tmp/ao-128-part$$part; \
+	done
+
 example-ao-p3:
 	@for part in 1 2; do \
 		go run cmd/qdaad/qdaad.go compile -i "$(AO_EX)/+3/part$$part/game.sce" \
@@ -273,7 +288,7 @@ example-ao-pcw:
 			tmp/ao-pcw-part$$part; \
 	done
 
-example-ao: example-ao-48 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw
+example-ao: example-ao-48 example-ao-128 example-ao-p3 example-ao-p3x example-ao-cpc example-ao-pcw
 
 # Plays the walkthroughs in examples/AO/test, which is the first part of La
 # Aventura Original won and the second part entered, in the test language qrun

@@ -63,6 +63,19 @@ func (t *TAP) Program(name string, body []byte, line int) {
 	t.block(0xFF, body)
 }
 
+// Headerless appends a data block with no header in front of it.
+//
+// The ROM pairs a header with the block after it and a block with no header is
+// one BASIC cannot load — LOAD has nothing to match a name against and nowhere
+// to be told to put it. Which is the point: these are the blocks a program loads
+// for itself once it is running, with its own call into the ROM's loader, and on
+// a 128K Spectrum that is how the banks are filled. Saving the header saves
+// seventeen bytes and, more to the point, saves the ROM deciding where the bytes
+// go when the program is the only thing that knows.
+func (t *TAP) Headerless(body []byte) {
+	t.block(0xFF, body)
+}
+
 // Bytes is the tape.
 func (t *TAP) Bytes() []byte {
 	return t.out

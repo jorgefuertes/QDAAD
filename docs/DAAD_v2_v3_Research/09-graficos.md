@@ -357,47 +357,62 @@ sobre la pantalla de carga, ya en modo 0, que es lo que delata que el cargador h
 bien. Tal como lo deja `MC START PROGRAM` el firmware ya está leyendo la cinta por la que entró el
 `RUN`, así que el cargador de cinta no hace nada de esto.
 
-### Formato `.128` del +3
+### Formato `.128` del +3 y del 128K
 
 Un fichero por imagen, con tres dígitos y esa extensión: el intérprete lleva el molde del
 nombre dentro —la cadena `UTO.128` en `DSP3S3.BIN`— y escribe el número encima. La tubería
 es `scrcrop` → `zx0` → `SCRMAKER spectrum128`.
 
+**Es un formato para las dos máquinas, no para el +3 solo.** `ZXPLUS3.BAT` y `ZX128K.BAT`
+llaman los dos a `SCRMAKER spectrum128`, así que el `.128` que el +3 abre del disco y el que
+el 128K carga en un banco son el mismo fichero. En el +3 es un fichero suelto; en el 128K va
+dentro del bloque de su banco, y lo que dice dónde empieza y cuánto mide es el `INDEX.BIN`
+—ver [11-build-plataformas.md](11-build-plataformas.md).
+
 Lo que entra en `SCRMAKER` es, en palabras de su propia ayuda, *«a .ZX0 file, which must be
 a 6912 bytes SCR file compressed with zx0»*: **un solo flujo** con la pantalla entera, no
-dos mitades. Lo que `SCRMAKER` le pone delante son **7 bytes** de cabecera, y qué hay en
-ellos está **sin resolver**:
+dos mitades. Y lo que le pone delante son **5 bytes**, no 7:
 
-- `plus3cache.php:4-19` los cuenta sin describirlos: *«DataSize: the image file size minus 7
-  bytes for the image file header»*.
-- `SCRMAKER` es un PE32 sin fuente publicado, y no hay ningún `.128` real en el árbol del
-  que medirlos.
-- La cabecera de **6** bytes que sí está documentada —dos palabras de tamaño y dos cuentas
-  de líneas, en `DecompressPicture`, `work/ZXDAAD128/src/ZXDAAD128.bas:398`— **es de otro
+```pascal
+BlockWrite(outFile, WidthInCharacters, 1);   { ancho DIV 8  }
+BlockWrite(outFile, HeightInCharacters, 1);  { alto DIV 8   }
+BlockWrite(outFile, WidthInColumns, 1);      { ancho DIV 6  }
+BlockWrite(outFile, X0InChars, 1);           { X0 DIV 8     }
+BlockWrite(outFile, Y0InChars, 1);           { Y0 DIV 8     }
+Blockwrite(outFile, buffer[0], BytesRead);   { el .zx0 entero }
+```
+
+`PROCEDURE SPECTRUM128`, **`work/additional_sources/SCRMAKER.PAS:1045-1097`**. Un `Y0` mayor
+o igual que la altura de la pantalla marca la imagen como flotante y anula `X0` e `Y0`. Al
+otro lado, `PLUS3.ASM` lee esos cinco bytes en cinco variables —`WidthInCharacters`,
+`HeightInCharacters`, `WidthInColumns`, `FixedXInChars`, `FixedYInChars`— y descomprime lo
+que sigue de una vez en `PictureBuffer`, un búfer de 6912 bytes en `0xC200`. **Nunca
+descomprime a la pantalla**, y por eso el flujo no lleva nada destorcido: es un volcado de
+pantalla tal como está en memoria de vídeo, y el intérprete lo copia después.
+
+Dos pistas que costaron cuatro intentos y que hay que leer con cuidado:
+
+- **Los «7 bytes» de `plus3cache.php:4-19`** —*«DataSize: the image file size minus 7 bytes
+  for the image file header»*— están **mal**. Son 5. El comentario del propio `SCRMAKER.PAS`
+  también numera mal sus campos, que se saltan la altura y acaban en `05-`; lo que vale es la
+  secuencia de `BlockWrite`.
+- **La cabecera de 6 bytes de `work/ZXDAAD128/src/ZXDAAD128.bas:398`** es de **otro
   intérprete**: ZXDAAD128 descomprime dos flujos, los píxeles con `dzx0_standard_dcp`, que
-  convierte direcciones lineales a direcciones de pantalla, y los atributos con el decoder
-  normal. Esa rutina de conversión no aparece en ninguno de los doce intérpretes que
-  embebemos, así que el formato de ZXDAAD128 no es el nuestro. Escribirlo cuelga la máquina:
-  pasa la presentación y se reinicia al primer `PICTURE`.
+  convierte direcciones lineales a direcciones de pantalla. Esa rutina no está en ninguno de
+  los intérpretes que embebemos.
 
-Hace falta un `.128` auténtico, o el fuente de `SCRMAKER`, antes de intentarlo otra vez.
+#### Lo que se probó antes de encontrar el fuente
 
-#### Lo que sí quedó establecido probando contra el emulador
-
-Cuatro intentos, cuatro síntomas, y cada uno descarta algo. Vale la pena que estén escritos
-para que nadie los repita:
+Cuatro intentos contra el emulador, y cada uno descartaba algo. Quedan escritos porque el
+camino corto habría sido buscar el fuente primero —estaba en `work/additional_sources/`— y es
+la misma moraleja que la tabla de imágenes del 48K:
 
 | Lo que se escribió | Lo que hizo la máquina | Lo que descarta |
 |---|---|---|
 | Página en memoria, como el 48K | nada | el +3 no mira ahí: abre ficheros |
 | 2 flujos, píxeles en orden de vídeo | trece líneas de basura **seguidas** | el intérprete destuerce las direcciones él mismo: una tirada escrita a 0x4000 saldría repartida en tercios |
 | 2 flujos, píxeles lineales, cabecera de 6 | ruido en toda la pantalla, cuelgue antes de imprimir | no es un flujo que se tuerce y para: escribe más allá de la pantalla, y eso es leer desde un sitio que no es |
-| Lo mismo con cabecera de 7 | idéntico | ni 6 ni 7 |
-
-Y lo que se sabe con certeza: **el fichero se encuentra y se lee** — el emulador enciende la luz
-de la disquetera—, así que el nombre `nnn.128` y el sitio son correctos. Lo que no se entiende
-es lo de dentro. Quedan dos cosas por saber y ninguna se deduce desde fuera: cuántos bytes
-salta y si descomprime uno o dos flujos.
+| Lo mismo con cabecera de 7 | idéntico | ni 6 ni 7: era **un** flujo y **5** bytes |
 
 ### Formato `.GRA` del +3
 
@@ -405,7 +420,8 @@ Documentado en `TOOLS/plus3cache/plus3cache.php:4-19`. No es donde viven las im�
 caché de las más usadas, de 8,75K como mucho, y el resto se leen del disco. Se carga en
 `C000h + 512 + 6912`: 2 bytes de longitud, tabla de 5 bytes por imagen (`localidad 1 B`,
 `offset 2 B LE`, `tamaño 2 B LE`), terminador `localidad = 255`, y después los ficheros
-`.128` enteros, con sus 7 bytes de cabecera incluidos.
+`.128` enteros, con su cabecera incluida —que son 5 bytes y no los 7 que dice ese mismo
+fichero: ver arriba.
 
 ### Formato `.NX2` / `.NXI` del Spectrum Next
 

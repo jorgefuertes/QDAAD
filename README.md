@@ -292,6 +292,34 @@ than borrowed, and it is the same bytes daadmaker writes, down to a leading
 space on one line — which is what makes `compare-daadmaker` mean anything. A
 `tzx` is the same blocks wrapped, 46 bytes heavier.
 
+A **128K tape** is that tape with the banks above `0xC000` put to use, and it
+is the one release that gets the best of both: a tape to hand out and a disk
+machine's room. The four blocks below the window are the 48K's, at the same
+addresses, and after them comes one headerless block per bank — headerless
+because the BASIC loader does not load them. It loads what lives below
+`0xC000` and jumps, and the interpreter reads the rest itself, putting each
+block in the bank the index named.
+
+The xmessages go in first, each chunk at the start of its own bank, because the
+offset an `XMES` carries is a position in all of them laid end to end: the
+interpreter divides by the bank size to find the bank. Then the pictures,
+biggest first, into whatever is left of banks 3, 4, 6, 7, then bank 1 after the
+512 bytes of RAMSAVE and the 6912-byte picture buffer, then whatever the
+database left of bank 0. Which is the whole difference it makes: part two of
+the example carries 41 drawings on a tape, where the 48K tape of the same
+adventure carries a handful, and it carries xmessages, which a 48K tape cannot
+have at all for want of a filesystem.
+
+A picture here is the same file a +3 carries — `SCRMAKER` writes both with one
+procedure, five bytes of geometry and the cropped screen as a single ZX0
+stream — so there is one picture format for the two machines.
+
+This target was refused for a while on a misreading worth naming. DAAD READY
+withdrew a 128K target in version B, and it was the one built around
+ZXDAAD128, which it called `EXPERIMENTAL_ZX128K`; the `ZX128K` target itself
+stayed and got a new interpreter derived from DAAD's own source. That is
+`DS128KE3.BIN`, embedded here, and the trailing 3 is the version it is for.
+
 A **+3 disk** is the files loose, and it is written in the +3's own format
 rather than the CPC's DATA one that a CPC disk still gets. The difference is
 sixteen bytes in the first sector of track 0 — the disk specification — and the

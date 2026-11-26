@@ -14,18 +14,29 @@ difference is, and why, is in
 
 ```text
 ZXSpectrum/48/           README.md, part1/, part2/   two tapes
-ZXSpectrum/+3/           README.md, part1/, part2/   two disks
+ZXSpectrum/+3/           README.md, part1/, part2/   two disks, and the two
+                                                     128K tapes, which carry
+                                                     the same drawings
 ZXSpectrum/+3_Extended/  README.md, part1/, part2/   the same two disks, with
                                                      the 16-bit editions' texts
 Amstrad/CPC/             README.md, part1/, part2/   two disks and two tapes,
                                                      with the Amstrad's own
                                                      drawings and font
+Amstrad/PCW/             README.md, part1/, part2/   two disks, with the PC
+                                                     edition's drawings as
+                                                     monochrome bitmaps
 ```
+
+The 128K tapes have no tree of their own, and that is deliberate: the `.sce`
+files of `48/` and `+3/` are byte for byte the same and what differs is
+`gfx/scr`, four drawings against twenty-eight. So `make example-ao-128` builds
+from the `+3/` sources — the same twenty-eight drawings the disk carries, on a
+tape, in the banks above `0xC000`, where the 48K tape fits four.
 
 Each tree has a `Makefile` of its own — `dist`, `test` and `clean`, run from
 the tree's own directory, writing into a `dist/` and a `tmp/` beside the
 sources — and a README with the commands it stands for. From the root,
-`make example-ao` builds all ten releases at once into `tmp/`.
+`make example-ao` builds every release at once into `tmp/`.
 
 The Amstrad tree is the +3 Extended one with its pictures swapped: same text,
 and everything drawn taken out of the Amstrad edition of 1989 instead of the

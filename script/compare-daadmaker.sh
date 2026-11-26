@@ -34,6 +34,7 @@ readonly ASSETS_DIR="work/daad-ready/ASSETS"
 readonly BUILD_DIR="tmp/compare-daadmaker"
 readonly SOURCE="${DRC_DIR}/src/daadmaker.pas"
 readonly PAGER="work/daad-ready/TOOLS/DRC/pager48k.php"
+readonly PAGER128="work/daad-ready/TOOLS/DRC/pager128k.php"
 readonly DAADMAKER="${BUILD_DIR}/daadmaker"
 readonly QDAAD="${BUILD_DIR}/qdaad"
 readonly QPACK="${BUILD_DIR}/qpack"
@@ -190,13 +191,19 @@ language_for() {
 	esac
 }
 
+# compare_one packs one source both ways, for one Spectrum.
+#
+# The subtarget is the second argument and it decides three things: which
+# interpreter, which pager, and whether daadmaker is told the index is a 48K one.
+# Everything else is the same job — which is the point, since the two tapes are
+# the same four blocks and differ in what comes after them.
 compare_one() {
-	local source="$1"
+	local source="$1" subtarget="$2"
 	local name work from main ddb theirs ours lang
 
 	lang="$(language_for "${source}")"
 	if [[ ${lang} == unsupported ]]; then
-		yellow "SKIP $(basename "${source}"): not a language this compiler speaks"
+		yellow "SKIP $(basename "${source}") ${subtarget}: not a language this compiler speaks"
 		return 2
 	fi
 
@@ -204,7 +211,7 @@ compare_one() {
 		-e 's|^work/decomp/||' \
 		-e 's|/game.sce$||' \
 		-e 's|^work/DRC/|DRC/|' \
-		-e "s|^${TEMPLATES_DIR}/|template/|")"
+		-e "s|^${TEMPLATES_DIR}/|template/|")/${subtarget}"
 
 	work="${BUILD_DIR}/$(echo "${name}" | tr '/' '_')"
 	mkdir -p "${work}/theirs" "${work}/ours"
@@ -216,11 +223,15 @@ compare_one() {
 
 	# Both sides get the same database and the same name, since the name is
 	# written into every block header.
-	ddb="${work}/theirs/GAME.ddb"
+	#
+	# Spelled .DDB in capitals because pager128k.php finds it with glob('*.DDB')
+	# rather than taking it as an argument, and a case-sensitive filesystem would
+	# not match a lower-case one.
+	ddb="${work}/theirs/GAME.DDB"
 	theirs="${work}/theirs/GAME.TAP"
 	ours="${work}/ours/GAME.tap"
 
-	if ! "${QDAAD}" compile -m zx -s 48k -l "${lang}" -v 3 -f ddb \
+	if ! "${QDAAD}" compile -m zx -s "${subtarget}" -l "${lang}" -v 3 -f ddb \
 		-i "${main}" -o "${ddb}" >"${work}/link.log" 2>&1; then
 		# An adventure too big for a Spectrum's address space has no tape on
 		# either side — daadmaker refuses it too, with 'DDB exceedes RAM size'
@@ -239,7 +250,7 @@ compare_one() {
 
 	# Two commands now that compiling and packaging are two tools: qdaad writes
 	# a build directory and qpack turns it into the tape.
-	if ! "${QDAAD}" compile -m zx -s 48k -l "${lang}" -v 3 \
+	if ! "${QDAAD}" compile -m zx -s "${subtarget}" -l "${lang}" -v 3 \
 		-i "${main}" -o "${work}/build" >"${work}/compile.log" 2>&1; then
 		red "FAIL ${name}: we would not compile it"
 		sed -e 's/^/       /' "${work}/compile.log"
@@ -253,20 +264,37 @@ compare_one() {
 		return 1
 	fi
 
-	# The index and the empty page file come from the reference's own pager,
-	# run over the same database, in the directory daadmaker will read them
-	# from. It needs the file in the current directory, which is why this runs
-	# in a subshell.
-	if ! (cd "${work}/theirs" && php "${OLDPWD}/${PAGER}" GAME.ddb) \
-		>"${work}/pager.log" 2>&1; then
+	# The index and the page files come from the reference's own pager, run over
+	# the same database, in the directory daadmaker will read them from. It needs
+	# the file in the current directory, which is why this runs in a subshell.
+	#
+	# pager128k takes no arguments: it globs the .DDB and reads an IMAGES
+	# directory, which has to exist even when there is nothing in it.
+	local pager_ok=0
+
+	if [[ ${subtarget} == 48k ]]; then
+		(cd "${work}/theirs" && php "${OLDPWD}/${PAGER}" GAME.DDB) \
+			>"${work}/pager.log" 2>&1 && pager_ok=1
+	else
+		mkdir -p "${work}/theirs/IMAGES"
+		(cd "${work}/theirs" && php "${OLDPWD}/${PAGER128}") \
+			>"${work}/pager.log" 2>&1 && pager_ok=1
+	fi
+
+	if ((pager_ok == 0)); then
 		yellow "SKIP ${name}: the pager would not run (see ${work}/pager.log)"
 		return 2
 	fi
 
 	# The interpreter carries its own system messages, so there is one per
-	# language and ZX48.BAT picks between them the same way.
+	# language, and each .BAT picks between them the same way.
 	local interpreter="internal/runtime/assets/zx48/DS48IS3.BIN"
 	[[ ${lang} == english ]] && interpreter="internal/runtime/assets/zx48/DS48IE3.BIN"
+
+	if [[ ${subtarget} == 128k ]]; then
+		interpreter="internal/runtime/assets/zx128/DS128KS3.BIN"
+		[[ ${lang} == english ]] && interpreter="internal/runtime/assets/zx128/DS128KE3.BIN"
+	fi
 
 	# The same character set as our side, which is the one the source asks for
 	# when it asks for one.
@@ -280,25 +308,37 @@ compare_one() {
 	declared=$(sed -n 's|^; *qdaad: *charset=||p' "${main}" | head -1)
 	[[ -n ${declared} ]] && charset="${OLDPWD}/${work}/utf8/${declared}"
 
-	# The argument order is ZX48.BAT's, for a build with no loading screen.
+	# The argument order is the .BAT's, for a build with no loading screen. The
+	# /48 flag says the index has three bytes a picture rather than six, so it
+	# is exactly what the two tapes differ by and only the 48K gets it.
+	local flag=/48
+	[[ ${subtarget} == 128k ]] && flag=""
+
 	if ! (cd "${work}/theirs" && "${OLDPWD}/${DAADMAKER}" GAME.TAP \
-		"${OLDPWD}/${interpreter}" GAME.ddb \
+		"${OLDPWD}/${interpreter}" GAME.DDB \
 		"${charset}" INDEX.BIN \
-		"${OLDPWD}/${ASSETS_DIR}/ZX/DAAD.SDG" /48) >"${work}/daadmaker.log" 2>&1; then
+		"${OLDPWD}/${ASSETS_DIR}/ZX/DAAD.SDG" ${flag}) >"${work}/daadmaker.log" 2>&1; then
 		yellow "SKIP ${name}: daadmaker would not pack it (see ${work}/daadmaker.log)"
 		return 2
 	fi
 
-	local theirSize ourSize trimmed
+	local theirSize ourSize trimmed allowance
+
 	theirSize=$(wc -c <"${theirs}" | tr -d ' ')
 	ourSize=$(wc -c <"${ours}" | tr -d ' ')
 
-	# Drop the empty block daadmaker appends, and nothing else: if it is any
-	# other size than the four bytes it should be, say so instead of trimming
-	# whatever is there.
-	if ((theirSize - ourSize != TRAILING_EMPTY_BLOCK)); then
+	# The empty trailing block is a 48K thing: ZX48.BAT always hands daadmaker a
+	# PAGE0.TMP and pager48k writes one whether or not there are pictures. The
+	# 128K pages are read by name off the index instead, so with no banks in use
+	# there is nothing to append and nothing to trim.
+	allowance=${TRAILING_EMPTY_BLOCK}
+	[[ ${subtarget} == 128k ]] && allowance=0
+
+	# Drop that block, and nothing else: if the difference is any other size,
+	# say so instead of trimming whatever is there.
+	if ((theirSize - ourSize != allowance)); then
 		red "DIFF ${name}: ${theirSize} bytes theirs, ${ourSize} ours"
-		echo "       expected a difference of exactly ${TRAILING_EMPTY_BLOCK} bytes, the empty page block"
+		echo "       expected a difference of exactly ${allowance} bytes"
 
 		return 1
 	fi
@@ -330,12 +370,14 @@ skipped=0
 while IFS= read -r source; do
 	[[ -z ${source} ]] && continue
 
-	compare_one "${source}"
-	case $? in
-	0) same=$((same + 1)) ;;
-	1) differ=$((differ + 1)) ;;
-	2) skipped=$((skipped + 1)) ;;
-	esac
+	for subtarget in 48k 128k; do
+		compare_one "${source}" "${subtarget}"
+		case $? in
+		0) same=$((same + 1)) ;;
+		1) differ=$((differ + 1)) ;;
+		2) skipped=$((skipped + 1)) ;;
+		esac
+	done
 done < <(sources_to_check "$@")
 
 echo

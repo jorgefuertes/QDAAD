@@ -86,6 +86,15 @@ Traducido a decisiones de compilador: si el objetivo es v3 con semántica correc
 de referencia son **MSX2 y ZX Spectrum Next**. PC/DOS y HTML sirven pero arrastran divergencias
 conocidas. ZX 128K vía ZXDAAD128 no es una opción para v3.
 
+> **Cuidado con esa última frase**, que es verdad y se lee mal. Lo que no sirve para v3 es
+> **ZXDAAD128**, el intérprete; **el destino ZX 128K sí**. En la versión B DAAD Ready retiró el
+> destino que se apoyaba en ZXDAAD128 —lo llamaba `EXPERIMENTAL_ZX128K`— y dejó `ZX128K.BAT`
+> en pie con un intérprete nuevo derivado del fuente original de DAAD: *«ZXDAAD128 has been
+> replaced as main interpreter for the Spectrum 128K and +3 targets. Now, a new interpreter
+> based in the original source code is used»* (`WHATSNEW.TXT:188-189`). Es `DS128KE3.BIN`, con
+> la `3` de la convención de nombres, y es el que `internal/pack` empaqueta. Leído del revés,
+> este párrafo costó un `case "128k"` que se negaba a escribir una cinta perfectamente posible.
+
 ---
 
 ## 4. Qué NO implementa cada uno
